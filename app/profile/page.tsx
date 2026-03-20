@@ -24,24 +24,23 @@ export default function ProfilePage() {
     weight_kg: null,
   });
 
+  const loadProfile = async () => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("username, full_name, favorite_position, height_cm, weight_kg")
+      .eq("username", "joshua")
+      .limit(1)
+      .maybeSingle<ProfileRow>();
+
+    if (error) {
+      setMessage(`Fehler beim Laden: ${error.message}`);
+    } else if (data) {
+      setProfile(data);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const loadProfile = async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("username, full_name, favorite_position, height_cm, weight_kg")
-        .eq("username", "joshua")
-        .limit(1)
-        .maybeSingle<ProfileRow>();
-
-      if (error) {
-        setMessage(`Fehler beim Laden: ${error.message}`);
-      } else if (data) {
-        setProfile(data);
-      }
-
-      setLoading(false);
-    };
-
     loadProfile();
   }, []);
 
@@ -59,13 +58,14 @@ export default function ProfilePage() {
       })
       .eq("username", "joshua");
 
-    setSaving(false);
-
     if (error) {
+      setSaving(false);
       setMessage(`Speichern fehlgeschlagen: ${error.message}`);
       return;
     }
 
+    await loadProfile(); // sofort neu laden => direkt reflektiert
+    setSaving(false);
     setMessage("Profil gespeichert ✅");
   };
 
@@ -73,7 +73,7 @@ export default function ProfilePage() {
     <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
       <div className="mx-auto max-w-md space-y-4">
         <h1 className="text-2xl font-bold">Profil</h1>
-        <p className="text-zinc-400">Passe dein Profil an und speichere es in Supabase.</p>
+        <p className="text-zinc-400">Bearbeite dein Profil und speichere direkt in Supabase.</p>
 
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
           <div>
