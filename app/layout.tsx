@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Basketball Training App",
   icons: {
-    src: "/android-chrome-512x512.png",
-    sizes: "512x512",
-    type: "image/png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/apple-icon.png", // optional, nur wenn Datei existiert
   },
 };
 
