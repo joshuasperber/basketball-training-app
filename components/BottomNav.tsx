@@ -9,6 +9,7 @@ const navItems = [
   { name: "Workouts", href: "/workouts" },
   { name: "Stats", href: "/stats" },
   { name: "Profile", href: "/profile" },
+  { name: "Weekly-Workout", href: "/Weekly-Workout" },
 ];
 
 export default function BottomNav() {

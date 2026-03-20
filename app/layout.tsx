@@ -2,9 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
 
-export const metadata: Metadata = {
+export const metadata = {
   title: "Basketball Training App",
-  description: "Mobile-first Basketball Training App",
+  icons: {
+    src: "/android-chrome-512x512.png",
+    sizes: "512x512",
+    type: "image/png",
+  },
 };
 
 export default function RootLayout({
