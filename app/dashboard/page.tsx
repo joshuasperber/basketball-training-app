@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { getTodayKey, getTodayWorkout } from "@/lib/weeklyPlan";
 
 type DashboardKpiRow = {
   sessions_7d: number | null;
@@ -9,7 +10,6 @@ type DashboardKpiRow = {
   attempts_30d: number | null;
   fg_pct_30d: number | null;
   active_days_30d: number | null;
-  last_session_date: string | null;
 };
 
 type SessionRow = {
@@ -28,12 +28,23 @@ function isoDateDaysAgo(days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+const dayLabels: Record<string, string> = {
+  monday: "Montag",
+  tuesday: "Dienstag",
+  wednesday: "Mittwoch",
+  thursday: "Donnerstag",
+  friday: "Freitag",
+  saturday: "Samstag",
+  sunday: "Sonntag",
+};
+
 export default async function DashboardPage() {
+  const todayKey = getTodayKey();
+  const todayWorkout = getTodayWorkout();
+
   const { data: kpiData, error: kpiError } = await supabase
     .from("dashboard_kpis_30d")
-    .select(
-      "sessions_7d, sessions_30d, minutes_7d, minutes_30d, makes_30d, attempts_30d, fg_pct_30d, active_days_30d, last_session_date"
-    )
+    .select("sessions_7d, sessions_30d, minutes_7d, minutes_30d, makes_30d, attempts_30d, fg_pct_30d, active_days_30d")
     .limit(1)
     .maybeSingle<DashboardKpiRow>();
 
@@ -66,8 +77,7 @@ export default async function DashboardPage() {
       ]);
 
     if (sessionsError || itemsError) {
-      errorMessage =
-        kpiError?.message ?? sessionsError?.message ?? itemsError?.message ?? "Unknown error";
+      errorMessage = kpiError?.message ?? sessionsError?.message ?? itemsError?.message ?? "Unknown error";
     } else {
       const sessionRows = (sessions ?? []) as SessionRow[];
       const itemRows = (items ?? []) as ItemRow[];
@@ -95,14 +105,21 @@ export default async function DashboardPage() {
     }
   }
 
-  const fgPercent =
-    totalAttempts > 0 ? Math.round((totalMade / totalAttempts) * 100) : 0;
+  const fgPercent = totalAttempts > 0 ? Math.round((totalMade / totalAttempts) * 100) : 0;
 
   return (
-    <main className="min-h-screen bg-black p-6 pb-24 text-white">
+    <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
       <div className="mx-auto max-w-md">
         <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="mt-2 text-zinc-400">Überblick über deine Trainingsdaten (7 / 30 Tage).</p>
+        <p className="mt-2 text-zinc-400">Dein täglicher Fokus + KPI Überblick.</p>
+
+        <div className="mt-5 rounded-2xl border border-indigo-500/40 bg-indigo-500/10 p-4">
+          <p className="text-xs uppercase tracking-wider text-indigo-300">Heute · {dayLabels[todayKey]}</p>
+          <p className="mt-1 text-lg font-semibold">{todayWorkout.title}</p>
+          <p className="text-sm text-zinc-300">
+            {todayWorkout.category.toUpperCase()} · {todayWorkout.focus} · {todayWorkout.durationMin} min
+          </p>
+        </div>
 
         {errorMessage ? (
           <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-red-300">

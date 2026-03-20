@@ -1,115 +1,162 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+
+type ProfileRow = {
+  username: string | null;
+  full_name: string | null;
+  favorite_position: string | null;
+  height_cm: number | null;
+  weight_kg: number | null;
+};
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
-  const [username, setUsername] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [position, setPosition] = useState("pf");
-  const [height, setHeight] = useState(180);
-  const [weight, setWeight] = useState(80);
+  const [profile, setProfile] = useState<ProfileRow>({
+    username: "joshua",
+    full_name: "Joshua Sperber",
+    favorite_position: "sg",
+    height_cm: null,
+    weight_kg: null,
+  });
 
   useEffect(() => {
-    loadProfile();
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("username, full_name, favorite_position, height_cm, weight_kg")
+        .eq("username", "joshua")
+        .limit(1)
+        .maybeSingle<ProfileRow>();
+
+      if (error) {
+        setMessage(`Fehler beim Laden: ${error.message}`);
+      } else if (data) {
+        setProfile(data);
+      }
+
+      setLoading(false);
+    };
+
+    load();
   }, []);
 
-  const loadProfile = async () => {
-    const { data } = await supabase.from("profiles").select("*").limit(1);
+  const saveProfile = async () => {
+    setSaving(true);
+    setMessage(null);
 
-    if (data && data.length > 0) {
-      const p = data[0];
-      setProfile(p);
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        full_name: profile.full_name,
+        favorite_position: profile.favorite_position,
+        height_cm: profile.height_cm,
+        weight_kg: profile.weight_kg,
+      })
+      .eq("username", "joshua");
 
-      setUsername(p.username || "");
-      setFullName(p.full_name || "");
-      setPosition(p.favorite_position || "pf");
-      setHeight(p.height_cm || 180);
-      setWeight(p.weight_kg || 80);
+    setSaving(false);
+
+    if (error) {
+      setMessage(`Fehler beim Speichern: ${error.message}`);
+      return;
     }
-  };
 
-  const handleSave = async () => {
-    if (profile) {
-      // UPDATE
-      await supabase
-        .from("profiles")
-        .update({
-          username,
-          full_name: fullName,
-          favorite_position: position,
-          height_cm: height,
-          weight_kg: weight,
-        })
-        .eq("id", profile.id);
-
-      alert("Profil aktualisiert");
-    } else {
-      // CREATE
-      await supabase.from("profiles").insert([
-        {
-          username,
-          full_name: fullName,
-          favorite_position: position,
-          height_cm: height,
-          weight_kg: weight,
-        },
-      ]);
-
-      alert("Profil erstellt");
-      loadProfile();
-    }
+    setMessage("Profil erfolgreich gespeichert ✅");
   };
 
   return (
-    <main className="p-4 space-y-3">
-      <h1 className="text-xl font-bold">Profile</h1>
+    <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
+      <div className="mx-auto max-w-md space-y-4">
+        <h1 className="text-2xl font-bold">Profil</h1>
+        <p className="text-zinc-400">Bearbeite dein Profil und speichere direkt in Supabase.</p>
 
-      <input
-        placeholder="Username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-      />
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-zinc-400">Username</label>
+            <input
+              value={profile.username ?? ""}
+              disabled
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-400"
+            />
+          </div>
 
-      <input
-        placeholder="Full Name"
-        value={fullName}
-        onChange={(e) => setFullName(e.target.value)}
-      />
+          <div>
+            <label className="mb-1 block text-xs text-zinc-400">Vollständiger Name</label>
+            <input
+              value={profile.full_name ?? ""}
+              onChange={(e) => setProfile((p) => ({ ...p, full_name: e.target.value }))}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            />
+          </div>
 
-      <input
-        type="number"
-        placeholder="Height"
-        value={height}
-        onChange={(e) => setHeight(Number(e.target.value))}
-      />
+          <div>
+            <label className="mb-1 block text-xs text-zinc-400">Position</label>
+            <select
+              value={profile.favorite_position ?? "sg"}
+              onChange={(e) => setProfile((p) => ({ ...p, favorite_position: e.target.value }))}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            >
+              <option value="pg">PG</option>
+              <option value="sg">SG</option>
+              <option value="sf">SF</option>
+              <option value="pf">PF</option>
+              <option value="c">C</option>
+            </select>
+          </div>
 
-      <input
-        type="number"
-        placeholder="Weight"
-        value={weight}
-        onChange={(e) => setWeight(Number(e.target.value))}
-      />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-zinc-400">Größe (cm)</label>
+              <input
+                type="number"
+                value={profile.height_cm ?? ""}
+                onChange={(e) =>
+                  setProfile((p) => ({
+                    ...p,
+                    height_cm: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+              />
+            </div>
 
-      <select
-        value={position}
-        onChange={(e) => setPosition(e.target.value)}
-      >
-        <option value="pg">PG</option>
-        <option value="sg">SG</option>
-        <option value="sf">SF</option>
-        <option value="pf">PF</option>
-        <option value="c">C</option>
-      </select>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-400">Gewicht (kg)</label>
+              <input
+                type="number"
+                value={profile.weight_kg ?? ""}
+                onChange={(e) =>
+                  setProfile((p) => ({
+                    ...p,
+                    weight_kg: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
 
-      <button
-        onClick={handleSave}
-        className="bg-blue-500 px-4 py-2 rounded"
-      >
-        {profile ? "Update Profile" : "Create Profile"}
-      </button>
+          <button
+            type="button"
+            onClick={saveProfile}
+            disabled={saving || loading}
+            className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-60"
+          >
+            {saving ? "Speichern..." : "Profil speichern"}
+          </button>
+        </div>
+
+        {message && (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-300">
+            {message}
+          </div>
+        )}
+      </div>
     </main>
   );
 }
