@@ -25,7 +25,7 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    const load = async () => {
+    const loadProfile = async () => {
       const { data, error } = await supabase
         .from("profiles")
         .select("username, full_name, favorite_position, height_cm, weight_kg")
@@ -42,10 +42,10 @@ export default function ProfilePage() {
       setLoading(false);
     };
 
-    load();
+    loadProfile();
   }, []);
 
-  const saveProfile = async () => {
+  const onSave = async () => {
     setSaving(true);
     setMessage(null);
 
@@ -62,18 +62,18 @@ export default function ProfilePage() {
     setSaving(false);
 
     if (error) {
-      setMessage(`Fehler beim Speichern: ${error.message}`);
+      setMessage(`Speichern fehlgeschlagen: ${error.message}`);
       return;
     }
 
-    setMessage("Profil erfolgreich gespeichert ✅");
+    setMessage("Profil gespeichert ✅");
   };
 
   return (
     <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
       <div className="mx-auto max-w-md space-y-4">
         <h1 className="text-2xl font-bold">Profil</h1>
-        <p className="text-zinc-400">Bearbeite dein Profil und speichere direkt in Supabase.</p>
+        <p className="text-zinc-400">Passe dein Profil an und speichere es in Supabase.</p>
 
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
           <div>
@@ -143,16 +143,16 @@ export default function ProfilePage() {
 
           <button
             type="button"
-            onClick={saveProfile}
+            onClick={onSave}
             disabled={saving || loading}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-60"
+            className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
           >
             {saving ? "Speichern..." : "Profil speichern"}
           </button>
         </div>
 
         {message && (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-300">
+          <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-200">
             {message}
           </div>
         )}
