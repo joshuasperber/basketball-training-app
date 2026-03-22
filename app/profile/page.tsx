@@ -19,7 +19,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileRow>({
     username: "joshua",
     full_name: "Joshua Sperber",
-    favorite_position: "sg",
+    favorite_position: "pf",
     height_cm: null,
     weight_kg: null,
   });
