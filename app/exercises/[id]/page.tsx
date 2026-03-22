@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { defaultExercises } from "@/lib/training-data";
+import { appendExerciseHistory, getExerciseHistory } from "@/lib/session-storage";
 
 type ExerciseSet = {
   id: string;
@@ -21,6 +22,12 @@ export default function ExerciseExecutionPage() {
 
   const [sets, setSets] = useState<ExerciseSet[]>([{ id: "set-1", value: "" }]);
   const [saved, setSaved] = useState(false);
+  const [history, setHistory] = useState<{ dateISO: string; value: number }[]>(() =>
+    getExerciseHistory(exerciseId)
+      .filter((entry) => Number.isFinite(entry.value))
+      .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
+      .slice(0, 5),
+  );
 
   function updateSet(id: string, value: string) {
     setSaved(false);
@@ -30,6 +37,32 @@ export default function ExerciseExecutionPage() {
   function addSet() {
     setSaved(false);
     setSets((previous) => [...previous, { id: `set-${Date.now()}`, value: "" }]);
+  }
+
+  function handleSaveExercise() {
+    if (!exercise) return;
+
+    const nowISO = new Date().toISOString();
+
+    sets.forEach((set) => {
+      const value = Number(set.value);
+      if (!Number.isFinite(value)) return;
+
+      appendExerciseHistory({
+        id: `eh-${Date.now()}-${set.id}`,
+        dateISO: nowISO,
+        exerciseId: exercise.id,
+        value,
+        source: "exercise",
+      });
+    });
+
+    const entries = getExerciseHistory(exercise.id)
+      .filter((entry) => Number.isFinite(entry.value))
+      .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
+      .slice(0, 5);
+    setHistory(entries);
+    setSaved(true);
   }
 
   if (!exercise) {
@@ -84,9 +117,24 @@ export default function ExerciseExecutionPage() {
           </button>
         </section>
 
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <h2 className="text-lg font-semibold">Letzte 5 Einträge</h2>
+          {history.length === 0 ? (
+            <p className="mt-2 text-sm text-zinc-400">Noch keine History vorhanden.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm text-zinc-300">
+              {history.map((entry, index) => (
+                <li key={`${entry.dateISO}-${index}`}>
+                  {new Date(entry.dateISO).toLocaleDateString("de-DE")} • {entry.value}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <button
           type="button"
-          onClick={() => setSaved(true)}
+          onClick={handleSaveExercise}
           className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold"
         >
           Exercise speichern
