@@ -1,218 +1,161 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { defaultExercises, defaultWorkouts } from "@/lib/training-data";
-import { SessionDatabase, WorkoutSessionEntry } from "@/lib/session-types";
+import { useMemo, useState } from "react";
+import {
+  TODAY_WORKOUT,
+  WorkoutProgress,
+  buildSetLogKey,
+  buildWorkoutStorageKey,
+  getDefaultWorkoutProgress,
+  getTodayDateKey,
+} from "@/lib/workout";
 
-type WorkoutLog = {
-  exerciseId: string;
-  completedValue: string;
-  note: string;
-};
+function getInitialProgress(dateKey: string): WorkoutProgress {
+  if (typeof window === "undefined") {
+    return getDefaultWorkoutProgress(dateKey);
+  }
 
-export default function WorkoutExecutionPage() {
-  const params = useParams<{ id: string }>();
-  const workoutId = params.id;
+  const rawProgress = window.localStorage.getItem(buildWorkoutStorageKey(dateKey));
 
-  const workout = useMemo(
-    () => defaultWorkouts.find((entry) => entry.id === workoutId),
-    [workoutId],
-  );
+  if (!rawProgress) {
+    return getDefaultWorkoutProgress(dateKey);
+  }
 
-  const workoutExercises = useMemo(() => {
-    if (!workout) return [];
+  try {
+    return JSON.parse(rawProgress) as WorkoutProgress;
+  } catch {
+    return getDefaultWorkoutProgress(dateKey);
+  }
+}
 
-    return workout.exerciseIds
-      .map((exerciseId) => defaultExercises.find((exercise) => exercise.id === exerciseId))
-      .filter((exercise) => exercise !== undefined);
-  }, [workout]);
+export default function WorkoutsPage() {
+  const dateKey = useMemo(() => getTodayDateKey(), []);
+  const [progress, setProgress] = useState<WorkoutProgress>(() => getInitialProgress(dateKey));
 
-  const [logs, setLogs] = useState<WorkoutLog[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [historyMap, setHistoryMap] = useState<Record<string, { dateISO: string; value: number }[]>>({});
+  const persistProgress = (next: WorkoutProgress) => {
+    setProgress(next);
+    window.localStorage.setItem(buildWorkoutStorageKey(dateKey), JSON.stringify(next));
+  };
 
-  const refreshHistoryMap = useCallback(async () => {
-    const response = await fetch("/api/sessions", { cache: "no-store" });
-    const db = (await response.json()) as SessionDatabase;
-    const compactHistory: Record<string, { dateISO: string; value: number }[]> = {};
+  const currentExercise = TODAY_WORKOUT.exercises[progress.exerciseIndex];
+  const currentSet = currentExercise.sets[progress.setIndex];
+  const currentLogKey = buildSetLogKey(progress.exerciseIndex, progress.setIndex);
+  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "" };
 
-    for (const [exerciseId, entries] of Object.entries(db.exerciseHistory ?? {})) {
-      compactHistory[exerciseId] = entries
-        .filter((entry) => Number.isFinite(entry.value))
-        .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
-        .slice(0, 5);
+  const updateCurrentLog = (field: "weight" | "reps", value: string) => {
+    persistProgress({
+      ...progress,
+      logs: {
+        ...progress.logs,
+        [currentLogKey]: {
+          ...currentLog,
+          [field]: value,
+        },
+      },
+    });
+  };
+
+  const startWorkout = () => {
+    persistProgress({ ...progress, status: "in_progress" });
+  };
+
+  const finishSet = () => {
+    const isLastSetInExercise = progress.setIndex === currentExercise.sets.length - 1;
+    const isLastExercise = progress.exerciseIndex === TODAY_WORKOUT.exercises.length - 1;
+
+    if (isLastSetInExercise && isLastExercise) {
+      persistProgress({ ...progress, status: "completed" });
+      return;
     }
 
-    setHistoryMap(compactHistory);
-  }, []);
+    if (isLastSetInExercise) {
+      persistProgress({
+        ...progress,
+        exerciseIndex: progress.exerciseIndex + 1,
+        setIndex: 0,
+        status: "in_progress",
+      });
+      return;
+    }
 
-  function getLog(exerciseId: string) {
-    return logs.find((entry) => entry.exerciseId === exerciseId);
-  }
-
-  function updateLog(exerciseId: string, patch: Partial<WorkoutLog>) {
-    setSaved(false);
-    setLogs((previous) => {
-      const existing = previous.find((entry) => entry.exerciseId === exerciseId);
-      if (!existing) {
-        return [
-          ...previous,
-          {
-            exerciseId,
-            completedValue: patch.completedValue ?? "",
-            note: patch.note ?? "",
-          },
-        ];
-      }
-
-      return previous.map((entry) =>
-        entry.exerciseId === exerciseId ? { ...entry, ...patch } : entry,
-      );
+    persistProgress({
+      ...progress,
+      setIndex: progress.setIndex + 1,
+      status: "in_progress",
     });
-  }
-
-  async function handleSaveWorkout() {
-    if (!workout) return;
-
-    const nowISO = new Date().toISOString();
-    const normalizedLogs: WorkoutSessionEntry["logs"] = workoutExercises.map((exercise) => {
-      const existing = getLog(exercise.id);
-      const valueNumber = existing?.completedValue ? Number(existing.completedValue) : null;
-
-      return {
-        exerciseId: exercise.id,
-        completedValue: valueNumber !== null && Number.isFinite(valueNumber) ? valueNumber : null,
-        note: existing?.note ?? "",
-      };
-    });
-
-    const payload: WorkoutSessionEntry = {
-      id: `ws-${Date.now()}`,
-      dateISO: nowISO,
-      workoutId: workout.id,
-      workoutName: workout.name,
-      logs: normalizedLogs,
-    };
-
-    await fetch("/api/sessions/workout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    await refreshHistoryMap();
-    setSaved(true);
-  }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void refreshHistoryMap();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [refreshHistoryMap]);
-
-  if (!workout) {
-    return (
-      <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-        <div className="mx-auto max-w-2xl rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-lg font-semibold">Workout nicht gefunden.</p>
-          <Link href="/training" className="mt-3 inline-block text-indigo-300 underline">
-            Zurück zu Training
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  };
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-        <header className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h1 className="text-2xl font-bold">{workout.name}</h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {workout.category} • {workout.subcategory} • Level {workout.level}
+    <main className="min-h-screen bg-black p-6 pb-24 text-white">
+      <h1 className="text-2xl font-bold">Workouts</h1>
+      <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="text-xl font-semibold">{TODAY_WORKOUT.title}</h2>
+        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {TODAY_WORKOUT.subcategory}</p>
+
+        {progress.status === "completed" ? (
+          <p className="mt-4 rounded-xl bg-green-900/40 p-3 text-sm text-green-300">
+            Workout abgeschlossen. Sehr stark! ✅
           </p>
-        </header>
+        ) : (
+          <>
+            <div className="mt-4 rounded-xl bg-zinc-950 p-4">
+              <p className="text-sm text-zinc-400">
+                {progress.exerciseIndex + 1}/{TODAY_WORKOUT.exercises.length}
+              </p>
+              <p className="mt-1 text-lg font-medium">{currentExercise.name}</p>
 
-        <section className="space-y-3">
-          {workoutExercises.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-700 p-4 text-zinc-400">
-              Dieses Workout enthält aktuell keine Exercises.
-            </p>
-          ) : (
-            workoutExercises.map((exercise) => {
-              const currentLog = getLog(exercise.id);
-              return (
-                <article key={exercise.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-                  <h2 className="text-lg font-semibold">{exercise.name}</h2>
-                  <p className="mt-1 text-sm text-zinc-400">
-                    Ziel: {exercise.targetValue ?? "-"} {exercise.trackingType === "weight" ? "kg" : "Reps"}
-                  </p>
+              <p className="mt-4 text-sm text-zinc-400">
+                Satz {progress.setIndex + 1}/{currentExercise.sets.length}
+              </p>
+              <p className="mt-1 text-sm">Target kg: {currentSet.targetKg}</p>
+              <label className="mt-2 block text-sm text-zinc-300">
+                Gewicht:
+                <input
+                  value={currentLog.weight}
+                  onChange={(event) => updateCurrentLog("weight", event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-white"
+                  placeholder="kg eintragen"
+                />
+              </label>
 
-                  <label className="mt-3 block text-sm text-zinc-300">
-                    Geschafft
-                    <input
-                      type="number"
-                      value={currentLog?.completedValue ?? ""}
-                      onChange={(event) =>
-                        updateLog(exercise.id, { completedValue: event.target.value })
-                      }
-                      placeholder={exercise.trackingType === "weight" ? "kg" : "Reps"}
-                      className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                    />
-                  </label>
+              <p className="mt-3 text-sm">Target reps: {currentSet.targetReps}</p>
+              <label className="mt-2 block text-sm text-zinc-300">
+                Reps:
+                <input
+                  value={currentLog.reps}
+                  onChange={(event) => updateCurrentLog("reps", event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-white"
+                  placeholder="Wiederholungen eintragen"
+                />
+              </label>
+            </div>
 
-                  <label className="mt-3 block text-sm text-zinc-300">
-                    Notiz
-                    <textarea
-                      value={currentLog?.note ?? ""}
-                      onChange={(event) => updateLog(exercise.id, { note: event.target.value })}
-                      rows={2}
-                      className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                    />
-                  </label>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {progress.status === "not_started" ? (
+                <button
+                  type="button"
+                  onClick={startWorkout}
+                  className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
+                >
+                  Workout starten
+                </button>
+              ) : null}
 
-                  <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Letzte 5 Einträge</p>
-                    {(historyMap[exercise.id] ?? []).length === 0 ? (
-                      <p className="mt-1 text-xs text-zinc-500">Noch keine History vorhanden.</p>
-                    ) : (
-                      <ul className="mt-2 space-y-1 text-xs text-zinc-300">
-                        {(historyMap[exercise.id] ?? []).map((entry, index) => (
-                          <li key={`${entry.dateISO}-${index}`}>
-                            {new Date(entry.dateISO).toLocaleDateString("de-DE")} • {entry.value}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </article>
-              );
-            })
-          )}
-        </section>
-
-        <button
-          type="button"
-          onClick={handleSaveWorkout}
-          className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold"
-        >
-          Workout speichern
-        </button>
-
-        {saved ? (
-          <p className="rounded-xl border border-emerald-600 bg-emerald-900/20 px-4 py-3 text-emerald-300">
-            Session gespeichert (lokal im State). Nächster Schritt: Persistenz über DB.
-          </p>
-        ) : null}
-
-        <Link href="/training" className="text-sm text-indigo-300 underline">
-          Zurück zu Training
-        </Link>
-      </div>
+              {progress.status === "in_progress" ? (
+                <button
+                  type="button"
+                  onClick={finishSet}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+                >
+                  Satz abschließen
+                </button>
+              ) : null}
+            </div>
+          </>
+        )}
+      </section>
     </main>
   );
 }
