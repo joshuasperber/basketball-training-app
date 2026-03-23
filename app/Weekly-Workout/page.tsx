@@ -1,8 +1,13 @@
 import Link from "next/link";
-import { defaultExercises, defaultWorkouts } from "@/lib/training-data";
+import {
+  defaultExercises,
+  getTodayWeekdayKey,
+  getWorkoutById,
+  weeklyWorkoutPlan,
+} from "@/lib/training-data";
 
 export default function WeeklyWorkoutPage() {
-  const weekWorkouts = defaultWorkouts.slice(0, 3);
+  const todayKey = getTodayWeekdayKey();
   const weekExercises = defaultExercises.slice(0, 3);
 
   return (
@@ -11,29 +16,32 @@ export default function WeeklyWorkoutPage() {
       <p className="mt-2 text-zinc-400">Schneller Start für diese Woche</p>
 
       <section className="mt-6 space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-lg font-semibold">Workouts</h2>
-        {weekWorkouts.map((workout) => (
-          <Link
-            key={workout.id}
-            href={`/workouts/${workout.id}`}
-            className="block rounded-xl border border-indigo-500/70 bg-indigo-900/20 px-4 py-3"
-          >
-            {workout.name} <span className="text-zinc-400">• Level {workout.level}</span>
-          </Link>
-        ))}
-      </section>
+        <h2 className="text-lg font-semibold">Workouts pro Tag</h2>
+        {weeklyWorkoutPlan.map((entry) => {
+          const workout = getWorkoutById(entry.workoutId);
+          if (!workout) return null;
 
-      <section className="mt-4 space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-lg font-semibold">Exercises</h2>
-        {weekExercises.map((exercise) => (
-          <Link
-            key={exercise.id}
-            href={`/exercises/${exercise.id}`}
-            className="block rounded-xl border border-emerald-500/70 bg-emerald-900/20 px-4 py-3"
-          >
-            {exercise.name} <span className="text-zinc-400">• {exercise.trackingType}</span>
-          </Link>
-        ))}
+          const isToday = entry.day === todayKey;
+
+          return (
+            <Link
+              key={entry.day}
+              href={`/workouts/${workout.id}`}
+              className={`block rounded-xl px-4 py-3 ${
+                isToday
+                  ? "border border-indigo-400 bg-indigo-900/40"
+                  : "border border-indigo-500/70 bg-indigo-900/20"
+              }`}
+            >
+              <p className="font-semibold">
+                {entry.label} {isToday ? "• Heute" : ""}
+              </p>
+              <p>
+                {workout.name} <span className="text-zinc-400">• Level {workout.level}</span>
+              </p>
+            </Link>
+          );
+        })}
       </section>
     </main>
   );

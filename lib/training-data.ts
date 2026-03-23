@@ -18,6 +18,15 @@ export type Workout = {
   exerciseIds: string[];
 };
 
+export type WeekdayKey =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
 export const categories: Category[] = ["Basketball", "Gym", "Home"];
 
 export const subcategoriesByCategory: Record<Category, string[]> = {
@@ -41,3 +50,32 @@ export const defaultWorkouts: Workout[] = [
   { id: "wo-2", name: "Shooting 2", category: "Basketball", subcategory: "Shooting", level: 2, exerciseIds: ["ex-3", "ex-4"] },
   { id: "wo-3", name: "Shooting 3", category: "Basketball", subcategory: "Shooting", level: 3, exerciseIds: ["ex-4"] },
 ];
+
+export const weeklyWorkoutPlan: { day: WeekdayKey; label: string; workoutId: string }[] = [
+  { day: "monday", label: "Montag", workoutId: "wo-1" },
+  { day: "tuesday", label: "Dienstag", workoutId: "wo-2" },
+  { day: "wednesday", label: "Mittwoch", workoutId: "wo-1" },
+  { day: "thursday", label: "Donnerstag", workoutId: "wo-3" },
+  { day: "friday", label: "Freitag", workoutId: "wo-2" },
+  { day: "saturday", label: "Samstag", workoutId: "wo-3" },
+  { day: "sunday", label: "Sonntag", workoutId: "wo-1" },
+];
+
+export function getWorkoutById(workoutId: string) {
+  return defaultWorkouts.find((workout) => workout.id === workoutId);
+}
+
+export function getTodayWeekdayKey(date = new Date()): WeekdayKey {
+  const day = date.getDay();
+  const map: Record<number, WeekdayKey> = {
+    0: "sunday",
+    1: "monday",
+    2: "tuesday",
+    3: "wednesday",
+    4: "thursday",
+    5: "friday",
+    6: "saturday",
+  };
+
+  return map[day];
+}

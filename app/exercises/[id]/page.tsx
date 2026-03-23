@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultExercises } from "@/lib/training-data";
-import { appendExerciseHistory, getExerciseHistory } from "@/lib/session-storage";
+import { ExerciseHistoryEntry, SessionDatabase } from "@/lib/session-types";
 
 type ExerciseSet = {
   id: string;
@@ -22,12 +22,18 @@ export default function ExerciseExecutionPage() {
 
   const [sets, setSets] = useState<ExerciseSet[]>([{ id: "set-1", value: "" }]);
   const [saved, setSaved] = useState(false);
-  const [history, setHistory] = useState<{ dateISO: string; value: number }[]>(() =>
-    getExerciseHistory(exerciseId)
+  const [history, setHistory] = useState<{ dateISO: string; value: number }[]>([]);
+
+  const refreshHistory = useCallback(async () => {
+    if (!exercise) return;
+    const response = await fetch("/api/sessions", { cache: "no-store" });
+    const db = (await response.json()) as SessionDatabase;
+    const entries = (db.exerciseHistory[exercise.id] ?? [])
       .filter((entry) => Number.isFinite(entry.value))
       .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
-      .slice(0, 5),
-  );
+      .slice(0, 5);
+    setHistory(entries);
+  }, [exercise]);
 
   function updateSet(id: string, value: string) {
     setSaved(false);
@@ -39,16 +45,17 @@ export default function ExerciseExecutionPage() {
     setSets((previous) => [...previous, { id: `set-${Date.now()}`, value: "" }]);
   }
 
-  function handleSaveExercise() {
+  async function handleSaveExercise() {
     if (!exercise) return;
 
     const nowISO = new Date().toISOString();
+    const payload: ExerciseHistoryEntry[] = [];
 
     sets.forEach((set) => {
       const value = Number(set.value);
       if (!Number.isFinite(value)) return;
 
-      appendExerciseHistory({
+      payload.push({
         id: `eh-${Date.now()}-${set.id}`,
         dateISO: nowISO,
         exerciseId: exercise.id,
@@ -57,13 +64,23 @@ export default function ExerciseExecutionPage() {
       });
     });
 
-    const entries = getExerciseHistory(exercise.id)
-      .filter((entry) => Number.isFinite(entry.value))
-      .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
-      .slice(0, 5);
-    setHistory(entries);
+    await fetch("/api/sessions/exercise", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    await refreshHistory();
     setSaved(true);
   }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void refreshHistory();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [refreshHistory]);
 
   if (!exercise) {
     return (
