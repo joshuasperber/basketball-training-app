@@ -4,34 +4,32 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import SportsNewsSection from "@/components/SportsNewsSection";
 import {
-  TODAY_WORKOUT,
   WorkoutProgress,
   buildWorkoutStorageKey,
   getDefaultWorkoutProgress,
   getTodayDateKey,
+  getTodayWorkoutPlan,
+  getWeekdayName,
+  parseWorkoutProgress,
 } from "@/lib/workout";
-
-function getInitialProgress(dateKey: string): WorkoutProgress {
-  if (typeof window === "undefined") {
-    return getDefaultWorkoutProgress(dateKey);
-  }
-
-  const rawProgress = window.localStorage.getItem(buildWorkoutStorageKey(dateKey));
-
-  if (!rawProgress) {
-    return getDefaultWorkoutProgress(dateKey);
-  }
-
-  try {
-    return JSON.parse(rawProgress) as WorkoutProgress;
-  } catch {
-    return getDefaultWorkoutProgress(dateKey);
-  }
-}
 
 export default function DashboardPage() {
   const dateKey = useMemo(() => getTodayDateKey(), []);
-  const [progress] = useState<WorkoutProgress>(() => getInitialProgress(dateKey));
+  const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
+  const weekdayLabel = useMemo(() => getWeekdayName(new Date()), []);
+
+  const [progress] = useState<WorkoutProgress>(() => {
+    const fallback = getDefaultWorkoutProgress(dateKey, todayWorkout);
+
+    if (typeof window === "undefined") {
+      return fallback;
+    }
+
+    return parseWorkoutProgress(
+      window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
+      fallback,
+    );
+  });
 
   const isCompleted = progress.status === "completed";
   const isInProgress = progress.status === "in_progress";
@@ -43,14 +41,17 @@ export default function DashboardPage() {
 
       {!isCompleted ? (
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Heutiges Workout</p>
-          <h2 className="mt-2 text-xl font-semibold">{TODAY_WORKOUT.title}</h2>
-          <p className="text-sm text-zinc-400">Unterkategorie: {TODAY_WORKOUT.subcategory}</p>
+          <p className="text-xs uppercase tracking-wide text-zinc-500">
+            Heutiges Workout • {weekdayLabel}
+          </p>
+          <h2 className="mt-2 text-xl font-semibold">{todayWorkout.title}</h2>
+          <p className="text-sm text-zinc-400">Sport: {todayWorkout.sport}</p>
+          <p className="text-sm text-zinc-400">Unterkategorie: {todayWorkout.subcategory}</p>
 
           <p className="mt-4 text-sm text-zinc-300">
             {isInProgress
               ? "Workout begonnen. Du kannst direkt weitermachen."
-              : "Workout noch offen. Starte jetzt deine erste Einheit."}
+              : "Workout noch offen. Starte jetzt deine Einheit."}
           </p>
 
           <Link

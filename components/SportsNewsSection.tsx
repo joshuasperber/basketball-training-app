@@ -9,19 +9,32 @@ type SportsNewsItem = {
   url: string;
 };
 
+function formatDate(value: string) {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Zeitpunkt unbekannt";
+  }
+
+  return parsed.toLocaleString("de-DE");
+}
+
 export default function SportsNewsSection() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [news, setNews] = useState<SportsNewsItem[]>([]);
 
   const loadNews = async () => {
     try {
       setLoading(true);
       setError(null);
+      setWarning(null);
 
       const response = await fetch("/api/sports-news", { cache: "no-store" });
       const payload = (await response.json()) as {
         items?: SportsNewsItem[];
+        warning?: string | null;
         error?: string;
       };
 
@@ -30,6 +43,7 @@ export default function SportsNewsSection() {
       }
 
       setNews(payload.items ?? []);
+      setWarning(payload.warning ?? null);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -45,7 +59,7 @@ export default function SportsNewsSection() {
     <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
       <h2 className="text-lg font-semibold">Sport-News</h2>
       <p className="mt-1 text-sm text-zinc-400">
-        Hole aktuelle Meldungen über API-Sports.
+        Lade aktuelle Basketball-Spiele von API-Sports.
       </p>
 
       <button
@@ -58,11 +72,16 @@ export default function SportsNewsSection() {
       </button>
 
       {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
+      {warning ? <p className="mt-3 text-sm text-amber-300">{warning}</p> : null}
+
+      {!error && news.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">Noch keine News geladen.</p>
+      ) : null}
 
       {news.length > 0 ? (
         <ul className="mt-4 space-y-3">
           {news.map((item) => (
-            <li key={`${item.url}-${item.date}`} className="rounded-xl bg-zinc-950 p-3">
+            <li key={`${item.title}-${item.date}`} className="rounded-xl bg-zinc-950 p-3">
               <a
                 href={item.url}
                 target="_blank"
@@ -72,7 +91,7 @@ export default function SportsNewsSection() {
                 {item.title}
               </a>
               <p className="mt-1 text-xs text-zinc-500">
-                {item.source} · {new Date(item.date).toLocaleString("de-DE")}
+                {item.source} · {formatDate(item.date)}
               </p>
             </li>
           ))}

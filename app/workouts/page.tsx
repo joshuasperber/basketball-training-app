@@ -2,42 +2,52 @@
 
 import { useMemo, useState } from "react";
 import {
-  TODAY_WORKOUT,
+  CompletedWorkoutHistoryEntry,
   WorkoutProgress,
+  WORKOUT_HISTORY_KEY,
   buildSetLogKey,
   buildWorkoutStorageKey,
   getDefaultWorkoutProgress,
   getTodayDateKey,
+  getTodayWorkoutPlan,
+  parseWorkoutProgress,
 } from "@/lib/workout";
 
-function getInitialProgress(dateKey: string): WorkoutProgress {
-  if (typeof window === "undefined") {
-    return getDefaultWorkoutProgress(dateKey);
-  }
-
-  const rawProgress = window.localStorage.getItem(buildWorkoutStorageKey(dateKey));
-
-  if (!rawProgress) {
-    return getDefaultWorkoutProgress(dateKey);
-  }
+function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
+  const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
 
   try {
-    return JSON.parse(rawProgress) as WorkoutProgress;
+    const parsed = rawHistory ? (JSON.parse(rawHistory) as CompletedWorkoutHistoryEntry[]) : [];
+    const nextHistory = [entry, ...parsed.filter((item) => item.id !== entry.id)].slice(0, 365);
+    window.localStorage.setItem(WORKOUT_HISTORY_KEY, JSON.stringify(nextHistory));
   } catch {
-    return getDefaultWorkoutProgress(dateKey);
+    window.localStorage.setItem(WORKOUT_HISTORY_KEY, JSON.stringify([entry]));
   }
 }
 
 export default function WorkoutsPage() {
   const dateKey = useMemo(() => getTodayDateKey(), []);
-  const [progress, setProgress] = useState<WorkoutProgress>(() => getInitialProgress(dateKey));
+  const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
+
+  const [progress, setProgress] = useState<WorkoutProgress>(() => {
+    const fallback = getDefaultWorkoutProgress(dateKey, todayWorkout);
+
+    if (typeof window === "undefined") {
+      return fallback;
+    }
+
+    return parseWorkoutProgress(
+      window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
+      fallback,
+    );
+  });
 
   const persistProgress = (next: WorkoutProgress) => {
     setProgress(next);
     window.localStorage.setItem(buildWorkoutStorageKey(dateKey), JSON.stringify(next));
   };
 
-  const currentExercise = TODAY_WORKOUT.exercises[progress.exerciseIndex];
+  const currentExercise = todayWorkout.exercises[progress.exerciseIndex];
   const currentSet = currentExercise.sets[progress.setIndex];
   const currentLogKey = buildSetLogKey(progress.exerciseIndex, progress.setIndex);
   const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "" };
@@ -59,12 +69,47 @@ export default function WorkoutsPage() {
     persistProgress({ ...progress, status: "in_progress" });
   };
 
+  const completeWorkout = () => {
+    const completedProgress: WorkoutProgress = { ...progress, status: "completed" };
+    persistProgress(completedProgress);
+
+    const totals = Object.values(completedProgress.logs).reduce(
+      (accumulator, setLog) => {
+        const reps = Number(setLog.reps) || 0;
+        const weight = Number(setLog.weight) || 0;
+
+        if (reps > 0 || weight > 0) {
+          accumulator.totalSets += 1;
+        }
+
+        accumulator.totalReps += reps;
+        accumulator.totalVolumeKg += reps * weight;
+
+        return accumulator;
+      },
+      { totalSets: 0, totalReps: 0, totalVolumeKg: 0 },
+    );
+
+    const historyEntry: CompletedWorkoutHistoryEntry = {
+      id: `${completedProgress.date}-${completedProgress.workoutId}`,
+      date: completedProgress.date,
+      title: completedProgress.title,
+      sport: completedProgress.sport,
+      subcategory: completedProgress.subcategory,
+      totalSets: totals.totalSets,
+      totalReps: totals.totalReps,
+      totalVolumeKg: totals.totalVolumeKg,
+    };
+
+    persistHistoryEntry(historyEntry);
+  };
+
   const finishSet = () => {
     const isLastSetInExercise = progress.setIndex === currentExercise.sets.length - 1;
-    const isLastExercise = progress.exerciseIndex === TODAY_WORKOUT.exercises.length - 1;
+    const isLastExercise = progress.exerciseIndex === todayWorkout.exercises.length - 1;
 
     if (isLastSetInExercise && isLastExercise) {
-      persistProgress({ ...progress, status: "completed" });
+      completeWorkout();
       return;
     }
 
@@ -91,8 +136,9 @@ export default function WorkoutsPage() {
       <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-xl font-semibold">{TODAY_WORKOUT.title}</h2>
-        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {TODAY_WORKOUT.subcategory}</p>
+        <h2 className="text-xl font-semibold">{todayWorkout.title}</h2>
+        <p className="mt-1 text-sm text-zinc-400">Sport: {todayWorkout.sport}</p>
+        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {todayWorkout.subcategory}</p>
 
         {progress.status === "completed" ? (
           <p className="mt-4 rounded-xl bg-green-900/40 p-3 text-sm text-green-300">
@@ -102,7 +148,7 @@ export default function WorkoutsPage() {
           <>
             <div className="mt-4 rounded-xl bg-zinc-950 p-4">
               <p className="text-sm text-zinc-400">
-                {progress.exerciseIndex + 1}/{TODAY_WORKOUT.exercises.length}
+                {progress.exerciseIndex + 1}/{todayWorkout.exercises.length}
               </p>
               <p className="mt-1 text-lg font-medium">{currentExercise.name}</p>
 
