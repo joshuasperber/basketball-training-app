@@ -30,7 +30,7 @@ export default function WeeklyWorkoutPage() {
         <p className="mt-1 text-sm text-green-200">Sport: {todayWorkout.sport}</p>
         <p className="text-sm text-green-200">Unterkategorie: {todayWorkout.subcategory}</p>
         <Link
-          href="/workouts"
+          href={`/workouts?day=${todayIndex}`}
           className="mt-4 inline-block rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
         >
           Zum heutigen Workout
@@ -63,6 +63,12 @@ export default function WeeklyWorkoutPage() {
               <p className="mt-2 text-lg font-medium">{workout.title}</p>
               <p className="text-sm text-zinc-400">Sport: {workout.sport}</p>
               <p className="text-sm text-zinc-400">Unterkategorie: {workout.subcategory}</p>
+              <Link
+                href={`/workouts?day=${day}`}
+                className="mt-3 inline-block rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
+              >
+                Workout ausführen
+              </Link>
 
               <ul className="mt-3 list-inside list-disc text-sm text-zinc-300">
                 {workout.exercises.map((exercise) => (

@@ -1,6 +1,7 @@
 export type WorkoutStatus = "not_started" | "in_progress" | "completed";
 export type SportType = "Gym" | "Basketball";
 
+
 export type WorkoutSet = {
   targetKg: number;
   targetReps: number;
@@ -226,6 +227,9 @@ export const getTodayWorkoutPlan = (): WorkoutPlan => {
   return WEEKLY_WORKOUT_PLAN[today] ?? WEEKLY_WORKOUT_PLAN[1];
 };
 
+export const getWorkoutPlanForDay = (day: number): WorkoutPlan =>
+  WEEKLY_WORKOUT_PLAN[day] ?? WEEKLY_WORKOUT_PLAN[1];
+
 export const getWeekdayName = (date: Date) =>
   date.toLocaleDateString("de-DE", { weekday: "long" });
 
@@ -252,6 +256,7 @@ export const getDefaultWorkoutProgress = (
   logs: {},
 });
 
+
 export const parseWorkoutProgress = (
   raw: string | null,
   fallback: WorkoutProgress,
@@ -271,4 +276,5 @@ export const parseWorkoutProgress = (
   } catch {
     return fallback;
   }
+  
 };

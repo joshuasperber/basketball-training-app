@@ -3,30 +3,58 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { defaultExercises } from "@/lib/training-data";
+import { type Exercise } from "@/lib/training-data";
+import { loadExercises } from "@/lib/training-storage";
 import { ExerciseHistoryEntry, SessionDatabase } from "@/lib/session-types";
 
 type ExerciseSet = {
   id: string;
-  value: string;
+  values: Partial<Record<string, string>>;
 };
+
+function getNumeric(values: Partial<Record<string, string>>, key: string) {
+  const raw = values[key];
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function validateMetricValues(values: Partial<Record<string, string>>) {
+  const tries = getNumeric(values, "tries");
+  const reps = getNumeric(values, "reps");
+  const makes = getNumeric(values, "makes");
+  const misses = getNumeric(values, "misses");
+  const base = tries ?? reps;
+
+  if (base !== null) {
+    if (makes !== null && makes > base) return "Makes darf nicht größer als Trys/Reps sein.";
+    if (misses !== null && misses > base) return "Misses darf nicht größer als Trys/Reps sein.";
+    if (makes !== null && misses !== null && makes + misses > base) {
+      return "Makes + Misses darf nicht größer als Trys/Reps sein.";
+    }
+  }
+
+  return null;
+}
 
 export default function ExerciseExecutionPage() {
   const params = useParams<{ id: string }>();
   const exerciseId = params.id;
+  const [exercises] = useState<Exercise[]>(() => loadExercises());
 
   const exercise = useMemo(
-    () => defaultExercises.find((entry) => entry.id === exerciseId),
-    [exerciseId],
+    () => exercises.find((entry) => entry.id === exerciseId),
+    [exerciseId, exercises],
   );
 
-  const [sets, setSets] = useState<ExerciseSet[]>([{ id: "set-1", value: "" }]);
+  const [sets, setSets] = useState<ExerciseSet[]>([{ id: "set-1", values: {} }]);
+  const [sessionNote, setSessionNote] = useState("");
   const [saved, setSaved] = useState(false);
   const [history, setHistory] = useState<{ dateISO: string; value: number }[]>([]);
 
   const refreshHistory = useCallback(async () => {
     if (!exercise) return;
-    const response = await fetch("/api/sessions", { cache: "no-store" });
+    const response = await fetch("/api/session", { cache: "no-store" });
     const db = (await response.json()) as SessionDatabase;
     const entries = (db.exerciseHistory[exercise.id] ?? [])
       .filter((entry) => Number.isFinite(entry.value))
@@ -35,24 +63,41 @@ export default function ExerciseExecutionPage() {
     setHistory(entries);
   }, [exercise]);
 
-  function updateSet(id: string, value: string) {
+  function updateSetValue(id: string, metric: string, value: string) {
     setSaved(false);
-    setSets((previous) => previous.map((entry) => (entry.id === id ? { ...entry, value } : entry)));
+    setSets((previous) =>
+      previous.map((entry) =>
+        entry.id === id
+          ? {
+              ...entry,
+              values: {
+                ...entry.values,
+                [metric]: value,
+              },
+            }
+          : entry,
+      ),
+    );
   }
 
   function addSet() {
     setSaved(false);
-    setSets((previous) => [...previous, { id: `set-${Date.now()}`, value: "" }]);
+    setSets((previous) => [...previous, { id: `set-${Date.now()}`, values: {} }]);
   }
 
   async function handleSaveExercise() {
     if (!exercise) return;
+    if (sets.some((set) => validateMetricValues(set.values))) {
+      return;
+    }
 
     const nowISO = new Date().toISOString();
     const payload: ExerciseHistoryEntry[] = [];
 
     sets.forEach((set) => {
-      const value = Number(set.value);
+      const primaryMetric = exercise.metricKeys[0];
+      const rawPrimaryValue = set.values[primaryMetric];
+      const value = Number(rawPrimaryValue);
       if (!Number.isFinite(value)) return;
 
       payload.push({
@@ -60,11 +105,12 @@ export default function ExerciseExecutionPage() {
         dateISO: nowISO,
         exerciseId: exercise.id,
         value,
+        note: sessionNote || undefined,
         source: "exercise",
       });
     });
 
-    await fetch("/api/sessions/exercise", {
+    await fetch("/api/session/exercise", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -104,26 +150,52 @@ export default function ExerciseExecutionPage() {
             {exercise.category} • {exercise.subcategory}
           </p>
           <p className="mt-1 text-sm text-zinc-400">
-            Ziel: {exercise.targetValue ?? "-"} {exercise.trackingType === "weight" ? "kg" : "Reps"}
+            Ziel:{" "}
+            {exercise.metricKeys
+              .map((metric) => {
+                const target = exercise.targetByMetric?.[metric];
+                return target !== undefined ? `${metric}: ${target}` : null;
+              })
+              .filter((entry): entry is string => Boolean(entry))
+              .join(" • ") || "-"}
           </p>
+          {exercise.notes ? <p className="mt-1 text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
         </header>
 
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <h2 className="text-lg font-semibold">Sets erfassen</h2>
           <div className="mt-3 space-y-2">
             {sets.map((set, index) => (
-              <label key={set.id} className="block text-sm text-zinc-300">
-                Satz {index + 1}
-                <input
-                  type="number"
-                  value={set.value}
-                  onChange={(event) => updateSet(set.id, event.target.value)}
-                  placeholder={exercise.trackingType === "weight" ? "kg" : "Reps"}
-                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                />
-              </label>
+              <div key={set.id} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                <p className="text-sm font-semibold text-zinc-200">Satz {index + 1}</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {exercise.metricKeys.map((metric) => (
+                    <label key={`${set.id}-${metric}`} className="block text-sm text-zinc-300">
+                      {metric}
+                      <input
+                        type="number"
+                        value={set.values[metric] ?? ""}
+                        onChange={(event) => updateSetValue(set.id, metric, event.target.value)}
+                        placeholder={metric}
+                        className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2"
+                      />
+                    </label>
+                  ))}
+                </div>
+                {validateMetricValues(set.values) ? (
+                  <p className="mt-2 text-xs text-rose-300">{validateMetricValues(set.values)}</p>
+                ) : null}
+              </div>
             ))}
           </div>
+
+          <textarea
+            value={sessionNote}
+            onChange={(event) => setSessionNote(event.target.value)}
+            placeholder="Notizen zur Session"
+            rows={2}
+            className="mt-3 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+          />
 
           <button
             type="button"

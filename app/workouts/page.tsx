@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   CompletedWorkoutHistoryEntry,
   WorkoutProgress,
@@ -10,6 +11,7 @@ import {
   getDefaultWorkoutProgress,
   getTodayDateKey,
   getTodayWorkoutPlan,
+  getWorkoutPlanForDay,
   parseWorkoutProgress,
 } from "@/lib/workout";
 
@@ -26,21 +28,31 @@ function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
 }
 
 export default function WorkoutsPage() {
+  const searchParams = useSearchParams();
+  const dayParam = searchParams.get("day");
+  const selectedDay = dayParam !== null ? Number(dayParam) : null;
   const dateKey = useMemo(() => getTodayDateKey(), []);
-  const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
-
-  const [progress, setProgress] = useState<WorkoutProgress>(() => {
-    const fallback = getDefaultWorkoutProgress(dateKey, todayWorkout);
-
-    if (typeof window === "undefined") {
-      return fallback;
+  const todayWorkout = useMemo(() => {
+    if (selectedDay !== null && Number.isInteger(selectedDay)) {
+      return getWorkoutPlanForDay(selectedDay);
     }
+    return getTodayWorkoutPlan();
+  }, [selectedDay]);
+  const fallbackProgress = useMemo(
+    () => getDefaultWorkoutProgress(dateKey, todayWorkout),
+    [dateKey, todayWorkout],
+  );
 
-    return parseWorkoutProgress(
-      window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
-      fallback,
+  const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
+
+  useEffect(() => {
+    setProgress(
+      parseWorkoutProgress(
+        window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
+        fallbackProgress,
+      ),
     );
-  });
+  }, [dateKey, fallbackProgress]);
 
   const persistProgress = (next: WorkoutProgress) => {
     setProgress(next);

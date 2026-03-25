@@ -1,21 +1,50 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   categories,
-  defaultExercises,
-  defaultWorkouts,
   subcategoriesByCategory,
   type Category,
   type Exercise,
+  type MetricKey,
   type Workout,
 } from "@/lib/training-data";
+import { loadExercises, loadWorkouts, saveExercises, saveWorkouts } from "@/lib/training-storage";
 
 type TrainingTab = "Workouts" | "Exercises";
 
-function getTrackingType(category: Category): "reps" | "weight" {
-  return category === "Gym" ? "weight" : "reps";
+const METRIC_OPTIONS: MetricKey[] = [
+  "reps",
+  "weight",
+  "time",
+  "distance",
+  "makes",
+  "misses",
+  "tries",
+  "intensity",
+];
+
+const METRIC_LABELS: Record<MetricKey, string> = {
+  reps: "Reps",
+  weight: "Gewicht",
+  time: "Zeit",
+  distance: "Distanz",
+  makes: "Makes",
+  misses: "Misses",
+  tries: "Trys",
+  intensity: "Intensität",
+};
+
+function formatMetricTargets(exercise: Exercise) {
+  if (!exercise.targetByMetric) return "-";
+  return exercise.metricKeys
+    .map((metric) => {
+      const value = exercise.targetByMetric?.[metric];
+      return value !== undefined ? `${METRIC_LABELS[metric]} ${value}` : null;
+    })
+    .filter((entry): entry is string => Boolean(entry))
+    .join(" • ");
 }
 
 export default function TrainingPage() {
@@ -28,18 +57,39 @@ export default function TrainingPage() {
   const [exerciseSubcategory, setExerciseSubcategory] = useState("Shooting");
   const [exerciseSearch, setExerciseSearch] = useState("");
 
-  const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
-  const [workouts, setWorkouts] = useState<Workout[]>(defaultWorkouts);
+  const [exercises, setExercises] = useState<Exercise[]>(() => loadExercises());
+  const [workouts, setWorkouts] = useState<Workout[]>(() => loadWorkouts());
+  const hasPersistedExercises = useRef(false);
+  const hasPersistedWorkouts = useRef(false);
 
   const [newWorkoutName, setNewWorkoutName] = useState("");
   const [newWorkoutExerciseIds, setNewWorkoutExerciseIds] = useState<string[]>([]);
   const [newWorkoutCategory, setNewWorkoutCategory] = useState<Category>("Basketball");
   const [newWorkoutSubcategory, setNewWorkoutSubcategory] = useState("Handles");
+  const [newWorkoutNotes, setNewWorkoutNotes] = useState("");
 
   const [newExerciseName, setNewExerciseName] = useState("");
   const [newExerciseCategory, setNewExerciseCategory] = useState<Category>("Basketball");
   const [newExerciseSubcategory, setNewExerciseSubcategory] = useState("Handles");
-  const [newExerciseValue, setNewExerciseValue] = useState("");
+  const [newExerciseNotes, setNewExerciseNotes] = useState("");
+  const [newExerciseMetrics, setNewExerciseMetrics] = useState<MetricKey[]>(["reps"]);
+  const [newExerciseTargets, setNewExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
+
+  useEffect(() => {
+    if (!hasPersistedExercises.current) {
+      hasPersistedExercises.current = true;
+      return;
+    }
+    saveExercises(exercises);
+  }, [exercises]);
+
+  useEffect(() => {
+    if (!hasPersistedWorkouts.current) {
+      hasPersistedWorkouts.current = true;
+      return;
+    }
+    saveWorkouts(workouts);
+  }, [workouts]);
 
   const workoutsForSelection = useMemo(
     () =>
@@ -102,6 +152,15 @@ export default function TrainingPage() {
     setNewExerciseSubcategory(subcategoriesByCategory[category][0]);
   }
 
+  function toggleNewExerciseMetric(metric: MetricKey) {
+    setNewExerciseMetrics((current) => {
+      if (current.includes(metric)) {
+        return current.filter((value) => value !== metric);
+      }
+      return [...current, metric];
+    });
+  }
+
   function handleAddWorkout(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -120,6 +179,7 @@ export default function TrainingPage() {
         name: normalizedName,
         category: newWorkoutCategory,
         subcategory: newWorkoutSubcategory,
+        notes: newWorkoutNotes.trim() || undefined,
         level: nextLevel,
         exerciseIds: newWorkoutExerciseIds,
       },
@@ -127,6 +187,7 @@ export default function TrainingPage() {
 
     setNewWorkoutName("");
     setNewWorkoutExerciseIds([]);
+    setNewWorkoutNotes("");
   }
 
   function handleAddExercise(event: React.SyntheticEvent<HTMLFormElement>) {
@@ -142,13 +203,22 @@ export default function TrainingPage() {
         name: normalizedName,
         category: newExerciseCategory,
         subcategory: newExerciseSubcategory,
-        trackingType: getTrackingType(newExerciseCategory),
-        targetValue: newExerciseValue ? Number(newExerciseValue) : undefined,
+        notes: newExerciseNotes.trim() || undefined,
+        metricKeys: newExerciseMetrics.length > 0 ? newExerciseMetrics : ["reps"],
+        targetByMetric: Object.fromEntries(
+          Object.entries(newExerciseTargets)
+            .filter(([, value]) => value && value.trim() !== "")
+            .map(([metric, value]) => [metric, Number(value)]),
+        ) as Partial<Record<MetricKey, number>>,
+        trackingType: newExerciseMetrics.includes("weight") ? "weight" : "reps",
+        targetValue: Number(newExerciseTargets.reps ?? newExerciseTargets.weight ?? "") || undefined,
       },
     ]);
 
     setNewExerciseName("");
-    setNewExerciseValue("");
+    setNewExerciseNotes("");
+    setNewExerciseMetrics(["reps"]);
+    setNewExerciseTargets({});
   }
 
   return (
@@ -179,6 +249,8 @@ export default function TrainingPage() {
             onNewWorkoutCategoryChange={handleNewWorkoutCategoryChange}
             newWorkoutSubcategory={newWorkoutSubcategory}
             onNewWorkoutSubcategoryChange={setNewWorkoutSubcategory}
+            newWorkoutNotes={newWorkoutNotes}
+            onNewWorkoutNotesChange={setNewWorkoutNotes}
             onCreateWorkout={handleAddWorkout}
           />
         ) : (
@@ -199,8 +271,14 @@ export default function TrainingPage() {
             onNewExerciseCategoryChange={handleNewExerciseCategoryChange}
             newExerciseSubcategory={newExerciseSubcategory}
             onNewExerciseSubcategoryChange={setNewExerciseSubcategory}
-            newExerciseValue={newExerciseValue}
-            onNewExerciseValueChange={setNewExerciseValue}
+            newExerciseNotes={newExerciseNotes}
+            onNewExerciseNotesChange={setNewExerciseNotes}
+            newExerciseMetrics={newExerciseMetrics}
+            onToggleNewExerciseMetric={toggleNewExerciseMetric}
+            newExerciseTargets={newExerciseTargets}
+            onNewExerciseTargetChange={(metric, value) =>
+              setNewExerciseTargets((current) => ({ ...current, [metric]: value }))
+            }
             onCreateExercise={handleAddExercise}
           />
         )}
@@ -226,6 +304,8 @@ type WorkoutsTabProps = {
   onNewWorkoutCategoryChange: (value: Category) => void;
   newWorkoutSubcategory: string;
   onNewWorkoutSubcategoryChange: (value: string) => void;
+  newWorkoutNotes: string;
+  onNewWorkoutNotesChange: (value: string) => void;
   onCreateWorkout: (event: React.SyntheticEvent<HTMLFormElement>) => void;
 };
 
@@ -246,6 +326,8 @@ function WorkoutsTab({
   onNewWorkoutCategoryChange,
   newWorkoutSubcategory,
   onNewWorkoutSubcategoryChange,
+  newWorkoutNotes,
+  onNewWorkoutNotesChange,
   onCreateWorkout,
 }: WorkoutsTabProps) {
   return (
@@ -280,6 +362,7 @@ function WorkoutsTab({
               workouts.map((workout) => (
                 <div key={workout.id} className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3">
                   <p className="text-xl font-semibold">{workout.name}</p>
+                  {workout.notes ? <p className="mt-1 text-xs text-zinc-500">{workout.notes}</p> : null}
                   <div className="mt-1 flex items-center justify-between gap-3">
                     <p className="text-sm text-zinc-400">Level {workout.level}</p>
                     <Link
@@ -318,6 +401,13 @@ function WorkoutsTab({
             value={newWorkoutName}
             onChange={(event) => onNewWorkoutNameChange(event.target.value)}
             placeholder="Workout Name"
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+          />
+          <textarea
+            value={newWorkoutNotes}
+            onChange={(event) => onNewWorkoutNotesChange(event.target.value)}
+            placeholder="Notizen zum Workout"
+            rows={2}
             className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
           />
 
@@ -374,8 +464,12 @@ type ExercisesTabProps = {
   onNewExerciseCategoryChange: (category: Category) => void;
   newExerciseSubcategory: string;
   onNewExerciseSubcategoryChange: (value: string) => void;
-  newExerciseValue: string;
-  onNewExerciseValueChange: (value: string) => void;
+  newExerciseNotes: string;
+  onNewExerciseNotesChange: (value: string) => void;
+  newExerciseMetrics: MetricKey[];
+  onToggleNewExerciseMetric: (metric: MetricKey) => void;
+  newExerciseTargets: Partial<Record<MetricKey, string>>;
+  onNewExerciseTargetChange: (metric: MetricKey, value: string) => void;
   onCreateExercise: (event: React.SyntheticEvent<HTMLFormElement>) => void;
 };
 
@@ -396,8 +490,12 @@ function ExercisesTab({
   onNewExerciseCategoryChange,
   newExerciseSubcategory,
   onNewExerciseSubcategoryChange,
-  newExerciseValue,
-  onNewExerciseValueChange,
+  newExerciseNotes,
+  onNewExerciseNotesChange,
+  newExerciseMetrics,
+  onToggleNewExerciseMetric,
+  newExerciseTargets,
+  onNewExerciseTargetChange,
   onCreateExercise,
 }: ExercisesTabProps) {
   return (
@@ -477,18 +575,53 @@ function ExercisesTab({
               placeholder="Exercise Name"
               className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
             />
-
-            <input
-              type="number"
-              value={newExerciseValue}
-              onChange={(event) => onNewExerciseValueChange(event.target.value)}
-              placeholder={getTrackingType(newExerciseCategory) === "weight" ? "Start Weight (kg)" : "Target Reps"}
+            <textarea
+              value={newExerciseNotes}
+              onChange={(event) => onNewExerciseNotesChange(event.target.value)}
+              placeholder="Notizen zur Exercise"
+              rows={2}
               className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
             />
 
-            <p className="text-sm text-zinc-400">
-              Tracking-Typ: <span className="font-semibold text-white">{getTrackingType(newExerciseCategory) === "weight" ? "Weight" : "Reps"}</span>
-            </p>
+            <div>
+              <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
+              <div className="flex flex-wrap gap-2">
+                {METRIC_OPTIONS.map((metric) => {
+                  const active = newExerciseMetrics.includes(metric);
+                  return (
+                    <button
+                      key={metric}
+                      type="button"
+                      onClick={() => onToggleNewExerciseMetric(metric)}
+                      className={`rounded-full border px-3 py-1 text-sm ${
+                        active
+                          ? "border-emerald-400 bg-emerald-500/20 text-emerald-300"
+                          : "border-zinc-700 text-zinc-300"
+                      }`}
+                    >
+                      {METRIC_LABELS[metric]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {newExerciseMetrics.length > 0 ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {newExerciseMetrics.map((metric) => (
+                  <input
+                    key={metric}
+                    type="number"
+                    value={newExerciseTargets[metric] ?? ""}
+                    onChange={(event) => onNewExerciseTargetChange(metric, event.target.value)}
+                    placeholder={`Ziel ${METRIC_LABELS[metric]}`}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
+            )}
 
             <button type="submit" className="w-full rounded-xl bg-indigo-600 px-4 py-2 font-semibold">
               Exercise hinzufügen
@@ -505,9 +638,12 @@ function ExerciseCard({ exercise, href }: { exercise: Exercise; href?: string })
     <article className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2">
       <p className="font-semibold">{exercise.name}</p>
       <p className="text-sm text-zinc-400">
-        {exercise.category} • {exercise.subcategory} • {exercise.trackingType === "weight" ? "Weight" : "Reps"}
-        {exercise.targetValue ? ` • Ziel: ${exercise.targetValue}` : ""}
+        {exercise.category} • {exercise.subcategory} • {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
       </p>
+      <p className="text-xs text-zinc-500">
+        Ziele: {formatMetricTargets(exercise)}
+      </p>
+      {exercise.notes ? <p className="text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
       {href ? (
         <Link
           href={href}

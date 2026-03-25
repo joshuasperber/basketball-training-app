@@ -1,12 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
+import { getWorkoutSessions } from "@/lib/session-storage";
+import { loadWorkouts } from "@/lib/training-storage";
 
 type CategorySlice = {
   label: string;
   value: number;
   color: string;
+};
+
+type SkillCard = {
+  name: string;
+  score: number;
+  lastTrained: string | null;
+  daysSince: number | null;
 };
 
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
@@ -27,6 +36,72 @@ function loadHistory(): CompletedWorkoutHistoryEntry[] {
   } catch {
     return [];
   }
+}
+
+function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
+  const baseHistory = loadHistory();
+
+  if (typeof window === "undefined") {
+    return baseHistory;
+  }
+
+  const workoutLookup = new Map(loadWorkouts().map((workout) => [workout.id, workout]));
+  const sessionHistory = getWorkoutSessions().map((session) => {
+    const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
+    const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
+    const workout = workoutLookup.get(session.workoutId);
+
+    return {
+      id: session.id,
+      date: session.dateISO.slice(0, 10),
+      title: session.workoutName,
+      sport: workout?.category === "Gym" ? ("Gym" as const) : ("Basketball" as const),
+      subcategory: workout?.subcategory ?? "Custom",
+      totalSets,
+      totalReps,
+      totalVolumeKg: 0,
+    } satisfies CompletedWorkoutHistoryEntry;
+  });
+
+  const unique = new Map<string, CompletedWorkoutHistoryEntry>();
+  [...sessionHistory, ...baseHistory].forEach((entry) => {
+    unique.set(entry.id, entry);
+  });
+
+  return Array.from(unique.values());
+}
+
+function getDaysSince(dateString: string) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const differenceMs = now.getTime() - date.getTime();
+  return Math.max(0, Math.floor(differenceMs / (1000 * 60 * 60 * 24)));
+}
+
+function buildSkillCards(entries: CompletedWorkoutHistoryEntry[]): SkillCard[] {
+  const bySkill = new Map<string, CompletedWorkoutHistoryEntry[]>();
+
+  entries.forEach((entry) => {
+    const current = bySkill.get(entry.subcategory) ?? [];
+    bySkill.set(entry.subcategory, [...current, entry]);
+  });
+
+  return Array.from(bySkill.entries())
+    .map(([name, skillEntries]) => {
+      const latest = [...skillEntries].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+      const daysSince = latest ? getDaysSince(latest.date) : null;
+      const baseScore = Math.min(100, skillEntries.length * 12);
+      const decayFactor =
+        daysSince !== null && daysSince > 14 ? Math.max(0.5, 1 - (daysSince - 14) * 0.03) : 1;
+
+      return {
+        name,
+        score: Math.round(baseScore * decayFactor),
+        lastTrained: latest?.date ?? null,
+        daysSince,
+      };
+    })
+    .sort((a, b) => a.score - b.score);
 }
 
 function pieGradient(slices: CategorySlice[]) {
@@ -95,7 +170,15 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
 }
 
 export default function StatsPage() {
-  const history = useMemo(() => loadHistory(), []);
+  const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setHistory(loadCombinedHistory());
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const weeklyCompleted = useMemo(() => {
     const today = new Date();
@@ -114,6 +197,10 @@ export default function StatsPage() {
 
   const sportSlices = useMemo(() => buildSlices(history, "sport"), [history]);
   const categorySlices = useMemo(() => buildSlices(history, "subcategory"), [history]);
+  const skillCards = useMemo(() => buildSkillCards(history), [history]);
+  const overallScore = skillCards.length
+    ? Math.round(skillCards.reduce((sum, skill) => sum + skill.score, 0) / skillCards.length)
+    : 0;
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
@@ -151,6 +238,31 @@ export default function StatsPage() {
         <PieCard title="Gym vs Basketball" slices={sportSlices} />
         <PieCard title="Unterkategorien (Handles, Shooting, ... )" slices={categorySlices} />
       </div>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="text-xl font-semibold">Level-System (MVP)</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Gesamt-Score + Skill-Score mit Verfall nach 14 Tagen ohne Training.
+        </p>
+        <p className="mt-3 text-3xl font-bold">{overallScore}/100</p>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {skillCards.length === 0 ? (
+            <p className="text-sm text-zinc-500">Noch keine Skill-Daten vorhanden.</p>
+          ) : (
+            skillCards.map((skill) => (
+              <div key={skill.name} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                <p className="font-semibold">{skill.name}</p>
+                <p className="text-sm text-zinc-300">Score: {skill.score}/100</p>
+                <p className="text-xs text-zinc-500">
+                  Letztes Training: {skill.lastTrained ?? "-"}{" "}
+                  {skill.daysSince !== null ? `(${skill.daysSince} Tage)` : ""}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
     </main>
   );
 }

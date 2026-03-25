@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SportsNewsSection from "@/components/SportsNewsSection";
 import {
   WorkoutProgress,
@@ -16,20 +16,22 @@ import {
 export default function DashboardPage() {
   const dateKey = useMemo(() => getTodayDateKey(), []);
   const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
-  const weekdayLabel = useMemo(() => getWeekdayName(new Date()), []);
+  const weekdayLabel = useMemo(() => getWeekdayName(new Date(`${dateKey}T00:00:00.000Z`)), [dateKey]);
+  const fallbackProgress = useMemo(
+    () => getDefaultWorkoutProgress(dateKey, todayWorkout),
+    [dateKey, todayWorkout],
+  );
 
-  const [progress] = useState<WorkoutProgress>(() => {
-    const fallback = getDefaultWorkoutProgress(dateKey, todayWorkout);
+  const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
 
-    if (typeof window === "undefined") {
-      return fallback;
-    }
-
-    return parseWorkoutProgress(
-      window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
-      fallback,
+  useEffect(() => {
+    setProgress(
+      parseWorkoutProgress(
+        window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
+        fallbackProgress,
+      ),
     );
-  });
+  }, [dateKey, fallbackProgress]);
 
   const isCompleted = progress.status === "completed";
   const isInProgress = progress.status === "in_progress";

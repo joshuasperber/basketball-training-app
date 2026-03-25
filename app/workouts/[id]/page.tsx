@@ -3,35 +3,63 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { defaultExercises, defaultWorkouts } from "@/lib/training-data";
+import { type Exercise, type Workout } from "@/lib/training-data";
 import {
   appendExerciseHistory,
   appendWorkoutSession,
   getExerciseHistoryMap,
 } from "@/lib/session-storage";
+import { loadExercises, loadWorkouts, saveWorkouts } from "@/lib/training-storage";
 
 type WorkoutLog = {
   exerciseId: string;
-  completedValue: string;
+  metricValues: Partial<Record<string, string>>;
   note: string;
 };
+
+function getNumeric(values: Partial<Record<string, string>>, key: string) {
+  const raw = values[key];
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function validateMetricValues(values: Partial<Record<string, string>>) {
+  const tries = getNumeric(values, "tries");
+  const reps = getNumeric(values, "reps");
+  const makes = getNumeric(values, "makes");
+  const misses = getNumeric(values, "misses");
+  const base = tries ?? reps;
+
+  if (base !== null) {
+    if (makes !== null && makes > base) return "Makes darf nicht größer als Trys/Reps sein.";
+    if (misses !== null && misses > base) return "Misses darf nicht größer als Trys/Reps sein.";
+    if (makes !== null && misses !== null && makes + misses > base) {
+      return "Makes + Misses darf nicht größer als Trys/Reps sein.";
+    }
+  }
+
+  return null;
+}
 
 export default function WorkoutExecutionPage() {
   const params = useParams<{ id: string }>();
   const workoutId = params.id;
+  const [exercises] = useState<Exercise[]>(() => loadExercises());
+  const [workouts] = useState<Workout[]>(() => loadWorkouts());
 
   const workout = useMemo(
-    () => defaultWorkouts.find((entry) => entry.id === workoutId),
-    [workoutId],
+    () => workouts.find((entry) => entry.id === workoutId),
+    [workoutId, workouts],
   );
 
   const workoutExercises = useMemo(() => {
     if (!workout) return [];
 
     return workout.exerciseIds
-      .map((exerciseId) => defaultExercises.find((exercise) => exercise.id === exerciseId))
+      .map((exerciseId) => exercises.find((exercise) => exercise.id === exerciseId))
       .filter((exercise) => exercise !== undefined);
-  }, [workout]);
+  }, [exercises, workout]);
 
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
   const [saved, setSaved] = useState(false);
@@ -62,7 +90,7 @@ export default function WorkoutExecutionPage() {
           ...previous,
           {
             exerciseId,
-            completedValue: patch.completedValue ?? "",
+            metricValues: patch.metricValues ?? {},
             note: patch.note ?? "",
           },
         ];
@@ -77,10 +105,20 @@ export default function WorkoutExecutionPage() {
   function handleSaveWorkout() {
     if (!workout) return;
 
+    const hasValidationError = workoutExercises.some((exercise) => {
+      const current = getLog(exercise.id);
+      return Boolean(validateMetricValues(current?.metricValues ?? {}));
+    });
+    if (hasValidationError) {
+      return;
+    }
+
     const nowISO = new Date().toISOString();
     const normalizedLogs = workoutExercises.map((exercise) => {
       const existing = getLog(exercise.id);
-      const valueNumber = existing?.completedValue ? Number(existing.completedValue) : null;
+      const primaryMetric = exercise.metricKeys[0];
+      const rawPrimaryValue = existing?.metricValues?.[primaryMetric];
+      const valueNumber = rawPrimaryValue ? Number(rawPrimaryValue) : null;
 
       if (valueNumber !== null && Number.isFinite(valueNumber)) {
         appendExerciseHistory({
@@ -108,6 +146,26 @@ export default function WorkoutExecutionPage() {
       workoutName: workout.name,
       logs: normalizedLogs,
     });
+
+    const reachedTargets = workoutExercises.reduce((count, exercise) => {
+      const existing = getLog(exercise.id);
+      const primaryMetric = exercise.metricKeys[0];
+      const target = exercise.targetByMetric?.[primaryMetric];
+      if (target === undefined) {
+        return count + 1;
+      }
+      const rawPrimaryValue = existing?.metricValues?.[primaryMetric];
+      const value = rawPrimaryValue ? Number(rawPrimaryValue) : null;
+      return value !== null && Number.isFinite(value) && value >= target ? count + 1 : count;
+    }, 0);
+
+    const reachedRatio = workoutExercises.length > 0 ? reachedTargets / workoutExercises.length : 0;
+    if (reachedRatio >= 0.8) {
+      const updatedWorkouts = workouts.map((entry) =>
+        entry.id === workout.id ? { ...entry, level: entry.level + 1 } : entry,
+      );
+      saveWorkouts(updatedWorkouts);
+    }
 
     const updatedHistory = getExerciseHistoryMap();
     const compactHistory: Record<string, { dateISO: string; value: number }[]> = {};
@@ -143,6 +201,7 @@ export default function WorkoutExecutionPage() {
           <p className="mt-1 text-sm text-zinc-400">
             {workout.category} • {workout.subcategory} • Level {workout.level}
           </p>
+          {workout.notes ? <p className="mt-1 text-xs text-zinc-500">Notizen: {workout.notes}</p> : null}
         </header>
 
         <section className="space-y-3">
@@ -157,21 +216,43 @@ export default function WorkoutExecutionPage() {
                 <article key={exercise.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
                   <h2 className="text-lg font-semibold">{exercise.name}</h2>
                   <p className="mt-1 text-sm text-zinc-400">
-                    Ziel: {exercise.targetValue ?? "-"} {exercise.trackingType === "weight" ? "kg" : "Reps"}
+                    Ziel:{" "}
+                    {exercise.metricKeys
+                      .map((metric) => {
+                        const value = exercise.targetByMetric?.[metric];
+                        return value !== undefined ? `${metric}: ${value}` : null;
+                      })
+                      .filter((value): value is string => Boolean(value))
+                      .join(" • ") || "-"}
                   </p>
+                  {exercise.notes ? <p className="mt-1 text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
 
-                  <label className="mt-3 block text-sm text-zinc-300">
-                    Geschafft
-                    <input
-                      type="number"
-                      value={currentLog?.completedValue ?? ""}
-                      onChange={(event) =>
-                        updateLog(exercise.id, { completedValue: event.target.value })
-                      }
-                      placeholder={exercise.trackingType === "weight" ? "kg" : "Reps"}
-                      className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                    />
-                  </label>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {exercise.metricKeys.map((metric) => (
+                      <label key={metric} className="block text-sm text-zinc-300">
+                        {metric}
+                        <input
+                          type="number"
+                          value={currentLog?.metricValues?.[metric] ?? ""}
+                          onChange={(event) =>
+                            updateLog(exercise.id, {
+                              metricValues: {
+                                ...(currentLog?.metricValues ?? {}),
+                                [metric]: event.target.value,
+                              },
+                            })
+                          }
+                          placeholder={metric}
+                          className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  {validateMetricValues(currentLog?.metricValues ?? {}) ? (
+                    <p className="mt-2 text-xs text-rose-300">
+                      {validateMetricValues(currentLog?.metricValues ?? {})}
+                    </p>
+                  ) : null}
 
                   <label className="mt-3 block text-sm text-zinc-300">
                     Notiz

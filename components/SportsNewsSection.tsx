@@ -9,6 +9,12 @@ type SportsNewsItem = {
   url: string;
 };
 
+type SportsNewsPayload = {
+  items?: SportsNewsItem[];
+  warning?: string | null;
+  error?: string;
+};
+
 function formatDate(value: string) {
   const parsed = new Date(value);
 
@@ -17,6 +23,23 @@ function formatDate(value: string) {
   }
 
   return parsed.toLocaleString("de-DE");
+}
+
+async function fetchNewsFromEndpoint(endpoint: string) {
+  const response = await fetch(endpoint, { cache: "no-store" });
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (!contentType.includes("application/json")) {
+    throw new Error(`Endpoint ${endpoint} liefert kein JSON.`);
+  }
+
+  const payload = (await response.json()) as SportsNewsPayload;
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? `Endpoint ${endpoint} antwortet mit Fehler.`);
+  }
+
+  return payload;
 }
 
 export default function SportsNewsSection() {
@@ -31,25 +54,35 @@ export default function SportsNewsSection() {
       setError(null);
       setWarning(null);
 
-      const response = await fetch("/api/sports-news", { cache: "no-store" });
-      const payload = (await response.json()) as {
-        items?: SportsNewsItem[];
-        warning?: string | null;
-        error?: string;
-      };
+      const endpointCandidates = ["/api/sports-news", "/api/session/sports-news"];
+      let payload: SportsNewsPayload | null = null;
+      let lastEndpointError: Error | null = null;
 
-      if (!response.ok) {
-        throw new Error(payload.error ?? "News konnten nicht geladen werden.");
+      for (const endpoint of endpointCandidates) {
+        try {
+          payload = await fetchNewsFromEndpoint(endpoint);
+          break;
+        } catch (endpointError) {
+          lastEndpointError =
+            endpointError instanceof Error
+              ? endpointError
+              : new Error("Unbekannter Endpoint-Fehler");
+        }
+      }
+
+      if (!payload) {
+        throw lastEndpointError ?? new Error("Kein passender News-Endpoint gefunden.");
       }
 
       setNews(payload.items ?? []);
       setWarning(payload.warning ?? null);
     } catch (loadError) {
-      setError(
+      const message =
         loadError instanceof Error
           ? loadError.message
-          : "Unbekannter Fehler beim Laden der News.",
-      );
+          : "Unbekannter Fehler beim Laden der News.";
+
+      setError(`Sport-News konnten nicht geladen werden. Details: ${message}`);
     } finally {
       setLoading(false);
     }
