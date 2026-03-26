@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
   categories,
+  defaultExercises,
+  defaultWorkouts,
   subcategoriesByCategory,
   type Category,
   type Exercise,
@@ -11,40 +12,50 @@ import {
   type Workout,
 } from "@/lib/training-data";
 import { loadExercises, loadWorkouts, saveExercises, saveWorkouts } from "@/lib/training-storage";
+import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab } from "@/components/training/TrainingTabs";
 
-type TrainingTab = "Workouts" | "Exercises";
+function parseMetricInput(value?: string) {
+  if (!value) return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (normalized === "-") return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-const METRIC_OPTIONS: MetricKey[] = [
-  "reps",
-  "weight",
-  "time",
-  "distance",
-  "makes",
-  "misses",
-  "tries",
-  "intensity",
-];
+function validateMetricTargets(
+  metricKeys: MetricKey[],
+  targets: Partial<Record<MetricKey, string>>,
+) {
+  if (metricKeys.length === 0) {
+    return "Bitte mindestens ein Messfeld auswählen.";
+  }
 
-const METRIC_LABELS: Record<MetricKey, string> = {
-  reps: "Reps",
-  weight: "Gewicht",
-  time: "Zeit",
-  distance: "Distanz",
-  makes: "Makes",
-  misses: "Misses",
-  tries: "Trys",
-  intensity: "Intensität",
-};
+  for (const metric of metricKeys) {
+    const value = parseMetricInput(targets[metric]);
+    if (value === null) {
+      return `Bitte für ${metric} einen gültigen Zahlenwert eingeben.`;
+    }
+    if (value < 0) {
+      return `${metric} darf nicht negativ sein.`;
+    }
+  }
 
-function formatMetricTargets(exercise: Exercise) {
-  if (!exercise.targetByMetric) return "-";
-  return exercise.metricKeys
-    .map((metric) => {
-      const value = exercise.targetByMetric?.[metric];
-      return value !== undefined ? `${METRIC_LABELS[metric]} ${value}` : null;
-    })
-    .filter((entry): entry is string => Boolean(entry))
-    .join(" • ");
+  const tries = parseMetricInput(targets.tries);
+  const reps = parseMetricInput(targets.reps);
+  const makes = parseMetricInput(targets.makes);
+  const misses = parseMetricInput(targets.misses);
+  const base = tries ?? reps;
+
+  if (base !== null) {
+    if (makes !== null && makes > base) return "Makes darf nicht größer als Trys/Reps sein.";
+    if (misses !== null && misses > base) return "Misses darf nicht größer als Trys/Reps sein.";
+    if (makes !== null && misses !== null && makes + misses > base) {
+      return "Makes + Misses darf nicht größer als Trys/Reps sein.";
+    }
+  }
+
+  return null;
 }
 
 export default function TrainingPage() {
@@ -57,8 +68,8 @@ export default function TrainingPage() {
   const [exerciseSubcategory, setExerciseSubcategory] = useState("Shooting");
   const [exerciseSearch, setExerciseSearch] = useState("");
 
-  const [exercises, setExercises] = useState<Exercise[]>(() => loadExercises());
-  const [workouts, setWorkouts] = useState<Workout[]>(() => loadWorkouts());
+  const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
+  const [workouts, setWorkouts] = useState<Workout[]>(defaultWorkouts);
   const hasPersistedExercises = useRef(false);
   const hasPersistedWorkouts = useRef(false);
 
@@ -74,6 +85,32 @@ export default function TrainingPage() {
   const [newExerciseNotes, setNewExerciseNotes] = useState("");
   const [newExerciseMetrics, setNewExerciseMetrics] = useState<MetricKey[]>(["reps"]);
   const [newExerciseTargets, setNewExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
+  const [newExerciseError, setNewExerciseError] = useState<string | null>(null);
+
+  const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
+  const [editWorkoutName, setEditWorkoutName] = useState("");
+  const [editWorkoutCategory, setEditWorkoutCategory] = useState<Category>("Basketball");
+  const [editWorkoutSubcategory, setEditWorkoutSubcategory] = useState("Handles");
+  const [editWorkoutNotes, setEditWorkoutNotes] = useState("");
+  const [editWorkoutExerciseIds, setEditWorkoutExerciseIds] = useState<string[]>([]);
+
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
+  const [editExerciseName, setEditExerciseName] = useState("");
+  const [editExerciseCategory, setEditExerciseCategory] = useState<Category>("Basketball");
+  const [editExerciseSubcategory, setEditExerciseSubcategory] = useState("Handles");
+  const [editExerciseNotes, setEditExerciseNotes] = useState("");
+  const [editExerciseMetrics, setEditExerciseMetrics] = useState<MetricKey[]>(["reps"]);
+  const [editExerciseTargets, setEditExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
+  const [editExerciseError, setEditExerciseError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setExercises(loadExercises());
+      setWorkouts(loadWorkouts());
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!hasPersistedExercises.current) {
@@ -117,10 +154,7 @@ export default function TrainingPage() {
 
   const allExercisesBySearch = useMemo(() => {
     const searchTerm = exerciseSearch.trim().toLowerCase();
-
-    if (!searchTerm) {
-      return exercises;
-    }
+    if (!searchTerm) return exercises;
 
     return exercises.filter((exercise) => {
       return (
@@ -153,6 +187,7 @@ export default function TrainingPage() {
   }
 
   function toggleNewExerciseMetric(metric: MetricKey) {
+    setNewExerciseError(null);
     setNewExerciseMetrics((current) => {
       if (current.includes(metric)) {
         return current.filter((value) => value !== metric);
@@ -196,6 +231,12 @@ export default function TrainingPage() {
     const normalizedName = newExerciseName.trim();
     if (!normalizedName) return;
 
+    const validationError = validateMetricTargets(newExerciseMetrics, newExerciseTargets);
+    if (validationError) {
+      setNewExerciseError(validationError);
+      return;
+    }
+
     setExercises((prev) => [
       ...prev,
       {
@@ -206,9 +247,10 @@ export default function TrainingPage() {
         notes: newExerciseNotes.trim() || undefined,
         metricKeys: newExerciseMetrics.length > 0 ? newExerciseMetrics : ["reps"],
         targetByMetric: Object.fromEntries(
-          Object.entries(newExerciseTargets)
-            .filter(([, value]) => value && value.trim() !== "")
-            .map(([metric, value]) => [metric, Number(value)]),
+          Object.entries(newExerciseTargets).flatMap(([metric, value]) => {
+            const parsed = parseMetricInput(value);
+            return parsed === null ? [] : [[metric, parsed]];
+          }),
         ) as Partial<Record<MetricKey, number>>,
         trackingType: newExerciseMetrics.includes("weight") ? "weight" : "reps",
         targetValue: Number(newExerciseTargets.reps ?? newExerciseTargets.weight ?? "") || undefined,
@@ -219,6 +261,135 @@ export default function TrainingPage() {
     setNewExerciseNotes("");
     setNewExerciseMetrics(["reps"]);
     setNewExerciseTargets({});
+    setNewExerciseError(null);
+  }
+
+  function startEditWorkout(workout: Workout) {
+    setEditingWorkoutId(workout.id);
+    setEditWorkoutName(workout.name);
+    setEditWorkoutCategory(workout.category);
+    setEditWorkoutSubcategory(workout.subcategory);
+    setEditWorkoutNotes(workout.notes ?? "");
+    setEditWorkoutExerciseIds(workout.exerciseIds);
+  }
+
+  function cancelEditWorkout() {
+    setEditingWorkoutId(null);
+    setEditWorkoutExerciseIds([]);
+  }
+
+  function handleEditWorkoutCategoryChange(category: Category) {
+    setEditWorkoutCategory(category);
+    setEditWorkoutSubcategory(subcategoriesByCategory[category][0]);
+    setEditWorkoutExerciseIds([]);
+  }
+
+  function handleUpdateWorkout(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingWorkoutId) return;
+
+    const normalizedName = editWorkoutName.trim();
+    if (!normalizedName) return;
+
+    setWorkouts((prev) =>
+      prev.map((entry) =>
+        entry.id === editingWorkoutId
+          ? {
+              ...entry,
+              name: normalizedName,
+              category: editWorkoutCategory,
+              subcategory: editWorkoutSubcategory,
+              notes: editWorkoutNotes.trim() || undefined,
+              exerciseIds: editWorkoutExerciseIds,
+            }
+          : entry,
+      ),
+    );
+
+    setEditingWorkoutId(null);
+    setEditWorkoutExerciseIds([]);
+  }
+
+  function startEditExercise(exercise: Exercise) {
+    setEditingExerciseId(exercise.id);
+    setEditExerciseName(exercise.name);
+    setEditExerciseCategory(exercise.category);
+    setEditExerciseSubcategory(exercise.subcategory);
+    setEditExerciseNotes(exercise.notes ?? "");
+    setEditExerciseMetrics(exercise.metricKeys);
+    setEditExerciseTargets(
+      Object.fromEntries(
+        Object.entries(exercise.targetByMetric ?? {}).map(([metric, value]) => [metric, String(value)]),
+      ) as Partial<Record<MetricKey, string>>,
+    );
+    setEditExerciseError(null);
+  }
+
+  function cancelEditExercise() {
+    setEditingExerciseId(null);
+    setEditExerciseMetrics(["reps"]);
+    setEditExerciseTargets({});
+    setEditExerciseError(null);
+  }
+
+  function handleEditExerciseCategoryChange(category: Category) {
+    setEditExerciseCategory(category);
+    setEditExerciseSubcategory(subcategoriesByCategory[category][0]);
+  }
+
+  function toggleEditExerciseMetric(metric: MetricKey) {
+    setEditExerciseError(null);
+    setEditExerciseMetrics((current) => {
+      if (current.includes(metric)) {
+        return current.filter((value) => value !== metric);
+      }
+      return [...current, metric];
+    });
+  }
+
+  function handleUpdateExercise(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingExerciseId) return;
+
+    const normalizedName = editExerciseName.trim();
+    if (!normalizedName) return;
+
+    const validationError = validateMetricTargets(editExerciseMetrics, editExerciseTargets);
+    if (validationError) {
+      setEditExerciseError(validationError);
+      return;
+    }
+
+    const metrics = editExerciseMetrics.length > 0 ? editExerciseMetrics : ["reps"];
+    const numericTargets = Object.fromEntries(
+      Object.entries(editExerciseTargets).flatMap(([metric, value]) => {
+        const parsed = parseMetricInput(value);
+        return parsed === null ? [] : [[metric, parsed]];
+      }),
+    ) as Partial<Record<MetricKey, number>>;
+
+    setExercises((prev) =>
+      prev.map((entry) =>
+        entry.id === editingExerciseId
+          ? {
+              ...entry,
+              name: normalizedName,
+              category: editExerciseCategory,
+              subcategory: editExerciseSubcategory,
+              notes: editExerciseNotes.trim() || undefined,
+              metricKeys: metrics,
+              targetByMetric: numericTargets,
+              trackingType: metrics.includes("weight") ? "weight" : "reps",
+              targetValue: Number(editExerciseTargets.reps ?? editExerciseTargets.weight ?? "") || undefined,
+            }
+          : entry,
+      ),
+    );
+
+    setEditingExerciseId(null);
+    setEditExerciseMetrics(["reps"]);
+    setEditExerciseTargets({});
+    setEditExerciseError(null);
   }
 
   return (
@@ -240,7 +411,8 @@ export default function TrainingPage() {
             onCategoryChange={handleWorkoutCategoryChange}
             onSubcategoryChange={setWorkoutSubcategory}
             workouts={workoutsForSelection}
-            availableExercises={workoutExerciseOptions}
+            availableExercises={exercises}
+            createWorkoutExerciseOptions={workoutExerciseOptions}
             newWorkoutName={newWorkoutName}
             onNewWorkoutNameChange={setNewWorkoutName}
             selectedExerciseIds={newWorkoutExerciseIds}
@@ -252,6 +424,20 @@ export default function TrainingPage() {
             newWorkoutNotes={newWorkoutNotes}
             onNewWorkoutNotesChange={setNewWorkoutNotes}
             onCreateWorkout={handleAddWorkout}
+            editingWorkoutId={editingWorkoutId}
+            onStartEditWorkout={startEditWorkout}
+            onCancelEditWorkout={cancelEditWorkout}
+            editWorkoutName={editWorkoutName}
+            onEditWorkoutNameChange={setEditWorkoutName}
+            editWorkoutCategory={editWorkoutCategory}
+            onEditWorkoutCategoryChange={handleEditWorkoutCategoryChange}
+            editWorkoutSubcategory={editWorkoutSubcategory}
+            onEditWorkoutSubcategoryChange={setEditWorkoutSubcategory}
+            editWorkoutNotes={editWorkoutNotes}
+            onEditWorkoutNotesChange={setEditWorkoutNotes}
+            editWorkoutExerciseIds={editWorkoutExerciseIds}
+            onEditWorkoutExerciseIdsChange={setEditWorkoutExerciseIds}
+            onUpdateWorkout={handleUpdateWorkout}
           />
         ) : (
           <ExercisesTab
@@ -280,437 +466,29 @@ export default function TrainingPage() {
               setNewExerciseTargets((current) => ({ ...current, [metric]: value }))
             }
             onCreateExercise={handleAddExercise}
+            editingExerciseId={editingExerciseId}
+            onStartEditExercise={startEditExercise}
+            onCancelEditExercise={cancelEditExercise}
+            editExerciseName={editExerciseName}
+            onEditExerciseNameChange={setEditExerciseName}
+            editExerciseCategory={editExerciseCategory}
+            onEditExerciseCategoryChange={handleEditExerciseCategoryChange}
+            editExerciseSubcategory={editExerciseSubcategory}
+            onEditExerciseSubcategoryChange={setEditExerciseSubcategory}
+            editExerciseNotes={editExerciseNotes}
+            onEditExerciseNotesChange={setEditExerciseNotes}
+            editExerciseMetrics={editExerciseMetrics}
+            onToggleEditExerciseMetric={toggleEditExerciseMetric}
+            editExerciseTargets={editExerciseTargets}
+            onEditExerciseTargetChange={(metric, value) =>
+              setEditExerciseTargets((current) => ({ ...current, [metric]: value }))
+            }
+            onUpdateExercise={handleUpdateExercise}
+            newExerciseError={newExerciseError}
+            editExerciseError={editExerciseError}
           />
         )}
       </div>
     </main>
-  );
-}
-
-type WorkoutsTabProps = {
-  categories: Category[];
-  subcategories: Record<Category, string[]>;
-  selectedCategory: Category;
-  selectedSubcategory: string;
-  onCategoryChange: (category: Category) => void;
-  onSubcategoryChange: (subcategory: string) => void;
-  workouts: Workout[];
-  availableExercises: Exercise[];
-  newWorkoutName: string;
-  onNewWorkoutNameChange: (value: string) => void;
-  selectedExerciseIds: string[];
-  onSelectedExerciseIdsChange: (value: string[]) => void;
-  newWorkoutCategory: Category;
-  onNewWorkoutCategoryChange: (value: Category) => void;
-  newWorkoutSubcategory: string;
-  onNewWorkoutSubcategoryChange: (value: string) => void;
-  newWorkoutNotes: string;
-  onNewWorkoutNotesChange: (value: string) => void;
-  onCreateWorkout: (event: React.SyntheticEvent<HTMLFormElement>) => void;
-};
-
-function WorkoutsTab({
-  categories,
-  subcategories,
-  selectedCategory,
-  selectedSubcategory,
-  onCategoryChange,
-  onSubcategoryChange,
-  workouts,
-  availableExercises,
-  newWorkoutName,
-  onNewWorkoutNameChange,
-  selectedExerciseIds,
-  onSelectedExerciseIdsChange,
-  newWorkoutCategory,
-  onNewWorkoutCategoryChange,
-  newWorkoutSubcategory,
-  onNewWorkoutSubcategoryChange,
-  newWorkoutNotes,
-  onNewWorkoutNotesChange,
-  onCreateWorkout,
-}: WorkoutsTabProps) {
-  return (
-    <section className="grid gap-4 lg:grid-cols-2">
-      <div className="space-y-4">
-        <FilterSection
-          title="1) Kategorie"
-          options={categories}
-          selectedValue={selectedCategory}
-          onSelect={onCategoryChange}
-        />
-
-        <FilterSection
-          title="2) Unterkategorie"
-          options={subcategories[selectedCategory]}
-          selectedValue={selectedSubcategory}
-          onSelect={onSubcategoryChange}
-        />
-
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-2xl font-semibold">3) Workout wählen</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Target-Score (pro Exercise): <span className="font-semibold text-white">80 + Progression</span>
-          </p>
-
-          <div className="mt-4 space-y-2">
-            {workouts.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-zinc-700 p-3 text-zinc-400">
-                Noch kein Workout für diese Auswahl vorhanden.
-              </p>
-            ) : (
-              workouts.map((workout) => (
-                <div key={workout.id} className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3">
-                  <p className="text-xl font-semibold">{workout.name}</p>
-                  {workout.notes ? <p className="mt-1 text-xs text-zinc-500">{workout.notes}</p> : null}
-                  <div className="mt-1 flex items-center justify-between gap-3">
-                    <p className="text-sm text-zinc-400">Level {workout.level}</p>
-                    <Link
-                      href={`/workouts/${workout.id}`}
-                      className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
-                    >
-                      Workout starten
-                    </Link>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-      </div>
-
-      <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-        <h3 className="text-2xl font-semibold">Neues Workout erstellen</h3>
-
-        <form className="mt-3 space-y-3" onSubmit={onCreateWorkout}>
-          <FilterSection
-            title="Kategorie"
-            options={categories}
-            selectedValue={newWorkoutCategory}
-            onSelect={onNewWorkoutCategoryChange}
-          />
-
-          <FilterSection
-            title="Unterkategorie"
-            options={subcategories[newWorkoutCategory]}
-            selectedValue={newWorkoutSubcategory}
-            onSelect={onNewWorkoutSubcategoryChange}
-          />
-
-          <input
-            value={newWorkoutName}
-            onChange={(event) => onNewWorkoutNameChange(event.target.value)}
-            placeholder="Workout Name"
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-          />
-          <textarea
-            value={newWorkoutNotes}
-            onChange={(event) => onNewWorkoutNotesChange(event.target.value)}
-            placeholder="Notizen zum Workout"
-            rows={2}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-          />
-
-          <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            {availableExercises.length === 0 ? (
-              <p className="text-sm text-zinc-400">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
-            ) : (
-              availableExercises.map((exercise) => {
-                const checked = selectedExerciseIds.includes(exercise.id);
-
-                return (
-                  <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm">
-                    <span>{exercise.name}</span>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        onSelectedExerciseIdsChange(
-                          checked
-                            ? selectedExerciseIds.filter((id) => id !== exercise.id)
-                            : [...selectedExerciseIds, exercise.id],
-                        )
-                      }
-                    />
-                  </label>
-                );
-              })
-            )}
-          </div>
-
-          <button type="submit" className="w-full rounded-xl bg-indigo-600 px-4 py-2 font-semibold">
-            Workout hinzufügen
-          </button>
-        </form>
-      </section>
-    </section>
-  );
-}
-
-type ExercisesTabProps = {
-  categories: Category[];
-  subcategories: Record<Category, string[]>;
-  selectedCategory: Category;
-  selectedSubcategory: string;
-  onCategoryChange: (category: Category) => void;
-  onSubcategoryChange: (subcategory: string) => void;
-  visibleExercises: Exercise[];
-  searchableExercises: Exercise[];
-  exerciseSearch: string;
-  onExerciseSearchChange: (value: string) => void;
-  newExerciseName: string;
-  onNewExerciseNameChange: (value: string) => void;
-  newExerciseCategory: Category;
-  onNewExerciseCategoryChange: (category: Category) => void;
-  newExerciseSubcategory: string;
-  onNewExerciseSubcategoryChange: (value: string) => void;
-  newExerciseNotes: string;
-  onNewExerciseNotesChange: (value: string) => void;
-  newExerciseMetrics: MetricKey[];
-  onToggleNewExerciseMetric: (metric: MetricKey) => void;
-  newExerciseTargets: Partial<Record<MetricKey, string>>;
-  onNewExerciseTargetChange: (metric: MetricKey, value: string) => void;
-  onCreateExercise: (event: React.SyntheticEvent<HTMLFormElement>) => void;
-};
-
-function ExercisesTab({
-  categories,
-  subcategories,
-  selectedCategory,
-  selectedSubcategory,
-  onCategoryChange,
-  onSubcategoryChange,
-  visibleExercises,
-  searchableExercises,
-  exerciseSearch,
-  onExerciseSearchChange,
-  newExerciseName,
-  onNewExerciseNameChange,
-  newExerciseCategory,
-  onNewExerciseCategoryChange,
-  newExerciseSubcategory,
-  onNewExerciseSubcategoryChange,
-  newExerciseNotes,
-  onNewExerciseNotesChange,
-  newExerciseMetrics,
-  onToggleNewExerciseMetric,
-  newExerciseTargets,
-  onNewExerciseTargetChange,
-  onCreateExercise,
-}: ExercisesTabProps) {
-  return (
-    <section className="grid gap-4 lg:grid-cols-2">
-      <div className="space-y-4">
-        <FilterSection
-          title="1) Kategorie"
-          options={categories}
-          selectedValue={selectedCategory}
-          onSelect={onCategoryChange}
-        />
-
-        <FilterSection
-          title="2) Unterkategorie"
-          options={subcategories[selectedCategory]}
-          selectedValue={selectedSubcategory}
-          onSelect={onSubcategoryChange}
-        />
-
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-xl font-semibold">Exercises in Auswahl</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            {selectedCategory} • {selectedSubcategory}
-          </p>
-
-          <div className="mt-4 space-y-2">
-            {visibleExercises.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-zinc-700 p-3 text-zinc-400">
-                Keine Exercises für diese Auswahl.
-              </p>
-            ) : (
-              visibleExercises.map((exercise) => (
-                <ExerciseCard key={exercise.id} exercise={exercise} href={`/exercises/${exercise.id}`} />
-              ))
-            )}
-          </div>
-        </section>
-      </div>
-
-      <div className="space-y-4">
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-xl font-semibold">Alle Exercises suchen</h2>
-          <input
-            value={exerciseSearch}
-            onChange={(event) => onExerciseSearchChange(event.target.value)}
-            placeholder="Exercise / Kategorie / Unterkategorie..."
-            className="mt-3 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-          />
-
-          <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
-            {searchableExercises.map((exercise) => (
-              <ExerciseCard key={exercise.id} exercise={exercise} href={`/exercises/${exercise.id}`} />
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h3 className="text-xl font-semibold">Neue Exercise hinzufügen</h3>
-          <form className="mt-3 space-y-3" onSubmit={onCreateExercise}>
-            <FilterSection
-              title="Kategorie"
-              options={categories}
-              selectedValue={newExerciseCategory}
-              onSelect={onNewExerciseCategoryChange}
-            />
-
-            <FilterSection
-              title="Unterkategorie"
-              options={subcategories[newExerciseCategory]}
-              selectedValue={newExerciseSubcategory}
-              onSelect={onNewExerciseSubcategoryChange}
-            />
-
-            <input
-              value={newExerciseName}
-              onChange={(event) => onNewExerciseNameChange(event.target.value)}
-              placeholder="Exercise Name"
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-            />
-            <textarea
-              value={newExerciseNotes}
-              onChange={(event) => onNewExerciseNotesChange(event.target.value)}
-              placeholder="Notizen zur Exercise"
-              rows={2}
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-            />
-
-            <div>
-              <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
-              <div className="flex flex-wrap gap-2">
-                {METRIC_OPTIONS.map((metric) => {
-                  const active = newExerciseMetrics.includes(metric);
-                  return (
-                    <button
-                      key={metric}
-                      type="button"
-                      onClick={() => onToggleNewExerciseMetric(metric)}
-                      className={`rounded-full border px-3 py-1 text-sm ${
-                        active
-                          ? "border-emerald-400 bg-emerald-500/20 text-emerald-300"
-                          : "border-zinc-700 text-zinc-300"
-                      }`}
-                    >
-                      {METRIC_LABELS[metric]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {newExerciseMetrics.length > 0 ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {newExerciseMetrics.map((metric) => (
-                  <input
-                    key={metric}
-                    type="number"
-                    value={newExerciseTargets[metric] ?? ""}
-                    onChange={(event) => onNewExerciseTargetChange(metric, event.target.value)}
-                    placeholder={`Ziel ${METRIC_LABELS[metric]}`}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
-            )}
-
-            <button type="submit" className="w-full rounded-xl bg-indigo-600 px-4 py-2 font-semibold">
-              Exercise hinzufügen
-            </button>
-          </form>
-        </section>
-      </div>
-    </section>
-  );
-}
-
-function ExerciseCard({ exercise, href }: { exercise: Exercise; href?: string }) {
-  return (
-    <article className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2">
-      <p className="font-semibold">{exercise.name}</p>
-      <p className="text-sm text-zinc-400">
-        {exercise.category} • {exercise.subcategory} • {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
-      </p>
-      <p className="text-xs text-zinc-500">
-        Ziele: {formatMetricTargets(exercise)}
-      </p>
-      {exercise.notes ? <p className="text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
-      {href ? (
-        <Link
-          href={href}
-          className="mt-2 inline-flex rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
-        >
-          Exercise starten
-        </Link>
-      ) : null}
-    </article>
-  );
-}
-
-type FilterSectionProps<T extends string> = {
-  title: string;
-  options: T[];
-  selectedValue: T;
-  onSelect: (value: T) => void;
-};
-
-function FilterSection<T extends string>({ title, options, selectedValue, onSelect }: FilterSectionProps<T>) {
-  return (
-    <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-      <h2 className="text-xl font-semibold">{title}</h2>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {options.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => onSelect(option)}
-            className={`rounded-xl border px-3 py-2 text-base transition ${
-              selectedValue === option
-                ? "border-indigo-500 bg-indigo-900/40 text-white"
-                : "border-zinc-700 bg-zinc-950 text-zinc-300"
-            }`}
-          >
-            {option}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-type TabSwitcherProps = {
-  activeTab: TrainingTab;
-  onTabChange: (tab: TrainingTab) => void;
-};
-
-function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
-  return (
-    <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-2">
-      <div className="grid grid-cols-2 gap-2">
-        {(["Workouts", "Exercises"] as TrainingTab[]).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => onTabChange(tab)}
-            className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-              activeTab === tab
-                ? "border border-indigo-500 bg-indigo-900/40 text-white"
-                : "border border-zinc-700 bg-zinc-950 text-zinc-400"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-    </section>
   );
 }

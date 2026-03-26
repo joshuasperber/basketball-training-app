@@ -3,6 +3,7 @@ export type Category = "Basketball" | "Gym" | "Home";
 export type Exercise = {
   id: string;
   name: string;
+  durationMin: number;
   category: Category;
   subcategory: string;
   notes?: string;
@@ -50,15 +51,15 @@ export const subcategoriesByCategory: Record<Category, string[]> = {
 };
 
 export const defaultExercises: Exercise[] = [
-  { id: "ex-1", name: "Cone Handles", category: "Basketball", subcategory: "Handles", notes: "Low and fast", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80 },
-  { id: "ex-2", name: "Mikan Finishes", category: "Basketball", subcategory: "Finishing", notes: "Beidseitig abschließen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 80, makes: 60 }, trackingType: "reps", targetValue: 60 },
-  { id: "ex-3", name: "Shooting 1", category: "Basketball", subcategory: "Shooting", notes: "Nur swishes zählen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 100, makes: 80 }, trackingType: "reps", targetValue: 80 },
-  { id: "ex-4", name: "Shooting 2", category: "Basketball", subcategory: "Shooting", notes: "Spot-up 5 Spots", metricKeys: ["tries", "makes"], targetByMetric: { tries: 120, makes: 90 }, trackingType: "reps", targetValue: 90 },
-  { id: "ex-5", name: "Bench Press", category: "Gym", subcategory: "Push", notes: "Kontrollierte Exzentrik", metricKeys: ["weight", "reps"], targetByMetric: { weight: 70, reps: 8 }, trackingType: "weight", targetValue: 70 },
-  { id: "ex-6", name: "Barbell Row", category: "Gym", subcategory: "Pull", notes: "Schulterblätter aktiv", metricKeys: ["weight", "reps"], targetByMetric: { weight: 60, reps: 10 }, trackingType: "weight", targetValue: 60 },
-  { id: "ex-7", name: "Back Squat", category: "Gym", subcategory: "Legs", notes: "Tiefe sauber halten", metricKeys: ["weight", "reps"], targetByMetric: { weight: 90, reps: 6 }, trackingType: "weight", targetValue: 90 },
-  { id: "ex-8", name: "Cable Crunch", category: "Gym", subcategory: "Core", notes: "Rumpfspannung", metricKeys: ["weight", "reps"], targetByMetric: { weight: 35, reps: 15 }, trackingType: "weight", targetValue: 35 },
-  { id: "ex-9", name: "Dead Bug", category: "Home", subcategory: "Recovery", notes: "Langsam und kontrolliert", metricKeys: ["reps", "time"], targetByMetric: { reps: 20, time: 45 }, trackingType: "reps", targetValue: 20 },
+  { id: "ex-1", name: "Cone Handles", durationMin: 12, category: "Basketball", subcategory: "Handles", notes: "Low and fast", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80 },
+  { id: "ex-2", name: "Mikan Finishes", durationMin: 12, category: "Basketball", subcategory: "Finishing", notes: "Beidseitig abschließen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 80, makes: 60 }, trackingType: "reps", targetValue: 60 },
+  { id: "ex-3", name: "Shooting 1", durationMin: 18, category: "Basketball", subcategory: "Shooting", notes: "Nur swishes zhlen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 100, makes: 80 }, trackingType: "reps", targetValue: 80 },
+  { id: "ex-4", name: "Shooting 2", durationMin: 20, category: "Basketball", subcategory: "Shooting", notes: "Spot-up 5 Spots", metricKeys: ["tries", "makes"], targetByMetric: { tries: 120, makes: 90 }, trackingType: "reps", targetValue: 90 },
+  { id: "ex-5", name: "Bench Press", durationMin: 15, category: "Gym", subcategory: "Push", notes: "Kontrollierte Exzentrik", metricKeys: ["weight", "reps"], targetByMetric: { weight: 70, reps: 8 }, trackingType: "weight", targetValue: 70 },
+  { id: "ex-6", name: "Barbell Row", durationMin: 15, category: "Gym", subcategory: "Pull", notes: "Schulterblätter aktiv", metricKeys: ["weight", "reps"], targetByMetric: { weight: 60, reps: 10 }, trackingType: "weight", targetValue: 60 },
+  { id: "ex-7", name: "Back Squat", durationMin: 18, category: "Gym", subcategory: "Legs", notes: "Tiefe sauber halten", metricKeys: ["weight", "reps"], targetByMetric: { weight: 90, reps: 6 }, trackingType: "weight", targetValue: 90 },
+  { id: "ex-8", name: "Cable Crunch", durationMin: 10, category: "Gym", subcategory: "Core", notes: "Rumpfspannung", metricKeys: ["weight", "reps"], targetByMetric: { weight: 35, reps: 15 }, trackingType: "weight", targetValue: 35 },
+  { id: "ex-9", name: "Dead Bug", durationMin: 10, category: "Home", subcategory: "Recovery", notes: "Langsam und kontrolliert", metricKeys: ["reps", "time"], targetByMetric: { reps: 20, time: 45 }, trackingType: "reps", targetValue: 20 },
 ];
 
 export const defaultWorkouts: Workout[] = [
