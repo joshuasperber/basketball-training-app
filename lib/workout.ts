@@ -1,5 +1,5 @@
 export type WorkoutStatus = "not_started" | "in_progress" | "completed";
-export type SportType = "Gym" | "Basketball";
+export type SportType = "Gym" | "Basketball" | "Home";
 
 
 export type WorkoutSet = {

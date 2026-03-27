@@ -19,6 +19,8 @@ export type WorkoutSessionEntry = {
   dateISO: string;
   workoutId: string;
   workoutName: string;
+  workoutCategory?: string;
+  workoutSubcategory?: string;
   logs: WorkoutSessionLog[];
 };
 

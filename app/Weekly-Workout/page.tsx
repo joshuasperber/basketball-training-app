@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { type Exercise, type Workout } from "@/lib/training-data";
+import { type Category, type Exercise, type Workout } from "@/lib/training-data";
+import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import { WEEKLY_WORKOUT_PLAN, getTodayWorkoutPlan } from "@/lib/workout";
 import { buildWeeklyPlan, type DayKey, type WeekConfig } from "@/lib/planner";
@@ -47,9 +48,12 @@ type PlannedUiEntry = {
 };
 
 type SuggestedWorkout = {
+  workoutId?: string;
   title: string;
   durationMin: number;
   notes: string;
+  sport: string;
+  subcategory: string;
 };
 
 function roundUpToNearestFive(value: number) {
@@ -65,50 +69,95 @@ function computeWorkoutDuration(workout: Workout, exercisesById: Record<string, 
   return roundUpToNearestFive(rawDuration * 1.1);
 }
 
+function buildFallbackSuggestion(mode: string, minutes: number): SuggestedWorkout | null {
+  if (mode === "none" || mode === "recovery" || minutes <= 0) {
+    return {
+      title: "Kein Workout geplant",
+      durationMin: 0,
+      notes: "0 Minuten angesetzt.",
+      sport: "-",
+      subcategory: "-",
+    };
+  }
+
+  if (mode === "game") {
+    return {
+      title: "Spieltag",
+      durationMin: minutes,
+      notes: "Nur Match-Fokus, kein zusätzliches Workout.",
+      sport: "Basketball",
+      subcategory: "Game",
+    };
+  }
+
+  return null;
+}
+
 function selectBestWorkout(
   mode: string,
   targetMinutes: number,
   workouts: Workout[],
   exercisesById: Record<string, Exercise>,
+  freshnessMapByCategory: Record<Category, Record<string, number>>,
+  usedWorkoutIds: Set<string>,
+  weeklySubcategoryUsage: Record<Category, Record<string, number>>,
 ): SuggestedWorkout {
-  if (mode === "game-training") {
+  const targetWithExtra = mode === "game-training" ? targetMinutes + 30 : targetMinutes;
+  const fallback = buildFallbackSuggestion(mode, targetWithExtra);
+  if (fallback) return fallback;
+
+  const desiredCategory: Category =
+    mode === "gym" ? "Gym" : "Basketball";
+
+  const categoryFreshness = freshnessMapByCategory[desiredCategory] ?? {};
+  const subcategoryRank = (subcategory: string) => categoryFreshness[subcategory] ?? 0;
+  const weeklyUsage = weeklySubcategoryUsage[desiredCategory] ?? {};
+  const subcategoryWeeklyCount = (subcategory: string) => weeklyUsage[subcategory] ?? 0;
+
+  const filteredByCategory = workouts.filter((workout) => workout.category === desiredCategory);
+  if (filteredByCategory.length === 0) {
     return {
-      title: "Trainingsspiel + eigenes Training",
-      durationMin: 90,
-      notes: "60 Min Trainingsspiel + 30 Min eigenes Training",
+      title: "Kein passendes Workout gefunden",
+      durationMin: roundUpToNearestFive(targetWithExtra),
+      notes: "Bitte Workout für diese Kategorie erstellen.",
+      sport: desiredCategory,
+      subcategory: desiredCategory,
     };
   }
 
-  const filtered = workouts
-    .filter((workout) => {
-      if (mode === "gym") return workout.category === "Gym";
-      if (mode === "basketball") return workout.category === "Basketball";
-      return true;
-    })
+  const filtered = filteredByCategory
     .map((workout) => ({
       workout,
       duration: computeWorkoutDuration(workout, exercisesById),
     }));
+  const unusedPool = filtered.filter((entry) => !usedWorkoutIds.has(entry.workout.id));
+  const pool = unusedPool.length > 0 ? unusedPool : filtered;
 
-  if (filtered.length === 0) {
-    return {
-      title: "Kein passendes Workout gefunden",
-      durationMin: roundUpToNearestFive(targetMinutes),
-      notes: "Bitte Workout für diese Kategorie erstellen.",
-    };
-  }
+  const sortedPool = [...pool].sort((a, b) => {
+    const weeklyDiff = subcategoryWeeklyCount(a.workout.subcategory) - subcategoryWeeklyCount(b.workout.subcategory);
+    if (weeklyDiff !== 0) return weeklyDiff;
 
-  const withinTolerance = filtered.filter((entry) => Math.abs(entry.duration - targetMinutes) <= 15);
-  const pool = withinTolerance.length > 0 ? withinTolerance : filtered;
+    const freshnessDiff = subcategoryRank(a.workout.subcategory) - subcategoryRank(b.workout.subcategory);
+    if (freshnessDiff !== 0) return freshnessDiff;
 
-  const best = pool.reduce((previous, current) =>
-    Math.abs(current.duration - targetMinutes) < Math.abs(previous.duration - targetMinutes) ? current : previous,
-  );
+    return Math.abs(a.duration - targetWithExtra) - Math.abs(b.duration - targetWithExtra);
+  });
+  const best = sortedPool[0];
+  const modeLabel = mode === "game-training" ? "Trainingsspiel + 30 Min Zusatztraining" : "Direktes Training";
+
+  usedWorkoutIds.add(best.workout.id);
+  weeklySubcategoryUsage[desiredCategory] = {
+    ...weeklySubcategoryUsage[desiredCategory],
+    [best.workout.subcategory]: subcategoryWeeklyCount(best.workout.subcategory) + 1,
+  };
 
   return {
+    workoutId: best.workout.id,
     title: best.workout.name,
     durationMin: best.duration,
-    notes: `Match zu ${targetMinutes} Min (${best.workout.category} • ${best.workout.subcategory})`,
+    notes: `${modeLabel}: Match zu ${targetWithExtra} Min (${best.workout.category} • ${best.workout.subcategory})`,
+    sport: best.workout.category,
+    subcategory: best.workout.subcategory,
   };
 }
 
@@ -137,10 +186,41 @@ export default function WeeklyWorkoutPage() {
         const exercises = loadExercises();
         const workouts = loadWorkouts();
         const exercisesById = Object.fromEntries(exercises.map((exercise) => [exercise.id, exercise]));
+        const sessions = getWorkoutSessions();
+        const workoutLookup = new Map(workouts.map((workout) => [workout.id, workout]));
+        const freshnessMapByCategory = sessions.reduce(
+          (accumulator, session, index) => {
+            const workout = workoutLookup.get(session.workoutId);
+            const category = (workout?.category ?? session.workoutCategory) as Category | undefined;
+            const subcategory = workout?.subcategory ?? session.workoutSubcategory;
+            if (!category || !subcategory) return accumulator;
+            const next = accumulator[category] ?? {};
+            if (next[subcategory] === undefined) {
+              next[subcategory] = index + 1;
+            }
+            accumulator[category] = next;
+            return accumulator;
+          },
+          {} as Record<Category, Record<string, number>>,
+        );
+        const usedWorkoutIds = new Set<string>();
+        const weeklySubcategoryUsage: Record<Category, Record<string, number>> = {
+          Basketball: {},
+          Gym: {},
+          Home: {},
+        };
         const suggested = Object.fromEntries(
           computed.map((entry) => [
             entry.day,
-            selectBestWorkout(entry.sessionType, entry.minutes, workouts, exercisesById),
+            selectBestWorkout(
+              entry.sessionType,
+              entry.minutes,
+              workouts,
+              exercisesById,
+              freshnessMapByCategory,
+              usedWorkoutIds,
+              weeklySubcategoryUsage,
+            ),
           ]),
         ) as Record<DayKey, SuggestedWorkout>;
 
@@ -166,9 +246,15 @@ export default function WeeklyWorkoutPage() {
 
       <section className="mt-6 rounded-2xl border border-green-800 bg-green-950/50 p-4">
         <p className="text-xs uppercase tracking-wide text-green-300">Heute</p>
-        <h2 className="mt-2 text-xl font-semibold">{todayWorkout.title}</h2>
-        <p className="mt-1 text-sm text-green-200">Sport: {todayWorkout.sport}</p>
-        <p className="text-sm text-green-200">Unterkategorie: {todayWorkout.subcategory}</p>
+        <h2 className="mt-2 text-xl font-semibold">
+          {suggestionsByDay?.[dayByIndex[todayIndex]]?.title ?? todayWorkout.title}
+        </h2>
+        <p className="mt-1 text-sm text-green-200">
+          Sport: {suggestionsByDay?.[dayByIndex[todayIndex]]?.sport ?? todayWorkout.sport}
+        </p>
+        <p className="text-sm text-green-200">
+          Unterkategorie: {suggestionsByDay?.[dayByIndex[todayIndex]]?.subcategory ?? todayWorkout.subcategory}
+        </p>
         {plannedToday ? (
           <p className="mt-2 text-sm text-green-100">
             Profil-Plan: {plannedToday.sessionType} • {plannedToday.intensity} • {plannedToday.minutes} Min
@@ -207,9 +293,11 @@ export default function WeeklyWorkoutPage() {
                 ) : null}
               </div>
 
-              <p className="mt-2 text-lg font-medium">{workout.title}</p>
-              <p className="text-sm text-zinc-400">Sport: {workout.sport}</p>
-              <p className="text-sm text-zinc-400">Unterkategorie: {workout.subcategory}</p>
+              <p className="mt-2 text-lg font-medium">{suggestedWorkout?.title ?? workout.title}</p>
+              <p className="text-sm text-zinc-400">Sport: {suggestedWorkout?.sport ?? workout.sport}</p>
+              <p className="text-sm text-zinc-400">
+                Unterkategorie: {suggestedWorkout?.subcategory ?? workout.subcategory}
+              </p>
               {profilePlan ? (
                 <p className="mt-2 text-sm text-emerald-300">
                   Profil-Plan: {profilePlan.sessionType} • {profilePlan.intensity} • {profilePlan.minutes} Min
@@ -227,11 +315,15 @@ export default function WeeklyWorkoutPage() {
                 Workout ausführen
               </Link>
 
-              <ul className="mt-3 list-inside list-disc text-sm text-zinc-300">
-                {workout.exercises.map((exercise) => (
-                  <li key={`${workout.id}-${exercise.name}`}>{exercise.name}</li>
-                ))}
-              </ul>
+              {suggestedWorkout ? (
+                <p className="mt-2 text-xs text-zinc-500">{suggestedWorkout.notes}</p>
+              ) : (
+                <ul className="mt-3 list-inside list-disc text-sm text-zinc-300">
+                  {workout.exercises.map((exercise) => (
+                    <li key={`${workout.id}-${exercise.name}`}>{exercise.name}</li>
+                  ))}
+                </ul>
+              )}
             </article>
           );
         })}

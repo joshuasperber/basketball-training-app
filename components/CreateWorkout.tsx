@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 export default function CreateExercise() {
   const [name, setName] = useState("");
   const [trackingType, setTrackingType] = useState("makes");
+  const [durationMin, setDurationMin] = useState("10");
 
   const handleCreate = async () => {
     await supabase.from("exercises").insert([
@@ -13,6 +14,7 @@ export default function CreateExercise() {
         name,
         category: "basketball",
         tracking_type: trackingType,
+        default_duration_min: Math.max(1, Number(durationMin) || 10),
       },
     ]);
 
@@ -37,6 +39,14 @@ export default function CreateExercise() {
         <option value="reps_weight">Gym</option>
         <option value="time">Time</option>
       </select>
+
+      <input
+        type="number"
+        min={1}
+        placeholder="Dauer in Minuten"
+        value={durationMin}
+        onChange={(e) => setDurationMin(e.target.value)}
+      />
 
       <button onClick={handleCreate}>Create</button>
     </div>

@@ -144,6 +144,8 @@ export default function WorkoutExecutionPage() {
       dateISO: nowISO,
       workoutId: workout.id,
       workoutName: workout.name,
+      workoutCategory: workout.category,
+      workoutSubcategory: workout.subcategory,
       logs: normalizedLogs,
     });
 

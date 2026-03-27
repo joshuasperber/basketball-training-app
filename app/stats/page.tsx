@@ -3,13 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
 import { getWorkoutSessions } from "@/lib/session-storage";
-import { loadWorkouts } from "@/lib/training-storage";
+import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 
 type CategorySlice = {
   label: string;
   value: number;
   color: string;
 };
+
+type SportCategory = "Basketball" | "Gym" | "Home";
 
 type SkillCard = {
   name: string;
@@ -45,18 +47,31 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
     return baseHistory;
   }
 
-  const workoutLookup = new Map(loadWorkouts().map((workout) => [workout.id, workout]));
+  const exercises = loadExercises();
+  const workouts = loadWorkouts();
+  const workoutLookup = new Map(workouts.map((workout) => [workout.id, workout]));
+  const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const sessionHistory = getWorkoutSessions().map((session) => {
     const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
     const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
     const workout = workoutLookup.get(session.workoutId);
+    const fallbackExercise = session.logs
+      .map((log) => exerciseLookup.get(log.exerciseId))
+      .find((exercise) => exercise !== undefined);
+    const resolvedSport =
+      (workout?.category ?? session.workoutCategory ?? fallbackExercise?.category ?? "Basketball") as SportCategory;
+    const resolvedSubcategory =
+      workout?.subcategory ??
+      session.workoutSubcategory ??
+      fallbackExercise?.subcategory ??
+      (resolvedSport === "Gym" ? "Gym" : "Basketball");
 
     return {
       id: session.id,
       date: session.dateISO.slice(0, 10),
       title: session.workoutName,
-      sport: workout?.category === "Gym" ? ("Gym" as const) : ("Basketball" as const),
-      subcategory: workout?.subcategory ?? "Custom",
+      sport: resolvedSport,
+      subcategory: resolvedSubcategory,
       totalSets,
       totalReps,
       totalVolumeKg: 0,
@@ -140,6 +155,18 @@ function buildSlices(entries: CompletedWorkoutHistoryEntry[], by: "sport" | "sub
     .sort((a, b) => b.value - a.value);
 }
 
+function buildCategorySubcategorySlices(entries: CompletedWorkoutHistoryEntry[]) {
+  const sports: SportCategory[] = ["Basketball", "Gym", "Home"];
+  return sports.reduce(
+    (accumulator, sport) => {
+      const filtered = entries.filter((entry) => entry.sport === sport);
+      accumulator[sport] = buildSlices(filtered, "subcategory");
+      return accumulator;
+    },
+    {} as Record<SportCategory, CategorySlice[]>,
+  );
+}
+
 function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) {
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -196,7 +223,7 @@ export default function StatsPage() {
   const totalVolume = history.reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
 
   const sportSlices = useMemo(() => buildSlices(history, "sport"), [history]);
-  const categorySlices = useMemo(() => buildSlices(history, "subcategory"), [history]);
+  const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(history), [history]);
   const skillCards = useMemo(() => buildSkillCards(history), [history]);
   const overallScore = skillCards.length
     ? Math.round(skillCards.reduce((sum, skill) => sum + skill.score, 0) / skillCards.length)
@@ -235,8 +262,10 @@ export default function StatsPage() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <PieCard title="Gym vs Basketball" slices={sportSlices} />
-        <PieCard title="Unterkategorien (Handles, Shooting, ... )" slices={categorySlices} />
+        <PieCard title="Kategorien Vergleich (Basketball / Gym / Home)" slices={sportSlices} />
+        <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball} />
+        <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym} />
+        <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home} />
       </div>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">

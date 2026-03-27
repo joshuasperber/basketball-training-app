@@ -7,6 +7,7 @@ export default function CreateExercisePage() {
   const [name, setName] = useState("");
   const [type, setType] = useState("makes");
   const [category, setCategory] = useState("basketball");
+  const [durationMin, setDurationMin] = useState("10");
 
   const handleCreate = async () => {
     if (!name) {
@@ -19,6 +20,7 @@ export default function CreateExercisePage() {
         name,
         category,
         tracking_type: type,
+        default_duration_min: Math.max(1, Number(durationMin) || 10),
       },
     ]);
 
@@ -31,6 +33,7 @@ export default function CreateExercisePage() {
       setName("");
       setType("makes");
       setCategory("basketball");
+      setDurationMin("10");
     }
   };
 
@@ -43,6 +46,15 @@ export default function CreateExercisePage() {
         placeholder="Name (z.B. Hook Shot)"
         value={name}
         onChange={(e) => setName(e.target.value)}
+      />
+
+      <input
+        className="w-full p-2 bg-zinc-800 rounded"
+        type="number"
+        min={1}
+        placeholder="Dauer in Minuten (z.B. 15)"
+        value={durationMin}
+        onChange={(e) => setDurationMin(e.target.value)}
       />
 
       {/* CATEGORY */}
