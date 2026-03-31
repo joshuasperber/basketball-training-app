@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
+import { detectOverload, getLevelFromXp, getProgressionState, getXpHistory, getXpForNextLevel } from "@/lib/level-system";
 
 type CategorySlice = {
   label: string;
@@ -198,10 +199,25 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
 
 export default function StatsPage() {
   const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
+  const [totalXp, setTotalXp] = useState(0);
+  const [deloadActive, setDeloadActive] = useState(false);
+  const [xpHistoryCount, setXpHistoryCount] = useState(0);
+  const [overloadRatio, setOverloadRatio] = useState(1);
+  const [thisWeekXp, setThisWeekXp] = useState(0);
+  const [lastWeekXp, setLastWeekXp] = useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setHistory(loadCombinedHistory());
+      const progression = getProgressionState();
+      const xpHistory = getXpHistory();
+      const overload = detectOverload(xpHistory);
+      setTotalXp(progression.totalXp);
+      setDeloadActive(progression.deloadActive);
+      setXpHistoryCount(xpHistory.length);
+      setOverloadRatio(overload.ratio);
+      setThisWeekXp(overload.currentWeekXp);
+      setLastWeekXp(overload.previousWeekXp);
     }, 0);
 
     return () => window.clearTimeout(timer);
@@ -225,9 +241,16 @@ export default function StatsPage() {
   const sportSlices = useMemo(() => buildSlices(history, "sport"), [history]);
   const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(history), [history]);
   const skillCards = useMemo(() => buildSkillCards(history), [history]);
+  const sortedHistory = useMemo(
+    () => [...history].sort((a, b) => (a.date < b.date ? 1 : -1)),
+    [history],
+  );
   const overallScore = skillCards.length
     ? Math.round(skillCards.reduce((sum, skill) => sum + skill.score, 0) / skillCards.length)
     : 0;
+  const levelData = useMemo(() => getLevelFromXp(totalXp), [totalXp]);
+  const xpUntilNextLevel = Math.max(0, levelData.xpForCurrentLevel - levelData.xpIntoLevel);
+  const nextLevelXpRequirement = getXpForNextLevel(levelData.level);
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
@@ -269,11 +292,33 @@ export default function StatsPage() {
       </div>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-xl font-semibold">Level-System (MVP)</h2>
+        <h2 className="text-xl font-semibold">Level-System</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Gesamt-Score + Skill-Score mit Verfall nach 14 Tagen ohne Training.
+          XP aus Exercises + Workout-Qualität, exponentielle Level-Curve und Deload-Logik bei Überlastung.
         </p>
-        <p className="mt-3 text-3xl font-bold">{overallScore}/100</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+            <p className="text-xs text-zinc-500">Aktuelles Level</p>
+            <p className="text-3xl font-bold">Lv. {levelData.level}</p>
+            <p className="text-sm text-zinc-300">
+              {levelData.xpIntoLevel}/{nextLevelXpRequirement} XP in diesem Level
+            </p>
+            <p className="text-xs text-zinc-500">{xpUntilNextLevel} XP bis zum nächsten Level</p>
+          </div>
+          <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+            <p className="text-xs text-zinc-500">Gesamt-XP</p>
+            <p className="text-3xl font-bold">{totalXp}</p>
+            <p className="text-sm text-zinc-300">Gewertete Sessions: {xpHistoryCount}</p>
+            <p className={`text-xs ${deloadActive ? "text-amber-300" : "text-emerald-300"}`}>
+              {deloadActive ? "Deload aktiv (XP-Multiplikator 0.6)." : "Normale Belastung."}
+            </p>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-zinc-400">
+          Belastung letzte 7 Tage: <span className="font-semibold text-white">{thisWeekXp} XP</span> | davor:{" "}
+          <span className="font-semibold text-white">{lastWeekXp} XP</span> (Ratio: {overloadRatio.toFixed(2)})
+        </p>
+        <p className="mt-2 text-2xl font-bold">{overallScore}/100 Skill Score</p>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {skillCards.length === 0 ? (
@@ -288,6 +333,27 @@ export default function StatsPage() {
                   {skill.daysSince !== null ? `(${skill.daysSince} Tage)` : ""}
                 </p>
               </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="text-xl font-semibold">Historie abgeschlossener Trainings</h2>
+        <div className="mt-4 space-y-2">
+          {sortedHistory.length === 0 ? (
+            <p className="text-sm text-zinc-500">Noch keine Trainingshistorie vorhanden.</p>
+          ) : (
+            sortedHistory.map((entry) => (
+              <article key={entry.id} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
+                <p className="font-semibold">{entry.title}</p>
+                <p className="text-zinc-400">
+                  {entry.date} • {entry.sport} • {entry.subcategory}
+                </p>
+                <p className="text-zinc-300">
+                  Sätze: {entry.totalSets} • Reps: {entry.totalReps} • Volumen: {entry.totalVolumeKg} kg
+                </p>
+              </article>
             ))
           )}
         </div>

@@ -39,6 +39,12 @@ function formatMetricTargets(exercise: Exercise) {
     .join(" • ");
 }
 
+function calculateWorkoutMinutes(exercises: Exercise[]) {
+  const baseMinutes = exercises.reduce((sum, exercise) => sum + Math.max(0, exercise.durationMin || 0), 0);
+  const boostedMinutes = baseMinutes * 1.1;
+  return Math.ceil(boostedMinutes / 5) * 5;
+}
+
 type WorkoutsTabProps = {
   categories: Category[];
   subcategories: Record<Category, string[]>;
@@ -119,6 +125,14 @@ export function WorkoutsTab({
       ),
     [availableExercises, editWorkoutCategory, editWorkoutSubcategory],
   );
+  const selectedExercises = useMemo(
+    () => availableExercises.filter((exercise) => selectedExerciseIds.includes(exercise.id)),
+    [availableExercises, selectedExerciseIds],
+  );
+  const selectedWorkoutMinutes = useMemo(
+    () => calculateWorkoutMinutes(selectedExercises),
+    [selectedExercises],
+  );
 
   return (
     <section className="grid gap-4 lg:grid-cols-2">
@@ -153,6 +167,13 @@ export function WorkoutsTab({
                 <div key={workout.id} className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3">
                   <p className="text-xl font-semibold">{workout.name}</p>
                   {workout.notes ? <p className="mt-1 text-xs text-zinc-500">{workout.notes}</p> : null}
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Geplante Zeit:{" "}
+                    {calculateWorkoutMinutes(
+                      availableExercises.filter((exercise) => workout.exerciseIds.includes(exercise.id)),
+                    )}{" "}
+                    Min
+                  </p>
                   <div className="mt-1 flex items-center justify-between gap-3">
                     <p className="text-sm text-zinc-400">Level {workout.level}</p>
                     <Link
@@ -234,6 +255,10 @@ export function WorkoutsTab({
               })
             )}
           </div>
+          <p className="text-xs text-zinc-400">
+            Zeitberechnung: {selectedExercises.reduce((sum, item) => sum + item.durationMin, 0)} Min × 1.10 ⇒{" "}
+            {selectedWorkoutMinutes} Min (auf 5er-Schritte aufgerundet)
+          </p>
 
           <button type="submit" className="w-full rounded-xl bg-indigo-600 px-4 py-2 font-semibold">
             Workout hinzufügen
@@ -341,6 +366,8 @@ type ExercisesTabProps = {
   onNewExerciseSubcategoryChange: (value: string) => void;
   newExerciseNotes: string;
   onNewExerciseNotesChange: (value: string) => void;
+  newExerciseDurationMin: string;
+  onNewExerciseDurationMinChange: (value: string) => void;
   newExerciseMetrics: MetricKey[];
   onToggleNewExerciseMetric: (metric: MetricKey) => void;
   newExerciseTargets: Partial<Record<MetricKey, string>>;
@@ -357,6 +384,8 @@ type ExercisesTabProps = {
   onEditExerciseSubcategoryChange: (value: string) => void;
   editExerciseNotes: string;
   onEditExerciseNotesChange: (value: string) => void;
+  editExerciseDurationMin: string;
+  onEditExerciseDurationMinChange: (value: string) => void;
   editExerciseMetrics: MetricKey[];
   onToggleEditExerciseMetric: (metric: MetricKey) => void;
   editExerciseTargets: Partial<Record<MetricKey, string>>;
@@ -385,6 +414,8 @@ export function ExercisesTab({
   onNewExerciseSubcategoryChange,
   newExerciseNotes,
   onNewExerciseNotesChange,
+  newExerciseDurationMin,
+  onNewExerciseDurationMinChange,
   newExerciseMetrics,
   onToggleNewExerciseMetric,
   newExerciseTargets,
@@ -401,6 +432,8 @@ export function ExercisesTab({
   onEditExerciseSubcategoryChange,
   editExerciseNotes,
   onEditExerciseNotesChange,
+  editExerciseDurationMin,
+  onEditExerciseDurationMinChange,
   editExerciseMetrics,
   onToggleEditExerciseMetric,
   editExerciseTargets,
@@ -503,6 +536,14 @@ export function ExercisesTab({
               rows={2}
               className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
             />
+            <input
+              type="number"
+              min={1}
+              value={newExerciseDurationMin}
+              onChange={(event) => onNewExerciseDurationMinChange(event.target.value)}
+              placeholder="Dauer in Minuten"
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+            />
 
             <div>
               <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
@@ -584,6 +625,14 @@ export function ExercisesTab({
                 rows={2}
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
               />
+              <input
+                type="number"
+                min={1}
+                value={editExerciseDurationMin}
+                onChange={(event) => onEditExerciseDurationMinChange(event.target.value)}
+                placeholder="Dauer in Minuten"
+                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+              />
 
               <div>
                 <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
@@ -653,6 +702,7 @@ function ExerciseCard({ exercise, href, onEdit }: { exercise: Exercise; href?: s
       <p className="text-sm text-zinc-400">
         {exercise.category} • {exercise.subcategory} • {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
       </p>
+      <p className="text-xs text-zinc-500">Dauer: {exercise.durationMin} Min</p>
       <p className="text-xs text-zinc-500">Ziele: {formatMetricTargets(exercise)}</p>
       {exercise.notes ? <p className="text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
       {href ? (

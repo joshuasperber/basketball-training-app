@@ -49,6 +49,16 @@ const DAYS: DayKey[] = [
   "sunday",
 ];
 
+const DAY_TO_INDEX: Record<DayKey, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
 function normalizeMinutes(mode: DayMode, minutes: number) {
   if (mode === "unavailable" || mode === "rest") return 0;
   if (mode === "game_day" || mode === "game_training") return Math.min(Math.max(minutes, 0), 30);
@@ -92,4 +102,25 @@ export function buildWeeklyPlan(input: PlannerInput): PlannedDay[] {
         return { day, minutes, intensity: "medium", sessionType: "custom", reason: "Benutzerdefiniert" };
     }
   });
+}
+
+export function getNextDateForDay(day: DayKey, fromDate = new Date()) {
+  const currentDayIndex = fromDate.getDay();
+  const targetDayIndex = DAY_TO_INDEX[day];
+  const difference = (targetDayIndex - currentDayIndex + 7) % 7;
+  const result = new Date(fromDate);
+  result.setHours(0, 0, 0, 0);
+  result.setDate(fromDate.getDate() + difference);
+  return result;
+}
+
+export function getDaysStartingToday(fromDate = new Date()): DayKey[] {
+  const currentDayIndex = fromDate.getDay();
+  const orderedDays = [...DAYS].sort(
+    (left, right) =>
+      ((DAY_TO_INDEX[left] - currentDayIndex + 7) % 7) -
+      ((DAY_TO_INDEX[right] - currentDayIndex + 7) % 7),
+  );
+
+  return orderedDays;
 }

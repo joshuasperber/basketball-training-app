@@ -5,15 +5,19 @@ import { useSearchParams } from "next/navigation";
 import {
   CompletedWorkoutHistoryEntry,
   WorkoutProgress,
+  WORKOUT_OVERRIDE_PREFIX,
   WORKOUT_HISTORY_KEY,
+  WEEKLY_WORKOUT_PLAN,
   buildSetLogKey,
   buildWorkoutStorageKey,
   getDefaultWorkoutProgress,
+  getDateForWeekday,
   getTodayDateKey,
   getTodayWorkoutPlan,
   getWorkoutPlanForDay,
   parseWorkoutProgress,
 } from "@/lib/workout";
+import { appendWorkoutXpEntry } from "@/lib/level-system";
 
 function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
   const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
@@ -31,19 +35,34 @@ export default function WorkoutsPage() {
   const searchParams = useSearchParams();
   const dayParam = searchParams.get("day");
   const selectedDay = dayParam !== null ? Number(dayParam) : null;
+  const todayDayIndex = useMemo(() => new Date().getDay(), []);
+  const effectiveDay = selectedDay !== null && Number.isInteger(selectedDay) ? selectedDay : todayDayIndex;
   const dateKey = useMemo(() => getTodayDateKey(), []);
-  const todayWorkout = useMemo(() => {
-    if (selectedDay !== null && Number.isInteger(selectedDay)) {
-      return getWorkoutPlanForDay(selectedDay);
-    }
-    return getTodayWorkoutPlan();
-  }, [selectedDay]);
+  const overrideStorageKey = `${WORKOUT_OVERRIDE_PREFIX}${dateKey}`;
+  const [overrideWorkoutId, setOverrideWorkoutId] = useState<string | null>(null);
+  const workoutOptions = useMemo(() => Object.values(WEEKLY_WORKOUT_PLAN), []);
+  const defaultWorkout = useMemo(
+    () => (selectedDay !== null && Number.isInteger(selectedDay) ? getWorkoutPlanForDay(selectedDay) : getTodayWorkoutPlan()),
+    [selectedDay],
+  );
+  const selectedOverrideWorkout = useMemo(() => {
+    if (!overrideWorkoutId) return null;
+    return workoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
+  }, [overrideWorkoutId, workoutOptions]);
+  const activeWorkout = selectedOverrideWorkout ?? defaultWorkout;
   const fallbackProgress = useMemo(
-    () => getDefaultWorkoutProgress(dateKey, todayWorkout),
-    [dateKey, todayWorkout],
+    () => getDefaultWorkoutProgress(dateKey, activeWorkout),
+    [activeWorkout, dateKey],
   );
 
   const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
+
+  useEffect(() => {
+    const rawOverride = window.localStorage.getItem(overrideStorageKey);
+    if (rawOverride) {
+      setOverrideWorkoutId(rawOverride);
+    }
+  }, [overrideStorageKey]);
 
   useEffect(() => {
     setProgress(
@@ -59,7 +78,7 @@ export default function WorkoutsPage() {
     window.localStorage.setItem(buildWorkoutStorageKey(dateKey), JSON.stringify(next));
   };
 
-  const currentExercise = todayWorkout.exercises[progress.exerciseIndex];
+  const currentExercise = activeWorkout.exercises[progress.exerciseIndex];
   const currentSet = currentExercise.sets[progress.setIndex];
   const currentLogKey = buildSetLogKey(progress.exerciseIndex, progress.setIndex);
   const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "" };
@@ -114,11 +133,45 @@ export default function WorkoutsPage() {
     };
 
     persistHistoryEntry(historyEntry);
+
+    let achievedSets = 0;
+    let totalSets = 0;
+    activeWorkout.exercises.forEach((exercise, exerciseIndex) => {
+      exercise.sets.forEach((set, setIndex) => {
+        totalSets += 1;
+        const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
+        const reps = Number(log?.reps) || 0;
+        const weight = Number(log?.weight) || 0;
+        const repsMet = reps >= set.targetReps;
+        const weightMet = set.targetKg <= 0 || weight >= set.targetKg;
+        if (repsMet && weightMet) {
+          achievedSets += 1;
+        }
+      });
+    });
+
+    const qualityScore = totalSets > 0 ? achievedSets / totalSets : 0;
+    const exerciseXp = achievedSets * 12;
+    const workoutXp = 40 + Math.round(qualityScore * 60);
+    const totalXp = exerciseXp + workoutXp;
+
+    appendWorkoutXpEntry({
+      id: `${completedProgress.date}-${completedProgress.workoutId}`,
+      date: completedProgress.date,
+      workoutId: completedProgress.workoutId,
+      workoutTitle: completedProgress.title,
+      exerciseXp,
+      workoutXp,
+      totalXp,
+      achievedSets,
+      totalSets,
+      qualityScore,
+    });
   };
 
   const finishSet = () => {
     const isLastSetInExercise = progress.setIndex === currentExercise.sets.length - 1;
-    const isLastExercise = progress.exerciseIndex === todayWorkout.exercises.length - 1;
+    const isLastExercise = progress.exerciseIndex === activeWorkout.exercises.length - 1;
 
     if (isLastSetInExercise && isLastExercise) {
       completeWorkout();
@@ -148,9 +201,44 @@ export default function WorkoutsPage() {
       <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-xl font-semibold">{todayWorkout.title}</h2>
-        <p className="mt-1 text-sm text-zinc-400">Sport: {todayWorkout.sport}</p>
-        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {todayWorkout.subcategory}</p>
+        <h2 className="text-xl font-semibold">{activeWorkout.title}</h2>
+        <p className="mt-1 text-sm text-zinc-400">Sport: {activeWorkout.sport}</p>
+        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {activeWorkout.subcategory}</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Datum: {getDateForWeekday(effectiveDay).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+        </p>
+        {effectiveDay === todayDayIndex ? (
+          <label className="mt-3 block text-sm text-zinc-300">
+            Heutiges Workout manuell wählen
+            <select
+              value={selectedOverrideWorkout?.id ?? defaultWorkout.id}
+              onChange={(event) => {
+                const nextWorkoutId = event.target.value;
+                const nextIsDefault = nextWorkoutId === defaultWorkout.id;
+                const nextOverride = nextIsDefault ? null : nextWorkoutId;
+                setOverrideWorkoutId(nextOverride);
+                if (nextOverride) {
+                  window.localStorage.setItem(overrideStorageKey, nextOverride);
+                } else {
+                  window.localStorage.removeItem(overrideStorageKey);
+                }
+                const nextWorkout =
+                  workoutOptions.find((workout) => workout.id === nextWorkoutId) ?? defaultWorkout;
+                persistProgress(getDefaultWorkoutProgress(dateKey, nextWorkout));
+              }}
+              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-white"
+            >
+              {workoutOptions.map((workout) => (
+                <option key={workout.id} value={workout.id}>
+                  {workout.title} ({workout.sport} • {workout.subcategory})
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-zinc-500">
+              Bei Änderung wird das heutige Protokoll zurückgesetzt und neue Zukunfts-Vorschläge angepasst.
+            </span>
+          </label>
+        ) : null}
 
         {progress.status === "completed" ? (
           <p className="mt-4 rounded-xl bg-green-900/40 p-3 text-sm text-green-300">
@@ -160,7 +248,7 @@ export default function WorkoutsPage() {
           <>
             <div className="mt-4 rounded-xl bg-zinc-950 p-4">
               <p className="text-sm text-zinc-400">
-                {progress.exerciseIndex + 1}/{todayWorkout.exercises.length}
+                {progress.exerciseIndex + 1}/{activeWorkout.exercises.length}
               </p>
               <p className="mt-1 text-lg font-medium">{currentExercise.name}</p>
 

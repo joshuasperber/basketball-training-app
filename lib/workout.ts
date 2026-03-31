@@ -50,6 +50,7 @@ export type CompletedWorkoutHistoryEntry = {
 
 export const WORKOUT_PROGRESS_PREFIX = "basketball-training-workout-";
 export const WORKOUT_HISTORY_KEY = "basketball-training-history";
+export const WORKOUT_OVERRIDE_PREFIX = "basketball-training-workout-override-";
 
 export const WEEKLY_WORKOUT_PLAN: Record<number, WorkoutPlan> = {
   0: {
@@ -229,6 +230,16 @@ export const getTodayWorkoutPlan = (): WorkoutPlan => {
 
 export const getWorkoutPlanForDay = (day: number): WorkoutPlan =>
   WEEKLY_WORKOUT_PLAN[day] ?? WEEKLY_WORKOUT_PLAN[1];
+
+export const getDateForWeekday = (dayIndex: number, fromDate = new Date()) => {
+  const normalizedDay = ((dayIndex % 7) + 7) % 7;
+  const currentDay = fromDate.getDay();
+  const diff = (normalizedDay - currentDay + 7) % 7;
+  const result = new Date(fromDate);
+  result.setHours(0, 0, 0, 0);
+  result.setDate(fromDate.getDate() + diff);
+  return result;
+};
 
 export const getWeekdayName = (date: Date) =>
   date.toLocaleDateString("de-DE", { weekday: "long" });

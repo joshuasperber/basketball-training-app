@@ -83,6 +83,7 @@ export default function TrainingPage() {
   const [newExerciseCategory, setNewExerciseCategory] = useState<Category>("Basketball");
   const [newExerciseSubcategory, setNewExerciseSubcategory] = useState("Handles");
   const [newExerciseNotes, setNewExerciseNotes] = useState("");
+  const [newExerciseDurationMin, setNewExerciseDurationMin] = useState("10");
   const [newExerciseMetrics, setNewExerciseMetrics] = useState<MetricKey[]>(["reps"]);
   const [newExerciseTargets, setNewExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
   const [newExerciseError, setNewExerciseError] = useState<string | null>(null);
@@ -99,6 +100,7 @@ export default function TrainingPage() {
   const [editExerciseCategory, setEditExerciseCategory] = useState<Category>("Basketball");
   const [editExerciseSubcategory, setEditExerciseSubcategory] = useState("Handles");
   const [editExerciseNotes, setEditExerciseNotes] = useState("");
+  const [editExerciseDurationMin, setEditExerciseDurationMin] = useState("10");
   const [editExerciseMetrics, setEditExerciseMetrics] = useState<MetricKey[]>(["reps"]);
   const [editExerciseTargets, setEditExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
   const [editExerciseError, setEditExerciseError] = useState<string | null>(null);
@@ -242,6 +244,7 @@ export default function TrainingPage() {
       {
         id: `ex-${Date.now()}`,
         name: normalizedName,
+        durationMin: Math.max(1, Number(newExerciseDurationMin) || 10),
         category: newExerciseCategory,
         subcategory: newExerciseSubcategory,
         notes: newExerciseNotes.trim() || undefined,
@@ -259,6 +262,7 @@ export default function TrainingPage() {
 
     setNewExerciseName("");
     setNewExerciseNotes("");
+    setNewExerciseDurationMin("10");
     setNewExerciseMetrics(["reps"]);
     setNewExerciseTargets({});
     setNewExerciseError(null);
@@ -316,6 +320,7 @@ export default function TrainingPage() {
     setEditExerciseCategory(exercise.category);
     setEditExerciseSubcategory(exercise.subcategory);
     setEditExerciseNotes(exercise.notes ?? "");
+    setEditExerciseDurationMin(String(exercise.durationMin));
     setEditExerciseMetrics(exercise.metricKeys);
     setEditExerciseTargets(
       Object.fromEntries(
@@ -327,6 +332,7 @@ export default function TrainingPage() {
 
   function cancelEditExercise() {
     setEditingExerciseId(null);
+    setEditExerciseDurationMin("10");
     setEditExerciseMetrics(["reps"]);
     setEditExerciseTargets({});
     setEditExerciseError(null);
@@ -374,6 +380,7 @@ export default function TrainingPage() {
           ? {
               ...entry,
               name: normalizedName,
+              durationMin: Math.max(1, Number(editExerciseDurationMin) || 10),
               category: editExerciseCategory,
               subcategory: editExerciseSubcategory,
               notes: editExerciseNotes.trim() || undefined,
@@ -387,6 +394,7 @@ export default function TrainingPage() {
     );
 
     setEditingExerciseId(null);
+    setEditExerciseDurationMin("10");
     setEditExerciseMetrics(["reps"]);
     setEditExerciseTargets({});
     setEditExerciseError(null);
@@ -459,6 +467,8 @@ export default function TrainingPage() {
             onNewExerciseSubcategoryChange={setNewExerciseSubcategory}
             newExerciseNotes={newExerciseNotes}
             onNewExerciseNotesChange={setNewExerciseNotes}
+            newExerciseDurationMin={newExerciseDurationMin}
+            onNewExerciseDurationMinChange={setNewExerciseDurationMin}
             newExerciseMetrics={newExerciseMetrics}
             onToggleNewExerciseMetric={toggleNewExerciseMetric}
             newExerciseTargets={newExerciseTargets}
@@ -477,6 +487,8 @@ export default function TrainingPage() {
             onEditExerciseSubcategoryChange={setEditExerciseSubcategory}
             editExerciseNotes={editExerciseNotes}
             onEditExerciseNotesChange={setEditExerciseNotes}
+            editExerciseDurationMin={editExerciseDurationMin}
+            onEditExerciseDurationMinChange={setEditExerciseDurationMin}
             editExerciseMetrics={editExerciseMetrics}
             onToggleEditExerciseMetric={toggleEditExerciseMetric}
             editExerciseTargets={editExerciseTargets}

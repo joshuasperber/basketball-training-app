@@ -5,7 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { type Category, type Exercise, type Workout } from "@/lib/training-data";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
-import { WEEKLY_WORKOUT_PLAN, getTodayWorkoutPlan } from "@/lib/workout";
+import {
+  WORKOUT_OVERRIDE_PREFIX,
+  WEEKLY_WORKOUT_PLAN,
+  getDateForWeekday,
+  getTodayDateKey,
+  getTodayWorkoutPlan,
+} from "@/lib/workout";
 import { buildWeeklyPlan, type DayKey, type WeekConfig } from "@/lib/planner";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
@@ -101,6 +107,7 @@ function selectBestWorkout(
   freshnessMapByCategory: Record<Category, Record<string, number>>,
   usedWorkoutIds: Set<string>,
   weeklySubcategoryUsage: Record<Category, Record<string, number>>,
+  avoidSubcategories: Partial<Record<Category, string[]>>,
 ): SuggestedWorkout {
   const targetWithExtra = mode === "game-training" ? targetMinutes + 30 : targetMinutes;
   const fallback = buildFallbackSuggestion(mode, targetWithExtra);
@@ -131,7 +138,16 @@ function selectBestWorkout(
       duration: computeWorkoutDuration(workout, exercisesById),
     }));
   const unusedPool = filtered.filter((entry) => !usedWorkoutIds.has(entry.workout.id));
-  const pool = unusedPool.length > 0 ? unusedPool : filtered;
+  const avoidForCategory = avoidSubcategories[desiredCategory] ?? [];
+  const withoutAvoidedSubcategories = unusedPool.filter(
+    (entry) => !avoidForCategory.includes(entry.workout.subcategory),
+  );
+  const pool =
+    withoutAvoidedSubcategories.length > 0
+      ? withoutAvoidedSubcategories
+      : unusedPool.length > 0
+        ? unusedPool
+        : filtered;
 
   const sortedPool = [...pool].sort((a, b) => {
     const weeklyDiff = subcategoryWeeklyCount(a.workout.subcategory) - subcategoryWeeklyCount(b.workout.subcategory);
@@ -163,6 +179,10 @@ function selectBestWorkout(
 
 export default function WeeklyWorkoutPage() {
   const todayIndex = new Date().getDay() as (typeof weekdayOrder)[number];
+  const orderedDays = useMemo(
+    () => [...weekdayOrder].sort((left, right) => ((left - todayIndex + 7) % 7) - ((right - todayIndex + 7) % 7)),
+    [todayIndex],
+  );
   const todayWorkout = getTodayWorkoutPlan();
   const [plannedEntries, setPlannedEntries] = useState<PlannedUiEntry[] | null>(null);
   const [suggestionsByDay, setSuggestionsByDay] = useState<Record<DayKey, SuggestedWorkout> | null>(null);
@@ -209,6 +229,16 @@ export default function WeeklyWorkoutPage() {
           Gym: {},
           Home: {},
         };
+        const dateKey = getTodayDateKey();
+        const overrideWorkoutId = window.localStorage.getItem(`${WORKOUT_OVERRIDE_PREFIX}${dateKey}`);
+        const overrideWorkout = overrideWorkoutId
+          ? workouts.find((workout) => workout.id === overrideWorkoutId)
+          : undefined;
+        const avoidSubcategories: Partial<Record<Category, string[]>> = {};
+        if (overrideWorkout) {
+          usedWorkoutIds.add(overrideWorkout.id);
+          avoidSubcategories[overrideWorkout.category] = [overrideWorkout.subcategory];
+        }
         const suggested = Object.fromEntries(
           computed.map((entry) => [
             entry.day,
@@ -220,9 +250,22 @@ export default function WeeklyWorkoutPage() {
               freshnessMapByCategory,
               usedWorkoutIds,
               weeklySubcategoryUsage,
+              avoidSubcategories,
             ),
           ]),
         ) as Record<DayKey, SuggestedWorkout>;
+
+        if (overrideWorkout) {
+          const todayKey = dayByIndex[todayIndex];
+          suggested[todayKey] = {
+            workoutId: overrideWorkout.id,
+            title: overrideWorkout.name,
+            durationMin: computeWorkoutDuration(overrideWorkout, exercisesById),
+            notes: "Manuell für heute gewählt.",
+            sport: overrideWorkout.category,
+            subcategory: overrideWorkout.subcategory,
+          };
+        }
 
         setSuggestionsByDay(suggested);
       } catch {
@@ -232,7 +275,7 @@ export default function WeeklyWorkoutPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [todayIndex]);
 
   const plannedToday = useMemo(() => {
     if (!plannedEntries) return null;
@@ -246,6 +289,9 @@ export default function WeeklyWorkoutPage() {
 
       <section className="mt-6 rounded-2xl border border-green-800 bg-green-950/50 p-4">
         <p className="text-xs uppercase tracking-wide text-green-300">Heute</p>
+        <p className="text-xs text-green-100">
+          {getDateForWeekday(todayIndex).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+        </p>
         <h2 className="mt-2 text-xl font-semibold">
           {suggestionsByDay?.[dayByIndex[todayIndex]]?.title ?? todayWorkout.title}
         </h2>
@@ -269,7 +315,7 @@ export default function WeeklyWorkoutPage() {
       </section>
 
       <div className="mt-6 space-y-3">
-        {weekdayOrder.map((day) => {
+        {orderedDays.map((day) => {
           const workout = WEEKLY_WORKOUT_PLAN[day];
           const isToday = day === todayIndex;
           const profilePlan = plannedEntries?.find((entry) => entry.day === dayByIndex[day]) ?? null;
@@ -285,7 +331,12 @@ export default function WeeklyWorkoutPage() {
               }
             >
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold">{weekdayNames[day]}</h3>
+                <h3 className="font-semibold">
+                  {weekdayNames[day]}{" "}
+                  <span className="text-xs text-zinc-400">
+                    ({getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })})
+                  </span>
+                </h3>
                 {isToday ? (
                   <span className="rounded-full bg-green-600 px-2 py-1 text-xs font-semibold text-white">
                     Heute

@@ -1,13 +1,18 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
-import { buildWeeklyPlan, type DayKey, type DayMode, type WeekConfig } from "@/lib/planner";
+import {
+  buildWeeklyPlan,
+  getDaysStartingToday,
+  getNextDateForDay,
+  type DayKey,
+  type DayMode,
+  type WeekConfig,
+} from "@/lib/planner";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
-
-const DAYS: DayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 const DAY_LABELS: Record<DayKey, string> = {
   monday: "Montag",
@@ -18,6 +23,13 @@ const DAY_LABELS: Record<DayKey, string> = {
   saturday: "Samstag",
   sunday: "Sonntag",
 };
+
+function formatDateLabel(date: Date) {
+  return date.toLocaleDateString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
 
 const DAY_MODE_LABELS: Record<DayMode, string> = {
   unavailable: "Keine Zeit",
@@ -176,6 +188,7 @@ export default function ProfilePage() {
       weeklyGoalSessions,
     });
   }, [playStyle, profile.favorite_position, weekConfig, weeklyGoalSessions]);
+  const orderedDays = useMemo(() => getDaysStartingToday(), []);
 
   const updateDayConfig = (day: DayKey, patch: Partial<WeekConfig[DayKey]>) => {
     setWeekConfig((current) => ({
@@ -325,9 +338,11 @@ export default function ProfilePage() {
           <section className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
             <h2 className="text-sm font-semibold">Kalender: Trainingsart pro Tag</h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {DAYS.map((day) => (
+              {orderedDays.map((day) => (
                 <article key={day} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-                  <p className="text-sm font-semibold">{DAY_LABELS[day]}</p>
+                  <p className="text-sm font-semibold">
+                    {DAY_LABELS[day]} ({formatDateLabel(getNextDateForDay(day))})
+                  </p>
 
                   <label className="mt-2 block text-xs text-zinc-400">Trainingsart</label>
                   <select
@@ -381,12 +396,19 @@ export default function ProfilePage() {
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <h2 className="text-lg font-semibold">Weekly-Plan (aus deiner Konfiguration)</h2>
           <ul className="mt-2 space-y-1 text-sm text-zinc-300">
-            {planPreview.map((entry) => (
+            {orderedDays.map((day) => {
+              const entry = planPreview.find((planEntry) => planEntry.day === day);
+              if (!entry) return null;
+              return (
               <li key={entry.day}>
-                <span className="font-semibold">{DAY_LABELS[entry.day]}</span>: {entry.sessionType} • {entry.intensity} • {entry.minutes} Min
+                <span className="font-semibold">
+                  {DAY_LABELS[entry.day]} ({formatDateLabel(getNextDateForDay(entry.day))})
+                </span>
+                : {entry.sessionType} • {entry.intensity} • {entry.minutes} Min
                 {entry.reason ? ` (${entry.reason})` : ""}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </section>
 
