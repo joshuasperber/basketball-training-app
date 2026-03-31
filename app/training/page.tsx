@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   categories,
   defaultExercises,
@@ -11,7 +11,7 @@ import {
   type MetricKey,
   type Workout,
 } from "@/lib/training-data";
-import { loadExercises, loadWorkouts, saveExercises, saveWorkouts } from "@/lib/training-storage";
+import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
 import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab } from "@/components/training/TrainingTabs";
 
 function parseMetricInput(value?: string) {
@@ -23,10 +23,7 @@ function parseMetricInput(value?: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function validateMetricTargets(
-  metricKeys: MetricKey[],
-  targets: Partial<Record<MetricKey, string>>,
-) {
+function validateMetricTargets(metricKeys: MetricKey[], targets: Partial<Record<MetricKey, string>>) {
   if (metricKeys.length === 0) {
     return "Bitte mindestens ein Messfeld auswählen.";
   }
@@ -70,8 +67,6 @@ export default function TrainingPage() {
 
   const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
   const [workouts, setWorkouts] = useState<Workout[]>(defaultWorkouts);
-  const hasPersistedExercises = useRef(false);
-  const hasPersistedWorkouts = useRef(false);
 
   const [newWorkoutName, setNewWorkoutName] = useState("");
   const [newWorkoutExerciseIds, setNewWorkoutExerciseIds] = useState<string[]>([]);
@@ -107,28 +102,14 @@ export default function TrainingPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setExercises(loadExercises());
-      setWorkouts(loadWorkouts());
+      void syncTrainingDataFromServer().then((data) => {
+        setExercises(data.exercises);
+        setWorkouts(data.workouts);
+      });
     }, 0);
 
     return () => window.clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    if (!hasPersistedExercises.current) {
-      hasPersistedExercises.current = true;
-      return;
-    }
-    saveExercises(exercises);
-  }, [exercises]);
-
-  useEffect(() => {
-    if (!hasPersistedWorkouts.current) {
-      hasPersistedWorkouts.current = true;
-      return;
-    }
-    saveWorkouts(workouts);
-  }, [workouts]);
 
   const workoutsForSelection = useMemo(
     () =>
@@ -141,7 +122,9 @@ export default function TrainingPage() {
   const workoutExerciseOptions = useMemo(
     () =>
       exercises.filter(
-        (exercise) => exercise.category === newWorkoutCategory && exercise.subcategory === newWorkoutSubcategory,
+        (exercise) =>
+          exercise.category === newWorkoutCategory &&
+          (newWorkoutSubcategory === "Komplett" || exercise.subcategory === newWorkoutSubcategory),
       ),
     [exercises, newWorkoutCategory, newWorkoutSubcategory],
   );
@@ -198,7 +181,7 @@ export default function TrainingPage() {
     });
   }
 
-  function handleAddWorkout(event: React.SyntheticEvent<HTMLFormElement>) {
+  async function handleAddWorkout(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const normalizedName = newWorkoutName.trim();
@@ -209,8 +192,8 @@ export default function TrainingPage() {
         (workout) => workout.category === newWorkoutCategory && workout.subcategory === newWorkoutSubcategory,
       ).length + 1;
 
-    setWorkouts((prev) => [
-      ...prev,
+    const nextWorkouts = [
+      ...workouts,
       {
         id: `wo-${Date.now()}`,
         name: normalizedName,
@@ -220,14 +203,17 @@ export default function TrainingPage() {
         level: nextLevel,
         exerciseIds: newWorkoutExerciseIds,
       },
-    ]);
+    ];
+
+    setWorkouts(nextWorkouts);
+    await persistTrainingData(exercises, nextWorkouts);
 
     setNewWorkoutName("");
     setNewWorkoutExerciseIds([]);
     setNewWorkoutNotes("");
   }
 
-  function handleAddExercise(event: React.SyntheticEvent<HTMLFormElement>) {
+  async function handleAddExercise(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const normalizedName = newExerciseName.trim();
@@ -239,8 +225,8 @@ export default function TrainingPage() {
       return;
     }
 
-    setExercises((prev) => [
-      ...prev,
+    const nextExercises = [
+      ...exercises,
       {
         id: `ex-${Date.now()}`,
         name: normalizedName,
@@ -258,7 +244,10 @@ export default function TrainingPage() {
         trackingType: newExerciseMetrics.includes("weight") ? "weight" : "reps",
         targetValue: Number(newExerciseTargets.reps ?? newExerciseTargets.weight ?? "") || undefined,
       },
-    ]);
+    ];
+
+    setExercises(nextExercises);
+    await persistTrainingData(nextExercises, workouts);
 
     setNewExerciseName("");
     setNewExerciseNotes("");
@@ -288,27 +277,28 @@ export default function TrainingPage() {
     setEditWorkoutExerciseIds([]);
   }
 
-  function handleUpdateWorkout(event: React.SyntheticEvent<HTMLFormElement>) {
+  async function handleUpdateWorkout(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingWorkoutId) return;
 
     const normalizedName = editWorkoutName.trim();
     if (!normalizedName) return;
 
-    setWorkouts((prev) =>
-      prev.map((entry) =>
-        entry.id === editingWorkoutId
-          ? {
-              ...entry,
-              name: normalizedName,
-              category: editWorkoutCategory,
-              subcategory: editWorkoutSubcategory,
-              notes: editWorkoutNotes.trim() || undefined,
-              exerciseIds: editWorkoutExerciseIds,
-            }
-          : entry,
-      ),
+    const nextWorkouts = workouts.map((entry) =>
+      entry.id === editingWorkoutId
+        ? {
+            ...entry,
+            name: normalizedName,
+            category: editWorkoutCategory,
+            subcategory: editWorkoutSubcategory,
+            notes: editWorkoutNotes.trim() || undefined,
+            exerciseIds: editWorkoutExerciseIds,
+          }
+        : entry,
     );
+
+    setWorkouts(nextWorkouts);
+    await persistTrainingData(exercises, nextWorkouts);
 
     setEditingWorkoutId(null);
     setEditWorkoutExerciseIds([]);
@@ -353,7 +343,7 @@ export default function TrainingPage() {
     });
   }
 
-  function handleUpdateExercise(event: React.SyntheticEvent<HTMLFormElement>) {
+  async function handleUpdateExercise(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingExerciseId) return;
 
@@ -374,24 +364,29 @@ export default function TrainingPage() {
       }),
     ) as Partial<Record<MetricKey, number>>;
 
-    setExercises((prev) =>
-      prev.map((entry) =>
-        entry.id === editingExerciseId
-          ? {
-              ...entry,
-              name: normalizedName,
-              durationMin: Math.max(1, Number(editExerciseDurationMin) || 10),
-              category: editExerciseCategory,
-              subcategory: editExerciseSubcategory,
-              notes: editExerciseNotes.trim() || undefined,
-              metricKeys: metrics,
-              targetByMetric: numericTargets,
-              trackingType: metrics.includes("weight") ? "weight" : "reps",
-              targetValue: Number(editExerciseTargets.reps ?? editExerciseTargets.weight ?? "") || undefined,
-            }
-          : entry,
-      ),
-    );
+    const nextExercises = exercises.map((entry: Exercise): Exercise => {
+      if (entry.id !== editingExerciseId) {
+        return entry;
+      }
+
+      const updatedExercise: Exercise = {
+        ...entry,
+        name: normalizedName,
+        durationMin: Math.max(1, Number(editExerciseDurationMin) || 10),
+        category: editExerciseCategory,
+        subcategory: editExerciseSubcategory,
+        notes: editExerciseNotes.trim() || undefined,
+        metricKeys: metrics,
+        targetByMetric: numericTargets,
+        trackingType: metrics.includes("weight") ? "weight" : "reps",
+        targetValue: Number(editExerciseTargets.reps ?? editExerciseTargets.weight ?? "") || undefined,
+      };
+
+      return updatedExercise;
+    });
+
+    setExercises(nextExercises);
+    await persistTrainingData(nextExercises, workouts);
 
     setEditingExerciseId(null);
     setEditExerciseDurationMin("10");

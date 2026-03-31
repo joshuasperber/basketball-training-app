@@ -61,11 +61,21 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
       .find((exercise) => exercise !== undefined);
     const resolvedSport =
       (workout?.category ?? session.workoutCategory ?? fallbackExercise?.category ?? "Basketball") as SportCategory;
+    const loggedSubcategories = Array.from(
+      new Set(
+        session.logs
+          .map((log) => exerciseLookup.get(log.exerciseId)?.subcategory)
+          .filter((subcategory): subcategory is string => Boolean(subcategory)),
+      ),
+    );
     const resolvedSubcategory =
-      workout?.subcategory ??
-      session.workoutSubcategory ??
-      fallbackExercise?.subcategory ??
-      (resolvedSport === "Gym" ? "Gym" : "Basketball");
+      loggedSubcategories.length > 1
+        ? "Komplett"
+        : loggedSubcategories[0] ??
+          workout?.subcategory ??
+          session.workoutSubcategory ??
+          fallbackExercise?.subcategory ??
+          (resolvedSport === "Gym" ? "Gym" : "Basketball");
 
     return {
       id: session.id,

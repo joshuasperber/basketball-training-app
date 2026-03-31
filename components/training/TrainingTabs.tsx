@@ -121,7 +121,9 @@ export function WorkoutsTab({
   const editExerciseOptions = useMemo(
     () =>
       availableExercises.filter(
-        (exercise) => exercise.category === editWorkoutCategory && exercise.subcategory === editWorkoutSubcategory,
+        (exercise) =>
+          exercise.category === editWorkoutCategory &&
+          (editWorkoutSubcategory === "Komplett" || exercise.subcategory === editWorkoutSubcategory),
       ),
     [availableExercises, editWorkoutCategory, editWorkoutSubcategory],
   );
@@ -536,14 +538,20 @@ export function ExercisesTab({
               rows={2}
               className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
             />
-            <input
-              type="number"
-              min={1}
-              value={newExerciseDurationMin}
-              onChange={(event) => onNewExerciseDurationMinChange(event.target.value)}
-              placeholder="Dauer in Minuten"
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-            />
+            <label className="block text-sm text-zinc-300">
+              Zeit (Minuten) – pro Exercise
+              <input
+                type="number"
+                min={1}
+                value={newExerciseDurationMin}
+                onChange={(event) => onNewExerciseDurationMinChange(event.target.value)}
+                placeholder="z. B. 12"
+                className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+              />
+            </label>
+            <p className="text-xs text-zinc-500">
+              Diese Zeit wird in der Dauer-Spalte angezeigt und in die Workout-Gesamtzeit übernommen.
+            </p>
 
             <div>
               <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
@@ -625,14 +633,17 @@ export function ExercisesTab({
                 rows={2}
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
               />
-              <input
-                type="number"
-                min={1}
-                value={editExerciseDurationMin}
-                onChange={(event) => onEditExerciseDurationMinChange(event.target.value)}
-                placeholder="Dauer in Minuten"
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-              />
+              <label className="block text-sm text-zinc-300">
+                Zeit (Minuten) – pro Exercise
+                <input
+                  type="number"
+                  min={1}
+                  value={editExerciseDurationMin}
+                  onChange={(event) => onEditExerciseDurationMinChange(event.target.value)}
+                  placeholder="z. B. 12"
+                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                />
+              </label>
 
               <div>
                 <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
