@@ -80,6 +80,7 @@ type WorkoutsTabProps = {
   editWorkoutExerciseIds: string[];
   onEditWorkoutExerciseIdsChange: (value: string[]) => void;
   onUpdateWorkout: (event: React.SyntheticEvent<HTMLFormElement>) => void;
+  onDeleteWorkout: (workoutId: string) => void;
 };
 
 export function WorkoutsTab({
@@ -117,6 +118,7 @@ export function WorkoutsTab({
   editWorkoutExerciseIds,
   onEditWorkoutExerciseIdsChange,
   onUpdateWorkout,
+  onDeleteWorkout,
 }: WorkoutsTabProps) {
   const editExerciseOptions = useMemo(
     () =>
@@ -190,6 +192,13 @@ export function WorkoutsTab({
                       className="rounded-lg border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-950"
                     >
                       Bearbeiten
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteWorkout(workout.id)}
+                      className="rounded-lg border border-rose-500 px-3 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-950"
+                    >
+                      Löschen
                     </button>
                   </div>
                 </div>
@@ -393,6 +402,7 @@ type ExercisesTabProps = {
   editExerciseTargets: Partial<Record<MetricKey, string>>;
   onEditExerciseTargetChange: (metric: MetricKey, value: string) => void;
   onUpdateExercise: (event: React.SyntheticEvent<HTMLFormElement>) => void;
+  onDeleteExercise: (exerciseId: string) => void;
   newExerciseError: string | null;
   editExerciseError: string | null;
 };
@@ -441,6 +451,7 @@ export function ExercisesTab({
   editExerciseTargets,
   onEditExerciseTargetChange,
   onUpdateExercise,
+  onDeleteExercise,
   newExerciseError,
   editExerciseError,
 }: ExercisesTabProps) {
@@ -479,6 +490,7 @@ export function ExercisesTab({
                   exercise={exercise}
                   href={`/exercises/${exercise.id}`}
                   onEdit={() => onStartEditExercise(exercise)}
+                  onDelete={() => onDeleteExercise(exercise.id)}
                 />
               ))
             )}
@@ -503,6 +515,7 @@ export function ExercisesTab({
                 exercise={exercise}
                 href={`/exercises/${exercise.id}`}
                 onEdit={() => onStartEditExercise(exercise)}
+                onDelete={() => onDeleteExercise(exercise.id)}
               />
             ))}
           </div>
@@ -706,7 +719,17 @@ export function ExercisesTab({
   );
 }
 
-function ExerciseCard({ exercise, href, onEdit }: { exercise: Exercise; href?: string; onEdit?: () => void }) {
+function ExerciseCard({
+  exercise,
+  href,
+  onEdit,
+  onDelete,
+}: {
+  exercise: Exercise;
+  href?: string;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
   return (
     <article className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2">
       <p className="font-semibold">{exercise.name}</p>
@@ -731,6 +754,15 @@ function ExerciseCard({ exercise, href, onEdit }: { exercise: Exercise; href?: s
           className="mt-2 ml-2 inline-flex rounded-lg border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-950"
         >
           Bearbeiten
+        </button>
+      ) : null}
+      {onDelete ? (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="mt-2 ml-2 inline-flex rounded-lg border border-rose-500 px-3 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-950"
+        >
+          Löschen
         </button>
       ) : null}
     </article>

@@ -53,17 +53,6 @@ function WorkoutsPageContent() {
   );
   const overrideStorageKey = `${WORKOUT_OVERRIDE_PREFIX}${dateKey}`;
   const [overrideWorkoutId, setOverrideWorkoutId] = useState<string | null>(null);
-  const [lastCompletedWorkoutId, setLastCompletedWorkoutId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
-    if (!rawHistory) return null;
-    try {
-      const parsed = JSON.parse(rawHistory) as CompletedWorkoutHistoryEntry[];
-      return parsed[0]?.workoutId ?? null;
-    } catch {
-      return null;
-    }
-  });
   const workoutOptions = useMemo(() => Object.values(WEEKLY_WORKOUT_PLAN), []);
   const trainingWorkouts = useMemo(() => loadWorkouts(), []);
   const trainingExercises = useMemo(() => loadExercises(), []);
@@ -105,11 +94,7 @@ function WorkoutsPageContent() {
     return workoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
   }, [overrideWorkoutId, workoutOptions]);
   const activeWorkoutBase = selectedOverrideWorkout ?? customWorkoutFromCatalog ?? defaultWorkout;
-  const activeWorkout = useMemo(() => {
-    if (!lastCompletedWorkoutId) return activeWorkoutBase;
-    if (activeWorkoutBase.id !== lastCompletedWorkoutId) return activeWorkoutBase;
-    return workoutOptions.find((workout) => workout.id !== lastCompletedWorkoutId) ?? activeWorkoutBase;
-  }, [activeWorkoutBase, lastCompletedWorkoutId, workoutOptions]);
+  const activeWorkout = activeWorkoutBase;
   const workoutForExecution = useMemo<WorkoutPlan>(() => {
     if (activeWorkout.sport === "Gym") return activeWorkout;
     return {
@@ -252,8 +237,6 @@ function WorkoutsPageContent() {
     };
 
     persistHistoryEntry(historyEntry);
-    setLastCompletedWorkoutId(completedProgress.workoutId);
-
     let achievedSets = 0;
     let totalSets = 0;
     workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {

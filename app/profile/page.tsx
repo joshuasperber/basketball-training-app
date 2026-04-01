@@ -363,7 +363,11 @@ export default function ProfilePage() {
                     min={0}
                     max={180}
                     value={weekConfig[day].minutes}
-                    onChange={(e) => updateDayConfig(day, { minutes: Number(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateDayConfig(day, {
+                        minutes: e.target.value === "" ? 0 : Math.max(0, Math.min(180, Number(e.target.value) || 0)),
+                      })
+                    }
                     className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-sm"
                   />
                 </article>
@@ -375,10 +379,14 @@ export default function ProfilePage() {
             <label className="mb-1 block text-xs text-zinc-400">Wochenziel (Sessions)</label>
             <input
               type="number"
-              min={1}
+              min={0}
               max={14}
               value={weeklyGoalSessions}
-              onChange={(e) => setWeeklyGoalSessions(Number(e.target.value) || 1)}
+              onChange={(e) =>
+                setWeeklyGoalSessions(
+                  e.target.value === "" ? 0 : Math.max(0, Math.min(14, Number(e.target.value) || 0)),
+                )
+              }
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
             />
           </div>

@@ -305,6 +305,16 @@ export default function TrainingPage() {
     setEditWorkoutExerciseIds([]);
   }
 
+  async function handleDeleteWorkout(workoutId: string) {
+    const nextWorkouts = workouts.filter((workout) => workout.id !== workoutId);
+    setWorkouts(nextWorkouts);
+    await persistTrainingData(exercises, nextWorkouts);
+    if (editingWorkoutId === workoutId) {
+      setEditingWorkoutId(null);
+      setEditWorkoutExerciseIds([]);
+    }
+  }
+
   function startEditExercise(exercise: Exercise) {
     setEditingExerciseId(exercise.id);
     setEditExerciseName(exercise.name);
@@ -396,6 +406,26 @@ export default function TrainingPage() {
     setEditExerciseError(null);
   }
 
+  async function handleDeleteExercise(exerciseId: string) {
+    const nextExercises = exercises.filter((exercise) => exercise.id !== exerciseId);
+    const nextWorkouts = workouts.map((workout) => ({
+      ...workout,
+      exerciseIds: workout.exerciseIds.filter((id) => id !== exerciseId),
+    }));
+
+    setExercises(nextExercises);
+    setWorkouts(nextWorkouts);
+    await persistTrainingData(nextExercises, nextWorkouts);
+
+    if (editingExerciseId === exerciseId) {
+      setEditingExerciseId(null);
+      setEditExerciseDurationMin("10");
+      setEditExerciseMetrics(["reps"]);
+      setEditExerciseTargets({});
+      setEditExerciseError(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
@@ -442,6 +472,7 @@ export default function TrainingPage() {
             editWorkoutExerciseIds={editWorkoutExerciseIds}
             onEditWorkoutExerciseIdsChange={setEditWorkoutExerciseIds}
             onUpdateWorkout={handleUpdateWorkout}
+            onDeleteWorkout={handleDeleteWorkout}
           />
         ) : (
           <ExercisesTab
@@ -492,6 +523,7 @@ export default function TrainingPage() {
               setEditExerciseTargets((current) => ({ ...current, [metric]: value }))
             }
             onUpdateExercise={handleUpdateExercise}
+            onDeleteExercise={handleDeleteExercise}
             newExerciseError={newExerciseError}
             editExerciseError={editExerciseError}
           />

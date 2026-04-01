@@ -416,7 +416,7 @@ export default function WeeklyWorkoutPage() {
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">
-                  {weekdayNames[day]}{" "}
+                  {isToday ? "Heute" : weekdayNames[day]}{" "}
                   <span className="text-xs text-zinc-400">
                     ({getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })})
                   </span>

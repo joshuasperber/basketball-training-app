@@ -30,6 +30,17 @@ type BasketballExerciseStat = {
   quote: number;
 };
 
+type GymExerciseGoalStat = {
+  exerciseId: string;
+  exerciseName: string;
+  avgWeightKg: number;
+  avgReps: number;
+  maxWeightKg: number;
+  maxRepsAtMaxWeight: number;
+  suggestedWeightKg: number;
+  suggestedReps: number;
+};
+
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
 function loadHistory(): CompletedWorkoutHistoryEntry[] {
@@ -252,6 +263,54 @@ function buildBasketballExerciseStats(): BasketballExerciseStat[] {
     .sort((a, b) => b.attempts - a.attempts);
 }
 
+function buildGymExerciseGoals(): GymExerciseGoalStat[] {
+  if (typeof window === "undefined") return [];
+  const sessions = getWorkoutSessions();
+  const exercises = loadExercises();
+  const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const map = new Map<string, { weights: number[]; reps: number[]; latestISO: string | null; maxWeight: number; maxRepsAtMaxWeight: number }>();
+
+  sessions.forEach((session) => {
+    session.logs.forEach((log) => {
+      const exercise = exerciseLookup.get(log.exerciseId);
+      if (!exercise || exercise.category !== "Gym") return;
+      const weight = log.weightKg ?? 0;
+      const reps = log.completedValue ?? log.attempts ?? 0;
+      const current = map.get(log.exerciseId) ?? { weights: [], reps: [], latestISO: null, maxWeight: 0, maxRepsAtMaxWeight: 0 };
+      if (weight > 0) current.weights.push(weight);
+      if (reps > 0) current.reps.push(reps);
+      if (weight >= current.maxWeight) {
+        if (weight > current.maxWeight) current.maxRepsAtMaxWeight = Math.max(0, reps);
+        else current.maxRepsAtMaxWeight = Math.max(current.maxRepsAtMaxWeight, Math.max(0, reps));
+        current.maxWeight = weight;
+      }
+      if (!current.latestISO || session.dateISO > current.latestISO) current.latestISO = session.dateISO;
+      map.set(log.exerciseId, current);
+    });
+  });
+
+  const now = Date.now();
+  return Array.from(map.entries()).map(([exerciseId, data]) => {
+    const avgWeightKg = data.weights.length ? data.weights.reduce((a, b) => a + b, 0) / data.weights.length : 0;
+    const avgReps = data.reps.length ? data.reps.reduce((a, b) => a + b, 0) / data.reps.length : 0;
+    const daysSince = data.latestISO ? Math.floor((now - new Date(data.latestISO).getTime()) / (1000 * 60 * 60 * 24)) : 999;
+    const growthFactor = daysSince <= 14 ? 1.03 : 1;
+    const decayFactor = daysSince > 14 ? Math.max(0.9, 1 - (daysSince - 14) * 0.005) : 1;
+    const suggestedWeightKg = Math.max(0, Math.round(avgWeightKg * growthFactor * decayFactor));
+    const suggestedReps = Math.max(1, Math.round(avgReps * (daysSince <= 14 ? 1.02 : 1)));
+    return {
+      exerciseId,
+      exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
+      avgWeightKg: Math.round(avgWeightKg * 10) / 10,
+      avgReps: Math.round(avgReps * 10) / 10,
+      maxWeightKg: data.maxWeight,
+      maxRepsAtMaxWeight: data.maxRepsAtMaxWeight,
+      suggestedWeightKg,
+      suggestedReps,
+    };
+  }).sort((a, b) => b.maxWeightKg - a.maxWeightKg);
+}
+
 function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) {
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -289,6 +348,7 @@ export default function StatsPage() {
   const [overloadRatio, setOverloadRatio] = useState(1);
   const [thisWeekXp, setThisWeekXp] = useState(0);
   const [lastWeekXp, setLastWeekXp] = useState(0);
+  const [showLevelUp, setShowLevelUp] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -302,6 +362,12 @@ export default function StatsPage() {
       setOverloadRatio(overload.ratio);
       setThisWeekXp(overload.currentWeekXp);
       setLastWeekXp(overload.previousWeekXp);
+      const currentLevel = getLevelFromXp(progression.totalXp).level;
+      const seenLevel = Number(window.localStorage.getItem("bt.last-seen-level") ?? "0");
+      if (currentLevel > seenLevel) {
+        setShowLevelUp(true);
+        window.localStorage.setItem("bt.last-seen-level", String(currentLevel));
+      }
     }, 0);
 
     return () => window.clearTimeout(timer);
@@ -332,6 +398,7 @@ export default function StatsPage() {
     [history],
   );
   const basketballExerciseStats = buildBasketballExerciseStats();
+  const gymExerciseGoals = buildGymExerciseGoals();
   const overallScore = skillCards.length
     ? Math.round(skillCards.reduce((sum, skill) => sum + skill.score, 0) / skillCards.length)
     : 0;
@@ -343,6 +410,11 @@ export default function StatsPage() {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Statistiken</h1>
       <p className="mt-2 text-zinc-400">Langfristige Auswertung deiner abgeschlossenen Workouts</p>
+      {showLevelUp ? (
+        <div className="mt-4 rounded-2xl border border-emerald-500 bg-emerald-900/30 p-4">
+          <p className="font-semibold text-emerald-200">🎉 Level-Up! Stark trainiert – neues Level erreicht.</p>
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -393,6 +465,27 @@ export default function StatsPage() {
                 <p className="font-medium">{entry.exerciseName}</p>
                 <p className="mt-1 text-sm text-zinc-300">
                   Quote: <strong>{entry.quote}%</strong> • Makes: {entry.made} • Attempts: {entry.attempts} • Misses: {entry.misses}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="text-lg font-semibold">Gym Ziele je Exercise</h2>
+        {gymExerciseGoals.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-500">Noch keine Gym-Daten vorhanden.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {gymExerciseGoals.map((entry) => (
+              <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
+                <p className="font-medium">{entry.exerciseName}</p>
+                <p className="text-zinc-300">
+                  Ø Gewicht {entry.avgWeightKg} kg • Ø Reps {entry.avgReps} • Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}
+                </p>
+                <p className="text-emerald-300">
+                  Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps
                 </p>
               </div>
             ))}

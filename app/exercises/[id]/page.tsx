@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
-import { ExerciseHistoryEntry, SessionDatabase } from "@/lib/session-types";
+import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
 
 type ExerciseSet = {
   id: string;
@@ -54,9 +54,7 @@ export default function ExerciseExecutionPage() {
 
   const refreshHistory = useCallback(async () => {
     if (!exercise) return;
-    const response = await fetch("/api/session", { cache: "no-store" });
-    const db = (await response.json()) as SessionDatabase;
-    const entries = (db.exerciseHistory[exercise.id] ?? [])
+    const entries = getExerciseHistory(exercise.id)
       .filter((entry) => Number.isFinite(entry.value))
       .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
       .slice(0, 5);
@@ -92,15 +90,24 @@ export default function ExerciseExecutionPage() {
     }
 
     const nowISO = new Date().toISOString();
-    const payload: ExerciseHistoryEntry[] = [];
+    let createdAnyLog = false;
+    const sessionLogs: Array<{
+      exerciseId: string;
+      completedValue: number | null;
+      note: string;
+      made?: number | null;
+      attempts?: number | null;
+      misses?: number | null;
+      weightKg?: number | null;
+    }> = [];
 
     sets.forEach((set) => {
       const primaryMetric = exercise.metricKeys[0];
       const rawPrimaryValue = set.values[primaryMetric];
       const value = Number(rawPrimaryValue);
       if (!Number.isFinite(value)) return;
-
-      payload.push({
+      createdAnyLog = true;
+      appendExerciseHistory({
         id: `eh-${Date.now()}-${set.id}`,
         dateISO: nowISO,
         exerciseId: exercise.id,
@@ -108,13 +115,32 @@ export default function ExerciseExecutionPage() {
         note: sessionNote || undefined,
         source: "exercise",
       });
+
+      const attempts = getNumeric(set.values, "tries") ?? getNumeric(set.values, "reps");
+      const made = getNumeric(set.values, "makes");
+      const misses = getNumeric(set.values, "misses") ?? (attempts !== null && made !== null ? Math.max(0, attempts - made) : null);
+      sessionLogs.push({
+        exerciseId: exercise.id,
+        completedValue: value,
+        note: sessionNote,
+        attempts,
+        made,
+        misses,
+        weightKg: getNumeric(set.values, "weight"),
+      });
     });
 
-    await fetch("/api/session/exercise", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    if (createdAnyLog) {
+      appendWorkoutSession({
+        id: `solo-${Date.now()}`,
+        dateISO: nowISO,
+        workoutId: "single-exercise-session",
+        workoutName: "Einzelübung",
+        workoutCategory: exercise.category,
+        workoutSubcategory: exercise.subcategory,
+        logs: sessionLogs,
+      });
+    }
 
     await refreshHistory();
     setSaved(true);
