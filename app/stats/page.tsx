@@ -52,42 +52,65 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   const workouts = loadWorkouts();
   const workoutLookup = new Map(workouts.map((workout) => [workout.id, workout]));
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
-  const sessionHistory = getWorkoutSessions().map((session) => {
-    const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
-    const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
-    const workout = workoutLookup.get(session.workoutId);
-    const fallbackExercise = session.logs
-      .map((log) => exerciseLookup.get(log.exerciseId))
-      .find((exercise) => exercise !== undefined);
-    const resolvedSport =
-      (workout?.category ?? session.workoutCategory ?? fallbackExercise?.category ?? "Basketball") as SportCategory;
-    const loggedSubcategories = Array.from(
-      new Set(
-        session.logs
-          .map((log) => exerciseLookup.get(log.exerciseId)?.subcategory)
-          .filter((subcategory): subcategory is string => Boolean(subcategory)),
-      ),
-    );
-    const resolvedSubcategory =
-      loggedSubcategories.length > 1
-        ? "Komplett"
-        : loggedSubcategories[0] ??
-          workout?.subcategory ??
-          session.workoutSubcategory ??
-          fallbackExercise?.subcategory ??
-          (resolvedSport === "Gym" ? "Gym" : "Basketball");
+  const sessionHistory = getWorkoutSessions().flatMap((session) => {
+  const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
+  const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
+  const workout = workoutLookup.get(session.workoutId);
+  const fallbackExercise = session.logs
+    .map((log) => exerciseLookup.get(log.exerciseId))
+    .find((exercise) => exercise !== undefined);
+  const resolvedSport =
+    (workout?.category ?? session.workoutCategory ?? fallbackExercise?.category ?? "Basketball") as SportCategory;
 
-    return {
-      id: session.id,
-      date: session.dateISO.slice(0, 10),
-      title: session.workoutName,
-      sport: resolvedSport,
-      subcategory: resolvedSubcategory,
-      totalSets,
-      totalReps,
-      totalVolumeKg: 0,
-    } satisfies CompletedWorkoutHistoryEntry;
-  });
+  const groupedByExerciseSubcategory = session.logs.reduce<Record<string, { sets: number; reps: number }>>(
+    (accumulator, log) => {
+      const exercise = exerciseLookup.get(log.exerciseId);
+      const subcategory =
+        exercise?.subcategory ??
+        workout?.subcategory ??
+        session.workoutSubcategory ??
+        fallbackExercise?.subcategory ??
+        (resolvedSport === "Gym" ? "Gym" : "Basketball");
+
+      const current = accumulator[subcategory] ?? { sets: 0, reps: 0 };
+      const completed = log.completedValue !== null ? 1 : 0;
+      accumulator[subcategory] = {
+        sets: current.sets + completed,
+        reps: current.reps + (log.completedValue ?? 0),
+      };
+      return accumulator;
+    },
+    {},
+  );
+
+  const groupedEntries = Object.entries(groupedByExerciseSubcategory).map(([subcategory, grouped]) => ({
+    id: `${session.id}-${subcategory}`,
+    date: session.dateISO.slice(0, 10),
+    title: session.workoutName,
+    sport: resolvedSport,
+    subcategory,
+    totalSets: grouped.sets,
+    totalReps: grouped.reps,
+    totalVolumeKg: 0,
+  } satisfies CompletedWorkoutHistoryEntry));
+
+  if (groupedEntries.length > 0) return groupedEntries;
+
+  return [{
+    id: `${session.id}-${workout?.subcategory ?? "fallback"}`,
+    date: session.dateISO.slice(0, 10),
+    title: session.workoutName,
+    sport: resolvedSport,
+    subcategory:
+      workout?.subcategory ??
+      session.workoutSubcategory ??
+      fallbackExercise?.subcategory ??
+      (resolvedSport === "Gym" ? "Gym" : "Basketball"),
+    totalSets,
+    totalReps,
+    totalVolumeKg: 0,
+  } satisfies CompletedWorkoutHistoryEntry];
+});
 
   const unique = new Map<string, CompletedWorkoutHistoryEntry>();
   [...sessionHistory, ...baseHistory].forEach((entry) => {

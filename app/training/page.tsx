@@ -5,7 +5,8 @@ import {
   categories,
   defaultExercises,
   defaultWorkouts,
-  subcategoriesByCategory,
+  exerciseSubcategoriesByCategory,
+  workoutSubcategoriesByCategory,
   type Category,
   type Exercise,
   type MetricKey,
@@ -152,23 +153,23 @@ export default function TrainingPage() {
 
   function handleWorkoutCategoryChange(category: Category) {
     setWorkoutCategory(category);
-    setWorkoutSubcategory(subcategoriesByCategory[category][0]);
+    setWorkoutSubcategory(workoutSubcategoriesByCategory[category][0]);
   }
 
   function handleExerciseCategoryChange(category: Category) {
     setExerciseCategory(category);
-    setExerciseSubcategory(subcategoriesByCategory[category][0]);
+    setExerciseSubcategory(exerciseSubcategoriesByCategory[category][0]);
   }
 
   function handleNewWorkoutCategoryChange(category: Category) {
     setNewWorkoutCategory(category);
-    setNewWorkoutSubcategory(subcategoriesByCategory[category][0]);
+    setNewWorkoutSubcategory(workoutSubcategoriesByCategory[category][0]);
     setNewWorkoutExerciseIds([]);
   }
 
   function handleNewExerciseCategoryChange(category: Category) {
     setNewExerciseCategory(category);
-    setNewExerciseSubcategory(subcategoriesByCategory[category][0]);
+    setNewExerciseSubcategory(exerciseSubcategoriesByCategory[category][0]);
   }
 
   function toggleNewExerciseMetric(metric: MetricKey) {
@@ -273,7 +274,7 @@ export default function TrainingPage() {
 
   function handleEditWorkoutCategoryChange(category: Category) {
     setEditWorkoutCategory(category);
-    setEditWorkoutSubcategory(subcategoriesByCategory[category][0]);
+    setEditWorkoutSubcategory(workoutSubcategoriesByCategory[category][0]);
     setEditWorkoutExerciseIds([]);
   }
 
@@ -330,7 +331,7 @@ export default function TrainingPage() {
 
   function handleEditExerciseCategoryChange(category: Category) {
     setEditExerciseCategory(category);
-    setEditExerciseSubcategory(subcategoriesByCategory[category][0]);
+    setEditExerciseSubcategory(exerciseSubcategoriesByCategory[category][0]);
   }
 
   function toggleEditExerciseMetric(metric: MetricKey) {
@@ -408,7 +409,7 @@ export default function TrainingPage() {
         {activeTab === "Workouts" ? (
           <WorkoutsTab
             categories={categories}
-            subcategories={subcategoriesByCategory}
+            subcategories={workoutSubcategoriesByCategory}
             selectedCategory={workoutCategory}
             selectedSubcategory={workoutSubcategory}
             onCategoryChange={handleWorkoutCategoryChange}
@@ -445,7 +446,7 @@ export default function TrainingPage() {
         ) : (
           <ExercisesTab
             categories={categories}
-            subcategories={subcategoriesByCategory}
+            subcategories={exerciseSubcategoriesByCategory}
             selectedCategory={exerciseCategory}
             selectedSubcategory={exerciseSubcategory}
             onCategoryChange={handleExerciseCategoryChange}

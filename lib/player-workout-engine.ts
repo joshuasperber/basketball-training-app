@@ -1,0 +1,166 @@
+import { type Category, type Exercise } from "@/lib/training-data";
+import { type DayKey } from "@/lib/planner";
+
+export type PlayerPosition = "pg" | "sg" | "sf" | "pf" | "c";
+
+export type PlayerArchetypeInput = {
+  position: string;
+  playStyle: string;
+};
+
+export type FocusProfile = {
+  basketball: string[];
+  gym: string[];
+};
+
+export type GeneratedWorkout = {
+  id: string;
+  name: string;
+  category: Category;
+  subcategory: string;
+  exerciseIds: string[];
+  exerciseNames: string[];
+  durationMin: number;
+  notes: string;
+};
+
+const DEFAULT_FOCUS: FocusProfile = {
+  basketball: ["Handles", "Finishing", "Shooting", "Defense", "Komplett"],
+  gym: ["Legs", "Core", "Pull", "Push"],
+};
+
+const ARCHETYPE_MAP: Record<string, FocusProfile> = {
+  "pg:athletisch": {
+    basketball: ["Handles", "Finishing", "Shooting", "Defense"],
+    gym: ["Legs", "Core", "Pull", "Push"],
+  },
+  "sg:shooter": {
+    basketball: ["Shooting", "Handles", "Finishing", "Defense"],
+    gym: ["Pull", "Core", "Push", "Legs"],
+  },
+  "sf:slasher": {
+    basketball: ["Finishing", "Defense", "Handles", "Shooting"],
+    gym: ["Legs", "Pull", "Core", "Push"],
+  },
+  "pf:post": {
+    basketball: ["Finishing", "Defense", "Komplett", "Shooting"],
+    gym: ["Legs", "Push", "Pull", "Core"],
+  },
+  "c:rim-protector": {
+    basketball: ["Defense", "Finishing", "Komplett", "Shooting"],
+    gym: ["Legs", "Pull", "Push", "Core"],
+  },
+};
+
+function normalizePosition(position: string): PlayerPosition {
+  const lower = position.trim().toLowerCase();
+  if (lower === "pg" || lower === "sg" || lower === "sf" || lower === "pf" || lower === "c") {
+    return lower;
+  }
+
+  return "sg";
+}
+
+function normalizeStyle(playStyle: string) {
+  const lower = playStyle.trim().toLowerCase();
+  if (lower.includes("athlet")) return "athletisch";
+  if (lower.includes("shoot")) return "shooter";
+  if (lower.includes("slash")) return "slasher";
+  if (lower.includes("post")) return "post";
+  if (lower.includes("rim") || lower.includes("protector")) return "rim-protector";
+  return "balanced";
+}
+
+export function getFocusProfile(input: PlayerArchetypeInput): FocusProfile {
+  const position = normalizePosition(input.position);
+  const style = normalizeStyle(input.playStyle);
+
+  const exact = ARCHETYPE_MAP[`${position}:${style}`];
+  if (exact) return exact;
+
+  const positionFallback = Object.entries(ARCHETYPE_MAP).find(([key]) => key.startsWith(`${position}:`))?.[1];
+  return positionFallback ?? DEFAULT_FOCUS;
+}
+
+function pickByUsage(
+  priorities: string[],
+  usage: Record<string, number>,
+  maxPerFocus: number,
+  available: string[],
+): string {
+  const availableSet = new Set(available);
+
+  const candidate = priorities.find((focus) => availableSet.has(focus) && (usage[focus] ?? 0) < maxPerFocus);
+  if (candidate) return candidate;
+
+  const fallback = available
+    .slice()
+    .sort((left, right) => (usage[left] ?? 0) - (usage[right] ?? 0))[0];
+
+  return fallback ?? priorities[0] ?? "Komplett";
+}
+
+export function pickSubcategoryForDay(params: {
+  category: Category;
+  focusProfile: FocusProfile;
+  usage: Record<string, number>;
+  availableSubcategories: string[];
+}): string {
+  const priorities = params.category === "Gym" ? params.focusProfile.gym : params.focusProfile.basketball;
+  const maxPerFocus = params.category === "Gym" ? 2 : 2;
+
+  return pickByUsage(priorities, params.usage, maxPerFocus, params.availableSubcategories);
+}
+
+export function buildGeneratedWorkout(params: {
+  day: DayKey;
+  category: Category;
+  subcategory: string;
+  targetMinutes: number;
+  exercisePool: Exercise[];
+}): GeneratedWorkout {
+  const relevantExercises = params.exercisePool
+    .filter((exercise) => exercise.category === params.category && exercise.subcategory === params.subcategory)
+    .sort((left, right) => left.durationMin - right.durationMin);
+
+  const fallbackExercises = params.exercisePool.filter((exercise) => exercise.category === params.category);
+  const source = relevantExercises.length > 0 ? relevantExercises : fallbackExercises;
+
+  const picked: Exercise[] = [];
+  let totalDuration = 0;
+
+  for (const exercise of source) {
+    if (picked.length >= 4) break;
+
+    picked.push(exercise);
+    totalDuration += exercise.durationMin;
+
+    if (totalDuration >= Math.max(20, params.targetMinutes - 5) && picked.length >= 2) {
+      break;
+    }
+  }
+
+  if (picked.length === 0) {
+    return {
+      id: `auto-${params.day}-${params.category.toLowerCase()}`,
+      name: `Auto ${params.subcategory}`,
+      category: params.category,
+      subcategory: params.subcategory,
+      exerciseIds: [],
+      exerciseNames: ["Keine passende Exercise gefunden"],
+      durationMin: Math.max(20, params.targetMinutes),
+      notes: "Keine Übungen in der Datenbank gefunden. Bitte Exercise-Pool erweitern.",
+    };
+  }
+
+  return {
+    id: `auto-${params.day}-${params.category.toLowerCase()}-${params.subcategory.toLowerCase()}`,
+    name: `Auto ${params.subcategory} (${params.day})`,
+    category: params.category,
+    subcategory: params.subcategory,
+    exerciseIds: picked.map((exercise) => exercise.id),
+    exerciseNames: picked.map((exercise) => exercise.name),
+    durationMin: Math.max(totalDuration, Math.max(20, params.targetMinutes)),
+    notes: "Automatisch generiert aus vorhandenem Exercise-Pool.",
+  };
+}

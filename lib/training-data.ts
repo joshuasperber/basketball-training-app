@@ -44,14 +44,22 @@ export type WeekdayKey =
 
 export const categories: Category[] = ["Basketball", "Gym", "Home"];
 
-export const subcategoriesByCategory: Record<Category, string[]> = {
+export const workoutSubcategoriesByCategory: Record<Category, string[]> = {
   Basketball: ["Handles", "Finishing", "Shooting", "Defense", "Komplett"],
   Gym: ["Push", "Pull", "Legs", "Core"],
   Home: ["Mobility", "Conditioning", "Recovery"],
 };
 
+export const exerciseSubcategoriesByCategory: Record<Category, string[]> = {
+  Basketball: ["Handles", "Finishing", "Shooting", "Defense"],
+  Gym: ["Push", "Pull", "Legs", "Core"],
+  Home: ["Mobility", "Conditioning", "Recovery"],
+};
+
 export const defaultExercises: Exercise[] = [
+  { id: "ex-0", name: "Pound Dribbles", durationMin: 10, category: "Basketball", subcategory: "Handles", notes: "Ball tief und schnell", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80 },
   { id: "ex-1", name: "Cone Handles", durationMin: 12, category: "Basketball", subcategory: "Handles", notes: "Low and fast", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80 },
+  { id: "ex-10", name: "Cone Drills", durationMin: 10, category: "Basketball", subcategory: "Handles", notes: "Richtungswechsel", metricKeys: ["reps", "time"], targetByMetric: { reps: 40, time: 60 }, trackingType: "reps", targetValue: 40 },
   { id: "ex-2", name: "Mikan Finishes", durationMin: 12, category: "Basketball", subcategory: "Finishing", notes: "Beidseitig abschließen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 80, makes: 60 }, trackingType: "reps", targetValue: 60 },
   { id: "ex-3", name: "Shooting 1", durationMin: 18, category: "Basketball", subcategory: "Shooting", notes: "Nur swishes zhlen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 100, makes: 80 }, trackingType: "reps", targetValue: 80 },
   { id: "ex-4", name: "Shooting 2", durationMin: 20, category: "Basketball", subcategory: "Shooting", notes: "Spot-up 5 Spots", metricKeys: ["tries", "makes"], targetByMetric: { tries: 120, makes: 90 }, trackingType: "reps", targetValue: 90 },
@@ -63,6 +71,7 @@ export const defaultExercises: Exercise[] = [
 ];
 
 export const defaultWorkouts: Workout[] = [
+  { id: "wo-0", name: "Ballhandling Flow", category: "Basketball", subcategory: "Handles", notes: "Handle-Fokus vor Teamtraining", level: 1, exerciseIds: ["ex-0", "ex-10"] },
   { id: "wo-1", name: "Shooting 1", category: "Basketball", subcategory: "Shooting", notes: "Fokus Catch&Shoot", level: 1, exerciseIds: ["ex-3"] },
   { id: "wo-2", name: "Shooting 2", category: "Basketball", subcategory: "Shooting", notes: "Mehr Volumen", level: 2, exerciseIds: ["ex-3", "ex-4"] },
   { id: "wo-3", name: "Shooting 3", category: "Basketball", subcategory: "Shooting", notes: "Game-Speed", level: 3, exerciseIds: ["ex-4"] },
