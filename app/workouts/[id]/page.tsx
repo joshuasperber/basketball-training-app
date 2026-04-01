@@ -119,6 +119,11 @@ export default function WorkoutExecutionPage() {
       const primaryMetric = exercise.metricKeys[0];
       const rawPrimaryValue = existing?.metricValues?.[primaryMetric];
       const valueNumber = rawPrimaryValue ? Number(rawPrimaryValue) : null;
+      const triesValue = getNumeric(existing?.metricValues ?? {}, "tries");
+      const makesValue = getNumeric(existing?.metricValues ?? {}, "makes");
+      const missesValue = getNumeric(existing?.metricValues ?? {}, "misses");
+      const repsValue = getNumeric(existing?.metricValues ?? {}, "reps");
+      const weightValue = getNumeric(existing?.metricValues ?? {}, "weight");
 
       if (valueNumber !== null && Number.isFinite(valueNumber)) {
         appendExerciseHistory({
@@ -136,6 +141,10 @@ export default function WorkoutExecutionPage() {
         exerciseId: exercise.id,
         completedValue: valueNumber !== null && Number.isFinite(valueNumber) ? valueNumber : null,
         note: existing?.note ?? "",
+        made: makesValue,
+        attempts: triesValue ?? repsValue,
+        misses: missesValue,
+        weightKg: weightValue,
       };
     });
 

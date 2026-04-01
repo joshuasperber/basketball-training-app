@@ -21,6 +21,15 @@ type SkillCard = {
   daysSince: number | null;
 };
 
+type BasketballExerciseStat = {
+  exerciseId: string;
+  exerciseName: string;
+  attempts: number;
+  made: number;
+  misses: number;
+  quote: number;
+};
+
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
 function loadHistory(): CompletedWorkoutHistoryEntry[] {
@@ -201,6 +210,48 @@ function buildCategorySubcategorySlices(entries: CompletedWorkoutHistoryEntry[])
   );
 }
 
+function buildBasketballExerciseStats(): BasketballExerciseStat[] {
+  if (typeof window === "undefined") return [];
+
+  const sessions = getWorkoutSessions();
+  const exercises = loadExercises();
+  const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const statsMap = new Map<string, { attempts: number; made: number; misses: number }>();
+
+  sessions.forEach((session) => {
+    session.logs.forEach((log) => {
+      const exercise = exerciseLookup.get(log.exerciseId);
+      if (!exercise || exercise.category !== "Basketball") return;
+
+      const current = statsMap.get(log.exerciseId) ?? { attempts: 0, made: 0, misses: 0 };
+      const attempts = log.attempts ?? 0;
+      const made = log.made ?? 0;
+      const misses = log.misses ?? Math.max(0, attempts - made);
+
+      statsMap.set(log.exerciseId, {
+        attempts: current.attempts + Math.max(0, attempts),
+        made: current.made + Math.max(0, made),
+        misses: current.misses + Math.max(0, misses),
+      });
+    });
+  });
+
+  return Array.from(statsMap.entries())
+    .map(([exerciseId, values]) => {
+      const exerciseName = exerciseLookup.get(exerciseId)?.name ?? exerciseId;
+      const quote = values.attempts > 0 ? Math.round((values.made / values.attempts) * 100) : 0;
+      return {
+        exerciseId,
+        exerciseName,
+        attempts: values.attempts,
+        made: values.made,
+        misses: values.misses,
+        quote,
+      };
+    })
+    .sort((a, b) => b.attempts - a.attempts);
+}
+
 function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) {
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -269,7 +320,9 @@ export default function StatsPage() {
 
   const totalSets = history.reduce((sum, entry) => sum + entry.totalSets, 0);
   const totalReps = history.reduce((sum, entry) => sum + entry.totalReps, 0);
-  const totalVolume = history.reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
+  const totalVolume = history
+    .filter((entry) => entry.sport === "Gym")
+    .reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
 
   const sportSlices = useMemo(() => buildSlices(history, "sport"), [history]);
   const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(history), [history]);
@@ -278,6 +331,7 @@ export default function StatsPage() {
     () => [...history].sort((a, b) => (a.date < b.date ? 1 : -1)),
     [history],
   );
+  const basketballExerciseStats = buildBasketballExerciseStats();
   const overallScore = skillCards.length
     ? Math.round(skillCards.reduce((sum, skill) => sum + skill.score, 0) / skillCards.length)
     : 0;
@@ -323,6 +377,28 @@ export default function StatsPage() {
         <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym} />
         <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home} />
       </div>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="text-lg font-semibold">Basketball Quoten je Übung</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Getrennt von Gym/Home. Zeigt Attempts, Makes, Misses und All-Time Quote.
+        </p>
+
+        {basketballExerciseStats.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-500">Noch keine Basketball-Übungsdaten vorhanden.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {basketballExerciseStats.map((entry) => (
+              <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                <p className="font-medium">{entry.exerciseName}</p>
+                <p className="mt-1 text-sm text-zinc-300">
+                  Quote: <strong>{entry.quote}%</strong> • Makes: {entry.made} • Attempts: {entry.attempts} • Misses: {entry.misses}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-xl font-semibold">Level-System</h2>

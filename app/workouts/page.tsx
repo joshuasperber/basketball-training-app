@@ -75,7 +75,7 @@ function WorkoutsPageContent() {
 
     const exercises = workout.exerciseIds
       .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
-      .filter((exercise) => exercise !== undefined)
+      .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise && exercise.category === workout.category))
       .map((exercise) => {
         const targetReps = exercise.targetByMetric?.reps ?? exercise.targetByMetric?.makes ?? exercise.targetValue ?? 12;
         const targetKg = exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 20 : 0;
@@ -110,9 +110,19 @@ function WorkoutsPageContent() {
     if (activeWorkoutBase.id !== lastCompletedWorkoutId) return activeWorkoutBase;
     return workoutOptions.find((workout) => workout.id !== lastCompletedWorkoutId) ?? activeWorkoutBase;
   }, [activeWorkoutBase, lastCompletedWorkoutId, workoutOptions]);
+  const workoutForExecution = useMemo<WorkoutPlan>(() => {
+    if (activeWorkout.sport === "Gym") return activeWorkout;
+    return {
+      ...activeWorkout,
+      exercises: activeWorkout.exercises.map((exercise) => ({
+        ...exercise,
+        sets: [exercise.sets[0] ?? { targetKg: 0, targetReps: 0 }],
+      })),
+    };
+  }, [activeWorkout]);
   const fallbackProgress = useMemo(
-    () => getDefaultWorkoutProgress(dateKey, activeWorkout),
-    [activeWorkout, dateKey],
+    () => getDefaultWorkoutProgress(dateKey, workoutForExecution),
+    [dateKey, workoutForExecution],
   );
 
   const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
@@ -149,12 +159,12 @@ function WorkoutsPageContent() {
     window.localStorage.setItem(buildWorkoutStorageKey(dateKey), JSON.stringify(next));
   };
 
-  const isGymWorkout = activeWorkout.sport === "Gym";
+  const isGymWorkout = workoutForExecution.sport === "Gym";
   const safeExerciseIndex = Math.min(
     Math.max(progress.exerciseIndex, 0),
-    Math.max(0, activeWorkout.exercises.length - 1),
+    Math.max(0, workoutForExecution.exercises.length - 1),
   );
-  const currentExercise = activeWorkout.exercises[safeExerciseIndex] ?? activeWorkout.exercises[0];
+  const currentExercise = workoutForExecution.exercises[safeExerciseIndex] ?? workoutForExecution.exercises[0];
   const safeSetIndex = Math.min(
     Math.max(progress.setIndex, 0),
     Math.max(0, (currentExercise?.sets.length ?? 1) - 1),
@@ -173,7 +183,7 @@ function WorkoutsPageContent() {
   };
 
   const getExerciseStatus = (exerciseIndex: number): "not_started" | "in_progress" | "completed" => {
-    const exercise = activeWorkout.exercises[exerciseIndex];
+    const exercise = workoutForExecution.exercises[exerciseIndex];
     const startedSets = exercise.sets.filter((_, setIndex) => hasSetStarted(exerciseIndex, setIndex)).length;
     if (startedSets <= 0) return "not_started";
     if (startedSets >= exercise.sets.length) return "completed";
@@ -181,7 +191,7 @@ function WorkoutsPageContent() {
   };
 
   const jumpToExercise = (exerciseIndex: number) => {
-    const exercise = activeWorkout.exercises[exerciseIndex];
+    const exercise = workoutForExecution.exercises[exerciseIndex];
     const nextSetIndex = exercise.sets.findIndex((_, setIndex) => !hasSetStarted(exerciseIndex, setIndex));
     persistProgress({
       ...progress,
@@ -246,7 +256,7 @@ function WorkoutsPageContent() {
 
     let achievedSets = 0;
     let totalSets = 0;
-    activeWorkout.exercises.forEach((exercise, exerciseIndex) => {
+    workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {
       exercise.sets.forEach((set, setIndex) => {
         totalSets += 1;
         const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
@@ -281,14 +291,14 @@ function WorkoutsPageContent() {
 
   const finishSet = () => {
     const isLastSetInExercise = safeSetIndex === currentExercise.sets.length - 1;
-    const isLastExercise = safeExerciseIndex === activeWorkout.exercises.length - 1;
+    const isLastExercise = safeExerciseIndex === workoutForExecution.exercises.length - 1;
 
-    if (isLastSetInExercise && isLastExercise) {
+    if (isLastExercise && (!isGymWorkout || isLastSetInExercise)) {
       completeWorkout();
       return;
     }
 
-    if (isLastSetInExercise) {
+    if (!isGymWorkout || isLastSetInExercise) {
       persistProgress({
         ...progress,
         exerciseIndex: safeExerciseIndex + 1,
@@ -301,8 +311,8 @@ function WorkoutsPageContent() {
     persistProgress({
       ...progress,
       setIndex: safeSetIndex + 1,
-      status: "in_progress",
-    });
+        status: "in_progress",
+      });
   };
 
   return (
@@ -311,9 +321,20 @@ function WorkoutsPageContent() {
       <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-xl font-semibold">{activeWorkout.title}</h2>
-        <p className="mt-1 text-sm text-zinc-400">Sport: {activeWorkout.sport}</p>
-        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {activeWorkout.subcategory}</p>
+        <h2 className="text-xl font-semibold">{workoutForExecution.title}</h2>
+        <p className="mt-1 text-sm text-zinc-400">Sport: {workoutForExecution.sport}</p>
+        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {workoutForExecution.subcategory}</p>
+
+        <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+          <p className="text-xs uppercase tracking-wide text-zinc-400">Übungen im Workout</p>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-200">
+            {workoutForExecution.exercises.map((exercise, index) => (
+              <li key={`${workoutForExecution.id}-overview-${exercise.name}`}>
+                {index + 1}. {exercise.name}
+              </li>
+            ))}
+          </ul>
+        </div>
         {effectiveDay === todayDayIndex ? (
           <label className="mt-3 block text-sm text-zinc-300">
             Heutiges Workout manuell wählen
@@ -354,7 +375,7 @@ function WorkoutsPageContent() {
         ) : (
           <>
             <div className="mt-4 flex flex-wrap gap-2">
-              {activeWorkout.exercises.map((exercise, exerciseIndex) => {
+              {workoutForExecution.exercises.map((exercise, exerciseIndex) => {
                 const status = getExerciseStatus(exerciseIndex);
                 const isActive = exerciseIndex === progress.exerciseIndex;
                 const statusClass =
@@ -366,7 +387,7 @@ function WorkoutsPageContent() {
 
                 return (
                   <button
-                    key={`${activeWorkout.id}-${exercise.name}`}
+                    key={`${workoutForExecution.id}-${exercise.name}`}
                     type="button"
                     onClick={() => jumpToExercise(exerciseIndex)}
                     className={`rounded-lg border px-3 py-2 text-xs font-semibold ${statusClass} ${
@@ -381,13 +402,15 @@ function WorkoutsPageContent() {
 
             <div className="mt-4 rounded-xl bg-zinc-950 p-4">
               <p className="text-sm text-zinc-400">
-                {progress.exerciseIndex + 1}/{activeWorkout.exercises.length}
+                {progress.exerciseIndex + 1}/{workoutForExecution.exercises.length}
               </p>
               <p className="mt-1 text-lg font-medium">{currentExercise.name}</p>
 
-              <p className="mt-4 text-sm text-zinc-400">
-                Satz {progress.setIndex + 1}/{currentExercise.sets.length}
-              </p>
+              {isGymWorkout ? (
+                <p className="mt-4 text-sm text-zinc-400">
+                  Satz {progress.setIndex + 1}/{currentExercise.sets.length}
+                </p>
+              ) : null}
               {isGymWorkout ? (
                 <>
                   <p className="mt-1 text-sm">Target kg: {currentSet.targetKg}</p>
@@ -403,9 +426,9 @@ function WorkoutsPageContent() {
                 </>
               ) : null}
 
-              <p className="mt-3 text-sm">{isGymWorkout ? "Target reps" : "Target"}: {currentSet.targetReps}</p>
+              <p className="mt-3 text-sm">{isGymWorkout ? "Target reps" : "Ziel"}: {currentSet.targetReps}</p>
               <label className="mt-2 block text-sm text-zinc-300">
-                {isGymWorkout ? "Reps" : "Wiederholungen / Treffer"}:
+                {isGymWorkout ? "Reps" : "Ergebnis"}:
                 <input
                   value={currentLog.reps}
                   onChange={(event) => updateCurrentLog("reps", event.target.value)}
@@ -417,7 +440,7 @@ function WorkoutsPageContent() {
 
             <div className="mt-4 flex flex-wrap gap-3">
               <Link
-                href={trainingWorkouts.some((workout) => workout.id === activeWorkout.id) ? `/workouts/${activeWorkout.id}` : "/training"}
+                href={trainingWorkouts.some((workout) => workout.id === workoutForExecution.id) ? `/workouts/${workoutForExecution.id}` : "/training"}
                 className="rounded-xl border border-amber-500 px-4 py-2 text-sm font-semibold text-amber-300 hover:bg-amber-950"
               >
                 Workout manuell bearbeiten
@@ -438,7 +461,7 @@ function WorkoutsPageContent() {
                   onClick={finishSet}
                   className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
                 >
-                  Satz abschließen
+                  {isGymWorkout ? "Satz abschließen" : "Übung abschließen"}
                 </button>
               ) : null}
             </div>

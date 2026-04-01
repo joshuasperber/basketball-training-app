@@ -12,6 +12,10 @@ export type WorkoutSessionLog = {
   exerciseId: string;
   completedValue: number | null;
   note: string;
+  made?: number | null;
+  attempts?: number | null;
+  misses?: number | null;
+  weightKg?: number | null;
 };
 
 export type WorkoutSessionEntry = {

@@ -262,18 +262,36 @@
       },
       "trackingType": "reps",
       "targetValue": 30
+    },
+    {
+      "id": "ex-1775048668707",
+      "name": "Free Throws",
+      "durationMin": 2,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "reps": 20,
+        "makes": 18,
+        "tries": 20
+      },
+      "trackingType": "reps",
+      "targetValue": 20
     }
   ],
   "workouts": [
     {
       "id": "wo-1",
-      "name": "Shooting 1",
+      "name": "Warm-Up Shooting",
       "category": "Basketball",
       "subcategory": "Shooting",
       "notes": "Fokus Catch&Shoot",
       "level": 1,
       "exerciseIds": [
-        "ex-3"
+        "ex-1774961895979"
       ]
     },
     {
