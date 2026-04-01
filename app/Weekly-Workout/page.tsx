@@ -260,7 +260,9 @@ function selectBestWorkout(
 export default function WeeklyWorkoutPage() {
   const todayIndex = new Date().getDay() as (typeof weekdayOrder)[number];
   const orderedDays = useMemo(
-    () => [...weekdayOrder].sort((left, right) => ((left - todayIndex + 7) % 7) - ((right - todayIndex + 7) % 7)),
+    () => [...weekdayOrder]
+      .sort((left, right) => ((left - todayIndex + 7) % 7) - ((right - todayIndex + 7) % 7))
+      .filter((day) => day !== todayIndex),
     [todayIndex],
   );
   const todayWorkout = getTodayWorkoutPlan();
@@ -401,31 +403,22 @@ export default function WeeklyWorkoutPage() {
       <div className="mt-6 space-y-3">
         {orderedDays.map((day) => {
           const workout = WEEKLY_WORKOUT_PLAN[day];
-          const isToday = day === todayIndex;
           const profilePlan = plannedEntries?.find((entry) => entry.day === dayByIndex[day]) ?? null;
           const suggestedWorkout = suggestionsByDay?.[dayByIndex[day]] ?? null;
 
           return (
             <article
               key={day}
-              className={
-                isToday
-                  ? "rounded-2xl border border-green-700 bg-zinc-900 p-4"
-                  : "rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
-              }
+              className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">
-                  {isToday ? "Heute" : weekdayNames[day]}{" "}
+                  {weekdayNames[day]}{" "}
                   <span className="text-xs text-zinc-400">
                     ({getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })})
                   </span>
                 </h3>
-                {isToday ? (
-                  <span className="rounded-full bg-green-600 px-2 py-1 text-xs font-semibold text-white">
-                    Heute
-                  </span>
-                ) : null}
+
               </div>
 
               <p className="mt-2 text-lg font-medium">{suggestedWorkout?.title ?? workout.title}</p>

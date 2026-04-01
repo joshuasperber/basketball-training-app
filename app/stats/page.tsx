@@ -4,22 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
-import { detectOverload, getLevelFromXp, getProgressionState, getXpHistory, getXpForNextLevel } from "@/lib/level-system";
 
-type CategorySlice = {
-  label: string;
-  value: number;
-  color: string;
-};
-
+type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home";
-
-type SkillCard = {
-  name: string;
-  score: number;
-  lastTrained: string | null;
-  daysSince: number | null;
-};
+const GYM_SUBCATEGORIES = ["Push", "Pull", "Legs", "Core"] as const;
+const BASKETBALL_SUBCATEGORIES = ["Shooting", "Finishing", "Defense", "Handles"] as const;
 
 type BasketballExerciseStat = {
   exerciseId: string;
@@ -27,7 +16,15 @@ type BasketballExerciseStat = {
   attempts: number;
   made: number;
   misses: number;
-  quote: number;
+  quote: number | null;
+  usesShotMetrics: boolean;
+};
+
+type TimedExerciseTrend = {
+  exerciseId: string;
+  exerciseName: string;
+  subcategory: string;
+  points: number[];
 };
 
 type GymExerciseGoalStat = {
@@ -43,17 +40,28 @@ type GymExerciseGoalStat = {
 
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
+function normalizeGymSubcategory(subcategory: string): (typeof GYM_SUBCATEGORIES)[number] | null {
+  const s = subcategory.trim().toLowerCase();
+  if (s === "push") return "Push";
+  if (s === "pull") return "Pull";
+  if (s === "legs" || s === "beinkraft") return "Legs";
+  if (s === "core" || s === "kraftaufbau" || s === "power") return "Core";
+  return null;
+}
+
+function normalizeBasketballSubcategory(subcategory: string): (typeof BASKETBALL_SUBCATEGORIES)[number] | null {
+  const s = subcategory.trim().toLowerCase();
+  if (s === "shooting") return "Shooting";
+  if (s === "finishing") return "Finishing";
+  if (s === "defense") return "Defense";
+  if (s === "handles" || s === "handling") return "Handles";
+  return null;
+}
+
 function loadHistory(): CompletedWorkoutHistoryEntry[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
+  if (typeof window === "undefined") return [];
   const raw = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
-
-  if (!raw) {
-    return [];
-  }
-
+  if (!raw) return [];
   try {
     return JSON.parse(raw) as CompletedWorkoutHistoryEntry[];
   } catch {
@@ -63,208 +71,211 @@ function loadHistory(): CompletedWorkoutHistoryEntry[] {
 
 function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   const baseHistory = loadHistory();
-
-  if (typeof window === "undefined") {
-    return baseHistory;
-  }
+  if (typeof window === "undefined") return baseHistory;
 
   const exercises = loadExercises();
   const workouts = loadWorkouts();
   const workoutLookup = new Map(workouts.map((workout) => [workout.id, workout]));
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
-  const sessionHistory = getWorkoutSessions().flatMap((session) => {
-  const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
-  const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
-  const workout = workoutLookup.get(session.workoutId);
-  const fallbackExercise = session.logs
-    .map((log) => exerciseLookup.get(log.exerciseId))
-    .find((exercise) => exercise !== undefined);
-  const resolvedSport =
-    (workout?.category ?? session.workoutCategory ?? fallbackExercise?.category ?? "Basketball") as SportCategory;
 
-  const groupedByExerciseSubcategory = session.logs.reduce<Record<string, { sets: number; reps: number }>>(
-    (accumulator, log) => {
+  const sessionHistory = getWorkoutSessions().flatMap((session) => {
+    const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
+    const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
+    const workout = workoutLookup.get(session.workoutId);
+    const fallbackExercise = session.logs.map((log) => exerciseLookup.get(log.exerciseId)).find(Boolean);
+    const resolvedSport =
+      (workout?.category ?? session.workoutCategory ?? fallbackExercise?.category ?? "Basketball") as SportCategory;
+
+    const grouped = session.logs.reduce<Record<string, { sets: number; reps: number }>>((acc, log) => {
       const exercise = exerciseLookup.get(log.exerciseId);
-      const subcategory =
+      const raw =
         exercise?.subcategory ??
         workout?.subcategory ??
         session.workoutSubcategory ??
         fallbackExercise?.subcategory ??
-        (resolvedSport === "Gym" ? "Gym" : "Basketball");
+        (resolvedSport === "Gym" ? "Core" : resolvedSport === "Basketball" ? "Shooting" : "Recovery");
 
-      const current = accumulator[subcategory] ?? { sets: 0, reps: 0 };
-      const completed = log.completedValue !== null ? 1 : 0;
-      accumulator[subcategory] = {
-        sets: current.sets + completed,
+      const normalized =
+        resolvedSport === "Gym"
+          ? normalizeGymSubcategory(raw)
+          : resolvedSport === "Basketball"
+            ? normalizeBasketballSubcategory(raw)
+            : raw;
+      if (!normalized) return acc;
+
+      const current = acc[normalized] ?? { sets: 0, reps: 0 };
+      acc[normalized] = {
+        sets: current.sets + (log.completedValue !== null ? 1 : 0),
         reps: current.reps + (log.completedValue ?? 0),
       };
-      return accumulator;
-    },
-    {},
-  );
+      return acc;
+    }, {});
 
-  const groupedEntries = Object.entries(groupedByExerciseSubcategory).map(([subcategory, grouped]) => ({
-    id: `${session.id}-${subcategory}`,
-    date: session.dateISO.slice(0, 10),
-    title: session.workoutName,
-    sport: resolvedSport,
-    subcategory,
-    totalSets: grouped.sets,
-    totalReps: grouped.reps,
-    totalVolumeKg: 0,
-  } satisfies CompletedWorkoutHistoryEntry));
+    const groupedEntries = Object.entries(grouped).map(
+      ([subcategory, values]) =>
+        ({
+          id: `${session.id}-${subcategory}`,
+          date: session.dateISO.slice(0, 10),
+          title: session.workoutName,
+          sport: resolvedSport,
+          subcategory,
+          totalSets: values.sets,
+          totalReps: values.reps,
+          totalVolumeKg: 0,
+        }) satisfies CompletedWorkoutHistoryEntry,
+    );
 
-  if (groupedEntries.length > 0) return groupedEntries;
+    if (groupedEntries.length > 0) return groupedEntries;
 
-  return [{
-    id: `${session.id}-${workout?.subcategory ?? "fallback"}`,
-    date: session.dateISO.slice(0, 10),
-    title: session.workoutName,
-    sport: resolvedSport,
-    subcategory:
-      workout?.subcategory ??
-      session.workoutSubcategory ??
-      fallbackExercise?.subcategory ??
-      (resolvedSport === "Gym" ? "Gym" : "Basketball"),
-    totalSets,
-    totalReps,
-    totalVolumeKg: 0,
-  } satisfies CompletedWorkoutHistoryEntry];
-});
+    return [
+      {
+        id: `${session.id}-fallback`,
+        date: session.dateISO.slice(0, 10),
+        title: session.workoutName,
+        sport: resolvedSport,
+        subcategory: resolvedSport === "Gym" ? "Core" : resolvedSport === "Basketball" ? "Shooting" : "Recovery",
+        totalSets,
+        totalReps,
+        totalVolumeKg: 0,
+      } satisfies CompletedWorkoutHistoryEntry,
+    ];
+  });
 
   const unique = new Map<string, CompletedWorkoutHistoryEntry>();
-  [...sessionHistory, ...baseHistory].forEach((entry) => {
-    unique.set(entry.id, entry);
-  });
-
+  [...sessionHistory, ...baseHistory].forEach((entry) => unique.set(entry.id, entry));
   return Array.from(unique.values());
-}
-
-function getDaysSince(dateString: string) {
-  const date = new Date(dateString);
-  const now = new Date();
-  const differenceMs = now.getTime() - date.getTime();
-  return Math.max(0, Math.floor(differenceMs / (1000 * 60 * 60 * 24)));
-}
-
-function buildSkillCards(entries: CompletedWorkoutHistoryEntry[]): SkillCard[] {
-  const bySkill = new Map<string, CompletedWorkoutHistoryEntry[]>();
-
-  entries.forEach((entry) => {
-    const current = bySkill.get(entry.subcategory) ?? [];
-    bySkill.set(entry.subcategory, [...current, entry]);
-  });
-
-  return Array.from(bySkill.entries())
-    .map(([name, skillEntries]) => {
-      const latest = [...skillEntries].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-      const daysSince = latest ? getDaysSince(latest.date) : null;
-      const baseScore = Math.min(100, skillEntries.length * 12);
-      const decayFactor =
-        daysSince !== null && daysSince > 14 ? Math.max(0.5, 1 - (daysSince - 14) * 0.03) : 1;
-
-      return {
-        name,
-        score: Math.round(baseScore * decayFactor),
-        lastTrained: latest?.date ?? null,
-        daysSince,
-      };
-    })
-    .sort((a, b) => a.score - b.score);
-}
-
-function pieGradient(slices: CategorySlice[]) {
-  const total = slices.reduce((sum, slice) => sum + slice.value, 0);
-
-  if (total <= 0) {
-    return "conic-gradient(#27272a 0deg 360deg)";
-  }
-
-  let start = 0;
-  const segments = slices.map((slice) => {
-    const degrees = (slice.value / total) * 360;
-    const end = start + degrees;
-    const segment = `${slice.color} ${start}deg ${end}deg`;
-    start = end;
-    return segment;
-  });
-
-  return `conic-gradient(${segments.join(", ")})`;
 }
 
 function buildSlices(entries: CompletedWorkoutHistoryEntry[], by: "sport" | "subcategory") {
   const map = new Map<string, number>();
-
-  entries.forEach((entry) => {
-    const key = by === "sport" ? entry.sport : entry.subcategory;
-    map.set(key, (map.get(key) ?? 0) + 1);
-  });
-
+  entries.forEach((entry) => map.set(by === "sport" ? entry.sport : entry.subcategory, (map.get(by === "sport" ? entry.sport : entry.subcategory) ?? 0) + 1));
   return Array.from(map.entries())
-    .map(([label, value], index) => ({
-      label,
-      value,
-      color: PIE_COLORS[index % PIE_COLORS.length],
-    }))
+    .map(([label, value], index) => ({ label, value, color: PIE_COLORS[index % PIE_COLORS.length] }))
     .sort((a, b) => b.value - a.value);
 }
 
 function buildCategorySubcategorySlices(entries: CompletedWorkoutHistoryEntry[]) {
   const sports: SportCategory[] = ["Basketball", "Gym", "Home"];
   return sports.reduce(
-    (accumulator, sport) => {
+    (acc, sport) => {
       const filtered = entries.filter((entry) => entry.sport === sport);
-      accumulator[sport] = buildSlices(filtered, "subcategory");
-      return accumulator;
+
+      if (sport === "Gym") {
+        const counts = filtered.reduce<Record<(typeof GYM_SUBCATEGORIES)[number], number>>(
+          (c, entry) => {
+            const key = normalizeGymSubcategory(entry.subcategory);
+            if (key) c[key] += 1;
+            return c;
+          },
+          { Push: 0, Pull: 0, Legs: 0, Core: 0 },
+        );
+        acc.Gym = GYM_SUBCATEGORIES.filter((k) => counts[k] > 0).map((k, i) => ({ label: k, value: counts[k], color: PIE_COLORS[i % PIE_COLORS.length] }));
+        return acc;
+      }
+
+      if (sport === "Basketball") {
+        const counts = filtered.reduce<Record<(typeof BASKETBALL_SUBCATEGORIES)[number], number>>(
+          (c, entry) => {
+            const key = normalizeBasketballSubcategory(entry.subcategory);
+            if (key) c[key] += 1;
+            return c;
+          },
+          { Shooting: 0, Finishing: 0, Defense: 0, Handles: 0 },
+        );
+        acc.Basketball = BASKETBALL_SUBCATEGORIES.filter((k) => counts[k] > 0).map((k, i) => ({ label: k, value: counts[k], color: PIE_COLORS[i % PIE_COLORS.length] }));
+        return acc;
+      }
+
+      acc[sport] = buildSlices(filtered, "subcategory");
+      return acc;
     },
     {} as Record<SportCategory, CategorySlice[]>,
   );
 }
 
 function buildBasketballExerciseStats(): BasketballExerciseStat[] {
-  if (typeof window === "undefined") return [];
-
   const sessions = getWorkoutSessions();
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
-  const statsMap = new Map<string, { attempts: number; made: number; misses: number }>();
+  const map = new Map<string, { attempts: number; made: number; misses: number; usesShotMetrics: boolean }>();
 
   sessions.forEach((session) => {
     session.logs.forEach((log) => {
       const exercise = exerciseLookup.get(log.exerciseId);
       if (!exercise || exercise.category !== "Basketball") return;
 
-      const current = statsMap.get(log.exerciseId) ?? { attempts: 0, made: 0, misses: 0 };
-      const attempts = log.attempts ?? 0;
-      const made = log.made ?? 0;
-      const misses = log.misses ?? Math.max(0, attempts - made);
+      const current = map.get(log.exerciseId) ?? { attempts: 0, made: 0, misses: 0, usesShotMetrics: false };
+      const hasShotInput = log.made !== null || log.misses !== null;
 
-      statsMap.set(log.exerciseId, {
-        attempts: current.attempts + Math.max(0, attempts),
-        made: current.made + Math.max(0, made),
-        misses: current.misses + Math.max(0, misses),
+      let made = Math.max(0, log.made ?? 0);
+      let misses = Math.max(0, log.misses ?? 0);
+      let tries = Math.max(0, log.attempts ?? 0);
+
+      if (hasShotInput) {
+        if (log.made !== null && log.misses !== null) {
+          tries = made + misses;
+        } else if (log.made !== null && log.attempts !== null) {
+          tries = Math.max(0, log.attempts);
+          misses = Math.max(0, tries - made);
+        } else if (log.misses !== null && log.attempts !== null) {
+          tries = Math.max(0, log.attempts);
+          made = Math.max(0, tries - misses);
+        }
+      }
+
+      map.set(log.exerciseId, {
+        attempts: current.attempts + tries,
+        made: current.made + made,
+        misses: current.misses + misses,
+        usesShotMetrics: current.usesShotMetrics || hasShotInput,
       });
     });
   });
 
-  return Array.from(statsMap.entries())
-    .map(([exerciseId, values]) => {
-      const exerciseName = exerciseLookup.get(exerciseId)?.name ?? exerciseId;
-      const quote = values.attempts > 0 ? Math.round((values.made / values.attempts) * 100) : 0;
+  return Array.from(map.entries())
+    .map(([exerciseId, value]) => {
+      const quote = value.usesShotMetrics && value.attempts > 0 ? Math.round((value.made / value.attempts) * 100) : null;
       return {
         exerciseId,
-        exerciseName,
-        attempts: values.attempts,
-        made: values.made,
-        misses: values.misses,
+        exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
+        attempts: value.attempts,
+        made: value.made,
+        misses: value.misses,
         quote,
+        usesShotMetrics: value.usesShotMetrics,
       };
     })
     .sort((a, b) => b.attempts - a.attempts);
 }
 
+function buildTimedExerciseTrends(): TimedExerciseTrend[] {
+  const sessions = getWorkoutSessions();
+  const exercises = loadExercises();
+  const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const map = new Map<string, number[]>();
+
+  sessions.forEach((session) => {
+    session.logs.forEach((log) => {
+      const exercise = exerciseLookup.get(log.exerciseId);
+      if (!exercise || exercise.category !== "Basketball") return;
+      if (!exercise.metricKeys.includes("time")) return;
+      const value = log.completedValue ?? 0;
+      if (value <= 0) return;
+      map.set(log.exerciseId, [...(map.get(log.exerciseId) ?? []), value]);
+    });
+  });
+
+  return Array.from(map.entries())
+    .map(([exerciseId, points]) => ({
+      exerciseId,
+      exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
+      subcategory: exerciseLookup.get(exerciseId)?.subcategory ?? "Shooting",
+      points: points.slice(-10),
+    }))
+    .sort((a, b) => b.points.length - a.points.length);
+}
+
 function buildGymExerciseGoals(): GymExerciseGoalStat[] {
-  if (typeof window === "undefined") return [];
   const sessions = getWorkoutSessions();
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
@@ -280,8 +291,7 @@ function buildGymExerciseGoals(): GymExerciseGoalStat[] {
       if (weight > 0) current.weights.push(weight);
       if (reps > 0) current.reps.push(reps);
       if (weight >= current.maxWeight) {
-        if (weight > current.maxWeight) current.maxRepsAtMaxWeight = Math.max(0, reps);
-        else current.maxRepsAtMaxWeight = Math.max(current.maxRepsAtMaxWeight, Math.max(0, reps));
+        current.maxRepsAtMaxWeight = weight > current.maxWeight ? Math.max(0, reps) : Math.max(current.maxRepsAtMaxWeight, Math.max(0, reps));
         current.maxWeight = weight;
       }
       if (!current.latestISO || session.dateISO > current.latestISO) current.latestISO = session.dateISO;
@@ -290,25 +300,56 @@ function buildGymExerciseGoals(): GymExerciseGoalStat[] {
   });
 
   const now = Date.now();
-  return Array.from(map.entries()).map(([exerciseId, data]) => {
-    const avgWeightKg = data.weights.length ? data.weights.reduce((a, b) => a + b, 0) / data.weights.length : 0;
-    const avgReps = data.reps.length ? data.reps.reduce((a, b) => a + b, 0) / data.reps.length : 0;
-    const daysSince = data.latestISO ? Math.floor((now - new Date(data.latestISO).getTime()) / (1000 * 60 * 60 * 24)) : 999;
-    const growthFactor = daysSince <= 14 ? 1.03 : 1;
-    const decayFactor = daysSince > 14 ? Math.max(0.9, 1 - (daysSince - 14) * 0.005) : 1;
-    const suggestedWeightKg = Math.max(0, Math.round(avgWeightKg * growthFactor * decayFactor));
-    const suggestedReps = Math.max(1, Math.round(avgReps * (daysSince <= 14 ? 1.02 : 1)));
-    return {
-      exerciseId,
-      exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
-      avgWeightKg: Math.round(avgWeightKg * 10) / 10,
-      avgReps: Math.round(avgReps * 10) / 10,
-      maxWeightKg: data.maxWeight,
-      maxRepsAtMaxWeight: data.maxRepsAtMaxWeight,
-      suggestedWeightKg,
-      suggestedReps,
-    };
-  }).sort((a, b) => b.maxWeightKg - a.maxWeightKg);
+  return Array.from(map.entries())
+    .map(([exerciseId, data]) => {
+      const avgWeightKg = data.weights.length ? data.weights.reduce((a, b) => a + b, 0) / data.weights.length : 0;
+      const avgReps = data.reps.length ? data.reps.reduce((a, b) => a + b, 0) / data.reps.length : 0;
+      const daysSince = data.latestISO ? Math.floor((now - new Date(data.latestISO).getTime()) / (1000 * 60 * 60 * 24)) : 999;
+      const growthFactor = daysSince <= 14 ? 1.03 : 1;
+      const decayFactor = daysSince > 14 ? Math.max(0.9, 1 - (daysSince - 14) * 0.005) : 1;
+      return {
+        exerciseId,
+        exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
+        avgWeightKg: Math.round(avgWeightKg * 10) / 10,
+        avgReps: Math.round(avgReps * 10) / 10,
+        maxWeightKg: data.maxWeight,
+        maxRepsAtMaxWeight: data.maxRepsAtMaxWeight,
+        suggestedWeightKg: Math.max(0, Math.round(avgWeightKg * growthFactor * decayFactor)),
+        suggestedReps: Math.max(1, Math.round(avgReps * (daysSince <= 14 ? 1.02 : 1))),
+      };
+    })
+    .sort((a, b) => b.maxWeightKg - a.maxWeightKg);
+}
+
+function pieGradient(slices: CategorySlice[]) {
+  const total = slices.reduce((sum, s) => sum + s.value, 0);
+  if (total <= 0) return "conic-gradient(#27272a 0deg 360deg)";
+  let start = 0;
+  const segments = slices.map((slice) => {
+    const degrees = (slice.value / total) * 360;
+    const end = start + degrees;
+    const segment = `${slice.color} ${start}deg ${end}deg`;
+    start = end;
+    return segment;
+  });
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function TrendChart({ points }: { points: number[] }) {
+  if (points.length === 0) return null;
+  const max = Math.max(...points, 1);
+  const width = 240;
+  const height = 72;
+  const step = points.length > 1 ? width / (points.length - 1) : width;
+  const linePoints = points
+    .map((value, index) => `${index * step},${height - (value / max) * (height - 8) - 4}`)
+    .join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-20 w-full rounded bg-zinc-900">
+      <polyline fill="none" stroke="#38bdf8" strokeWidth="3" points={linePoints} />
+    </svg>
+  );
 }
 
 function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) {
@@ -316,11 +357,7 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
       <h2 className="text-lg font-semibold">{title}</h2>
       <div className="mt-4 flex items-center gap-4">
-        <div
-          className="h-28 w-28 rounded-full border border-zinc-700"
-          style={{ background: pieGradient(slices) }}
-        />
-
+        <div className="h-28 w-28 rounded-full border border-zinc-700" style={{ background: pieGradient(slices) }} />
         <ul className="space-y-2 text-sm text-zinc-300">
           {slices.length === 0 ? (
             <li className="text-zinc-500">Noch keine Daten vorhanden.</li>
@@ -328,9 +365,7 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
             slices.map((slice) => (
               <li key={slice.label} className="flex items-center gap-2">
                 <span className="inline-block h-3 w-3 rounded-full" style={{ background: slice.color }} />
-                <span>
-                  {slice.label}: <strong>{slice.value}</strong>
-                </span>
+                <span>{slice.label}: <strong>{slice.value}</strong></span>
               </li>
             ))
           )}
@@ -342,34 +377,17 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
 
 export default function StatsPage() {
   const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
-  const [totalXp, setTotalXp] = useState(0);
-  const [deloadActive, setDeloadActive] = useState(false);
-  const [xpHistoryCount, setXpHistoryCount] = useState(0);
-  const [overloadRatio, setOverloadRatio] = useState(1);
-  const [thisWeekXp, setThisWeekXp] = useState(0);
-  const [lastWeekXp, setLastWeekXp] = useState(0);
-  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [basketballStats, setBasketballStats] = useState<BasketballExerciseStat[]>([]);
+  const [timedTrends, setTimedTrends] = useState<TimedExerciseTrend[]>([]);
+  const [gymGoals, setGymGoals] = useState<GymExerciseGoalStat[]>([]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setHistory(loadCombinedHistory());
-      const progression = getProgressionState();
-      const xpHistory = getXpHistory();
-      const overload = detectOverload(xpHistory);
-      setTotalXp(progression.totalXp);
-      setDeloadActive(progression.deloadActive);
-      setXpHistoryCount(xpHistory.length);
-      setOverloadRatio(overload.ratio);
-      setThisWeekXp(overload.currentWeekXp);
-      setLastWeekXp(overload.previousWeekXp);
-      const currentLevel = getLevelFromXp(progression.totalXp).level;
-      const seenLevel = Number(window.localStorage.getItem("bt.last-seen-level") ?? "0");
-      if (currentLevel > seenLevel) {
-        setShowLevelUp(true);
-        window.localStorage.setItem("bt.last-seen-level", String(currentLevel));
-      }
+      setBasketballStats(buildBasketballExerciseStats());
+      setTimedTrends(buildTimedExerciseTrends());
+      setGymGoals(buildGymExerciseGoals());
     }, 0);
-
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -377,7 +395,6 @@ export default function StatsPage() {
     const today = new Date();
     const weekAgo = new Date();
     weekAgo.setDate(today.getDate() - 6);
-
     return history.filter((entry) => {
       const date = new Date(entry.date);
       return date >= weekAgo && date <= today;
@@ -386,86 +403,64 @@ export default function StatsPage() {
 
   const totalSets = history.reduce((sum, entry) => sum + entry.totalSets, 0);
   const totalReps = history.reduce((sum, entry) => sum + entry.totalReps, 0);
-  const totalVolume = history
-    .filter((entry) => entry.sport === "Gym")
-    .reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
+  const totalVolume = history.filter((entry) => entry.sport === "Gym").reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
 
   const sportSlices = useMemo(() => buildSlices(history, "sport"), [history]);
   const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(history), [history]);
-  const skillCards = useMemo(() => buildSkillCards(history), [history]);
-  const sortedHistory = useMemo(
-    () => [...history].sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [history],
-  );
-  const basketballExerciseStats = buildBasketballExerciseStats();
-  const gymExerciseGoals = buildGymExerciseGoals();
-  const overallScore = skillCards.length
-    ? Math.round(skillCards.reduce((sum, skill) => sum + skill.score, 0) / skillCards.length)
-    : 0;
-  const levelData = useMemo(() => getLevelFromXp(totalXp), [totalXp]);
-  const xpUntilNextLevel = Math.max(0, levelData.xpForCurrentLevel - levelData.xpIntoLevel);
-  const nextLevelXpRequirement = getXpForNextLevel(levelData.level);
+  const sortedHistory = useMemo(() => [...history].sort((a, b) => (a.date < b.date ? 1 : -1)), [history]);
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Statistiken</h1>
       <p className="mt-2 text-zinc-400">Langfristige Auswertung deiner abgeschlossenen Workouts</p>
-      {showLevelUp ? (
-        <div className="mt-4 rounded-2xl border border-emerald-500 bg-emerald-900/30 p-4">
-          <p className="font-semibold text-emerald-200">🎉 Level-Up! Stark trainiert – neues Level erreicht.</p>
-        </div>
-      ) : null}
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Workouts</p>
-          <p className="mt-2 text-3xl font-bold">{history.length}</p>
-        </div>
-
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Weekly (7 Tage)</p>
-          <p className="mt-2 text-3xl font-bold">{weeklyCompleted}</p>
-        </div>
-
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Sätze gesamt</p>
-          <p className="mt-2 text-3xl font-bold">{totalSets}</p>
-        </div>
-
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Reps gesamt</p>
-          <p className="mt-2 text-3xl font-bold">{totalReps}</p>
-        </div>
-
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:col-span-2">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Volumen gesamt (kg)</p>
-          <p className="mt-2 text-3xl font-bold">{totalVolume}</p>
-        </div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Workouts</p><p className="mt-2 text-3xl font-bold">{history.length}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Weekly (7 Tage)</p><p className="mt-2 text-3xl font-bold">{weeklyCompleted}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Sätze gesamt</p><p className="mt-2 text-3xl font-bold">{totalSets}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Reps gesamt</p><p className="mt-2 text-3xl font-bold">{totalReps}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:col-span-2"><p className="text-xs uppercase tracking-wide text-zinc-500">Volumen gesamt (kg)</p><p className="mt-2 text-3xl font-bold">{totalVolume}</p></div>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <PieCard title="Kategorien Vergleich (Basketball / Gym / Home)" slices={sportSlices} />
-        <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball} />
-        <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym} />
-        <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home} />
+        <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball ?? []} />
+        <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym ?? []} />
+        <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home ?? []} />
       </div>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-lg font-semibold">Basketball Quoten je Übung</h2>
-        <p className="mt-1 text-sm text-zinc-400">
-          Getrennt von Gym/Home. Zeigt Attempts, Makes, Misses und All-Time Quote.
-        </p>
-
-        {basketballExerciseStats.length === 0 ? (
+        <p className="mt-1 text-sm text-zinc-400">Für Shot-Übungen wird tries immer aus makes+misses gebaut (oder daraus abgeleitet).</p>
+        {basketballStats.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-500">Noch keine Basketball-Übungsdaten vorhanden.</p>
         ) : (
           <div className="mt-3 space-y-2">
-            {basketballExerciseStats.map((entry) => (
+            {basketballStats.map((entry) => (
               <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
                 <p className="font-medium">{entry.exerciseName}</p>
-                <p className="mt-1 text-sm text-zinc-300">
-                  Quote: <strong>{entry.quote}%</strong> • Makes: {entry.made} • Attempts: {entry.attempts} • Misses: {entry.misses}
-                </p>
+                {entry.usesShotMetrics ? (
+                  <p className="mt-1 text-sm text-zinc-300">Quote: <strong>{entry.quote ?? 0}%</strong> • Makes: {entry.made} • Tries: {entry.attempts} • Misses: {entry.misses}</p>
+                ) : (
+                  <p className="mt-1 text-sm text-zinc-400">Keine Quote (zeit-/reps-basiert).</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="text-lg font-semibold">Zeitbasierte Basketball-Übungen (Verlauf)</h2>
+        <p className="mt-1 text-sm text-zinc-400">Bei timed Exercises nur Verlauf, keine Quote.</p>
+        {timedTrends.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-500">Noch keine zeitbasierten Verläufe vorhanden.</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {timedTrends.map((trend) => (
+              <div key={trend.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                <p className="text-sm font-semibold">{trend.exerciseName} <span className="text-zinc-400">({trend.subcategory})</span></p>
+                <div className="mt-2"><TrendChart points={trend.points} /></div>
               </div>
             ))}
           </div>
@@ -474,19 +469,13 @@ export default function StatsPage() {
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-lg font-semibold">Gym Ziele je Exercise</h2>
-        {gymExerciseGoals.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">Noch keine Gym-Daten vorhanden.</p>
-        ) : (
+        {gymGoals.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine Gym-Daten vorhanden.</p> : (
           <div className="mt-3 space-y-2">
-            {gymExerciseGoals.map((entry) => (
+            {gymGoals.map((entry) => (
               <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
                 <p className="font-medium">{entry.exerciseName}</p>
-                <p className="text-zinc-300">
-                  Ø Gewicht {entry.avgWeightKg} kg • Ø Reps {entry.avgReps} • Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}
-                </p>
-                <p className="text-emerald-300">
-                  Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps
-                </p>
+                <p className="text-zinc-300">Ø Gewicht {entry.avgWeightKg} kg • Ø Reps {entry.avgReps} • Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
+                <p className="text-emerald-300">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
               </div>
             ))}
           </div>
@@ -494,70 +483,15 @@ export default function StatsPage() {
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-xl font-semibold">Level-System</h2>
-        <p className="mt-1 text-sm text-zinc-400">
-          XP aus Exercises + Workout-Qualität, exponentielle Level-Curve und Deload-Logik bei Überlastung.
-        </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            <p className="text-xs text-zinc-500">Aktuelles Level</p>
-            <p className="text-3xl font-bold">Lv. {levelData.level}</p>
-            <p className="text-sm text-zinc-300">
-              {levelData.xpIntoLevel}/{nextLevelXpRequirement} XP in diesem Level
-            </p>
-            <p className="text-xs text-zinc-500">{xpUntilNextLevel} XP bis zum nächsten Level</p>
-          </div>
-          <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            <p className="text-xs text-zinc-500">Gesamt-XP</p>
-            <p className="text-3xl font-bold">{totalXp}</p>
-            <p className="text-sm text-zinc-300">Gewertete Sessions: {xpHistoryCount}</p>
-            <p className={`text-xs ${deloadActive ? "text-amber-300" : "text-emerald-300"}`}>
-              {deloadActive ? "Deload aktiv (XP-Multiplikator 0.6)." : "Normale Belastung."}
-            </p>
-          </div>
-        </div>
-        <p className="mt-3 text-sm text-zinc-400">
-          Belastung letzte 7 Tage: <span className="font-semibold text-white">{thisWeekXp} XP</span> | davor:{" "}
-          <span className="font-semibold text-white">{lastWeekXp} XP</span> (Ratio: {overloadRatio.toFixed(2)})
-        </p>
-        <p className="mt-2 text-2xl font-bold">{overallScore}/100 Skill Score</p>
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {skillCards.length === 0 ? (
-            <p className="text-sm text-zinc-500">Noch keine Skill-Daten vorhanden.</p>
-          ) : (
-            skillCards.map((skill) => (
-              <div key={skill.name} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                <p className="font-semibold">{skill.name}</p>
-                <p className="text-sm text-zinc-300">Score: {skill.score}/100</p>
-                <p className="text-xs text-zinc-500">
-                  Letztes Training: {skill.lastTrained ?? "-"}{" "}
-                  {skill.daysSince !== null ? `(${skill.daysSince} Tage)` : ""}
-                </p>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
-
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-xl font-semibold">Historie abgeschlossener Trainings</h2>
         <div className="mt-4 space-y-2">
-          {sortedHistory.length === 0 ? (
-            <p className="text-sm text-zinc-500">Noch keine Trainingshistorie vorhanden.</p>
-          ) : (
-            sortedHistory.map((entry) => (
-              <article key={entry.id} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
-                <p className="font-semibold">{entry.title}</p>
-                <p className="text-zinc-400">
-                  {entry.date} • {entry.sport} • {entry.subcategory}
-                </p>
-                <p className="text-zinc-300">
-                  Sätze: {entry.totalSets} • Reps: {entry.totalReps} • Volumen: {entry.totalVolumeKg} kg
-                </p>
-              </article>
-            ))
-          )}
+          {sortedHistory.length === 0 ? <p className="text-sm text-zinc-500">Noch keine Trainingshistorie vorhanden.</p> : sortedHistory.map((entry) => (
+            <article key={entry.id} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
+              <p className="font-semibold">{entry.title}</p>
+              <p className="text-zinc-400">{entry.date} • {entry.sport} • {entry.subcategory}</p>
+              <p className="text-zinc-300">Sätze: {entry.totalSets} • Reps: {entry.totalReps} • Volumen: {entry.totalVolumeKg} kg</p>
+            </article>
+          ))}
         </div>
       </section>
     </main>

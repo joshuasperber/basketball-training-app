@@ -22,6 +22,21 @@ export type ProgressionState = {
 const XP_HISTORY_KEY = "bt.xp-history.v1";
 const XP_PROGRESSION_KEY = "bt.progression.v1";
 
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDaysBetween(fromISO: string, toDate: Date) {
+  const from = new Date(fromISO);
+  const fromDate = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
+  const diffMs = toDateOnly.getTime() - fromDate.getTime();
+  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+}
+
 function canUseStorage() {
   return typeof window !== "undefined";
 }
@@ -136,12 +151,42 @@ export function detectOverload(entries: WorkoutXpEntry[], referenceDate = new Da
   };
 }
 
+export function syncProgressionByDate(referenceDate = new Date()) {
+  const previousState = getProgressionState();
+  const previousLevel = getLevelFromXp(previousState.totalXp).level;
+  const daysSinceUpdate = getDaysBetween(previousState.updatedAt, referenceDate);
+
+  if (daysSinceUpdate <= 0) {
+    return { progression: previousState, levelDelta: 0, daysDecayed: 0 };
+  }
+
+  const decayPerDay = 20;
+  const decayedXp = Math.max(0, previousState.totalXp - daysSinceUpdate * decayPerDay);
+  const levelData = getLevelFromXp(decayedXp);
+
+  const nextState: ProgressionState = {
+    ...previousState,
+    totalXp: decayedXp,
+    level: levelData.level,
+    updatedAt: referenceDate.toISOString(),
+  };
+
+  writeJson(XP_PROGRESSION_KEY, nextState);
+  return {
+    progression: nextState,
+    levelDelta: levelData.level - previousLevel,
+    daysDecayed: daysSinceUpdate,
+  };
+}
+
 export function appendWorkoutXpEntry(entry: WorkoutXpEntry) {
   const history = getXpHistory();
   const nextHistory = [entry, ...history.filter((item) => item.id !== entry.id)].slice(0, 365);
   writeJson(XP_HISTORY_KEY, nextHistory);
 
-  const previousState = getProgressionState();
+  const synced = syncProgressionByDate(new Date(entry.date));
+  const previousState = synced.progression;
+  const previousLevel = getLevelFromXp(previousState.totalXp).level;
   const effectiveXp = previousState.deloadActive ? Math.round(entry.totalXp * 0.6) : entry.totalXp;
   const totalXp = previousState.totalXp + effectiveXp;
   const levelData = getLevelFromXp(totalXp);
@@ -156,5 +201,11 @@ export function appendWorkoutXpEntry(entry: WorkoutXpEntry) {
   };
 
   writeJson(XP_PROGRESSION_KEY, nextState);
-  return { entry: { ...entry, totalXp: effectiveXp }, progression: nextState, overload };
+  return {
+    entry: { ...entry, totalXp: effectiveXp },
+    progression: nextState,
+    overload,
+    levelDelta: levelData.level - previousLevel,
+    dateKey: toDateKey(new Date(entry.date)),
+  };
 }

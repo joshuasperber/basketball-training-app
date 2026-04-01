@@ -258,7 +258,7 @@ function WorkoutsPageContent() {
     const workoutXp = 40 + Math.round(qualityScore * 60);
     const totalXp = exerciseXp + workoutXp;
 
-    appendWorkoutXpEntry({
+    const xpResult = appendWorkoutXpEntry({
       id: `${completedProgress.date}-${completedProgress.workoutId}`,
       date: completedProgress.date,
       workoutId: completedProgress.workoutId,
@@ -270,6 +270,12 @@ function WorkoutsPageContent() {
       totalSets,
       qualityScore,
     });
+
+    if (xpResult.levelDelta > 0) {
+      window.alert(`🎉 Level-Up! +${xpResult.levelDelta} Level`);
+    } else if (xpResult.levelDelta < 0) {
+      window.alert(`⬇️ Level-Down: ${Math.abs(xpResult.levelDelta)} Level verloren`);
+    }
   };
 
   const finishSet = () => {
@@ -345,112 +351,126 @@ function WorkoutsPageContent() {
                 </option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-zinc-500">
               Bei Änderung wird das heutige Protokoll zurückgesetzt und neue Zukunfts-Vorschläge angepasst.
-            </span>
+            </p>
           </label>
         ) : null}
+      </section>
 
-        {progress.status === "completed" ? (
-          <p className="mt-4 rounded-xl bg-green-900/40 p-3 text-sm text-green-300">
-            Workout abgeschlossen. Sehr stark! ✅
-          </p>
-        ) : (
-          <>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {workoutForExecution.exercises.map((exercise, exerciseIndex) => {
-                const status = getExerciseStatus(exerciseIndex);
-                const isActive = exerciseIndex === progress.exerciseIndex;
-                const statusClass =
-                  status === "completed"
-                    ? "border-emerald-500 bg-emerald-600/20 text-emerald-100"
-                    : status === "in_progress"
-                    ? "border-blue-500 bg-blue-600/20 text-blue-100"
+      {progress.status === "completed" ? (
+        <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-200">
+          Workout abgeschlossen. Sehr stark! ✅
+        </section>
+      ) : null}
+
+      <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <div className="mb-3">
+          <p className="text-xs uppercase tracking-wide text-zinc-400">Workout-Fortschritt</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {workoutForExecution.exercises.map((exercise, index) => {
+              const status = getExerciseStatus(index);
+              const isActive = index === safeExerciseIndex;
+              const badgeClass =
+                status === "completed"
+                  ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                  : status === "in_progress"
+                    ? "border-amber-500 bg-amber-500/20 text-amber-200"
                     : "border-zinc-700 bg-zinc-950 text-zinc-300";
 
-                return (
-                  <button
-                    key={`${workoutForExecution.id}-${exercise.name}`}
-                    type="button"
-                    onClick={() => jumpToExercise(exerciseIndex)}
-                    className={`rounded-lg border px-3 py-2 text-xs font-semibold ${statusClass} ${
-                      isActive ? "ring-1 ring-white/40" : ""
-                    }`}
-                  >
-                    {exerciseIndex + 1}. {exercise.name}
-                  </button>
-                );
-              })}
-            </div>
+              return (
+                <button
+                  type="button"
+                  key={`${workoutForExecution.id}-progress-${exercise.name}`}
+                  onClick={() => jumpToExercise(index)}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs ${badgeClass} ${
+                    isActive ? "ring-2 ring-indigo-500" : ""
+                  }`}
+                >
+                  <p className="font-semibold">{exercise.name}</p>
+                  <p>
+                    {status === "completed"
+                      ? "Abgeschlossen"
+                      : status === "in_progress"
+                        ? "In Arbeit"
+                        : "Nicht gestartet"}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-            <div className="mt-4 rounded-xl bg-zinc-950 p-4">
-              <p className="text-sm text-zinc-400">
-                {progress.exerciseIndex + 1}/{workoutForExecution.exercises.length}
-              </p>
-              <p className="mt-1 text-lg font-medium">{currentExercise.name}</p>
+        {currentExercise ? (
+          <article className="rounded-xl border border-zinc-700 bg-zinc-950 p-4">
+            <p className="text-xs uppercase tracking-wide text-zinc-400">
+              Exercise {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
+            </p>
+            <h3 className="mt-1 text-xl font-semibold">{currentExercise.name}</h3>
+            <p className="text-sm text-zinc-400">
+              Satz {safeSetIndex + 1}/{currentExercise.sets.length}
+            </p>
 
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {isGymWorkout ? (
-                <p className="mt-4 text-sm text-zinc-400">
-                  Satz {progress.setIndex + 1}/{currentExercise.sets.length}
-                </p>
-              ) : null}
-              {isGymWorkout ? (
-                <>
-                  <p className="mt-1 text-sm">Target kg: {currentSet.targetKg}</p>
-                  <label className="mt-2 block text-sm text-zinc-300">
-                    Gewicht:
-                    <input
-                      value={currentLog.weight}
-                      onChange={(event) => updateCurrentLog("weight", event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-white"
-                      placeholder="kg eintragen"
-                    />
-                  </label>
-                </>
+                <label className="text-sm text-zinc-300">
+                  Gewicht (kg)
+                  <input
+                    value={currentLog.weight}
+                    onChange={(event) => updateCurrentLog("weight", event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                    inputMode="decimal"
+                  />
+                </label>
               ) : null}
 
-              <p className="mt-3 text-sm">{isGymWorkout ? "Target reps" : "Ziel"}: {currentSet.targetReps}</p>
-              <label className="mt-2 block text-sm text-zinc-300">
-                {isGymWorkout ? "Reps" : "Ergebnis"}:
+              <label className="text-sm text-zinc-300">
+                {isGymWorkout ? "Reps" : "Versuche / Ergebnis"}
                 <input
                   value={currentLog.reps}
                   onChange={(event) => updateCurrentLog("reps", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-white"
-                  placeholder="Wiederholungen eintragen"
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                  inputMode="numeric"
                 />
               </label>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Link
-                href={trainingWorkouts.some((workout) => workout.id === workoutForExecution.id) ? `/workouts/${workoutForExecution.id}` : "/training"}
-                className="rounded-xl border border-amber-500 px-4 py-2 text-sm font-semibold text-amber-300 hover:bg-amber-950"
-              >
-                Workout manuell bearbeiten
-              </Link>
-              {progress.status === "not_started" ? (
-                <button
-                  type="button"
-                  onClick={startWorkout}
-                  className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
-                >
-                  Workout starten
-                </button>
-              ) : null}
-
-              {progress.status === "in_progress" ? (
-                <button
-                  type="button"
-                  onClick={finishSet}
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-                >
-                  {isGymWorkout ? "Satz abschließen" : "Übung abschließen"}
-                </button>
-              ) : null}
+            <div className="mt-3 text-sm text-zinc-400">
+              <p>
+                Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : `${currentSet.targetReps} Treffer/Reps`}
+              </p>
+              <p className="mt-1">
+                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : `${currentLog.reps || 0}`}
+              </p>
             </div>
-          </>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={startWorkout}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+              >
+                Workout starten
+              </button>
+              <button
+                type="button"
+                onClick={finishSet}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+              >
+                Satz abschließen
+              </button>
+            </div>
+          </article>
+        ) : (
+          <p className="text-sm text-zinc-500">Keine Exercise im Workout gefunden.</p>
         )}
       </section>
+
+      <div className="mt-4">
+        <Link href="/Weekly-Workout" className="text-sm text-indigo-300 hover:text-indigo-200">
+          ← Zurück zum Weekly Plan
+        </Link>
+      </div>
     </main>
   );
 }

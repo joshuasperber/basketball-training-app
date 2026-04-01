@@ -13,6 +13,7 @@ const navItems: NavItem[] = [
   { label: "Training", href: "/training" },
   { label: "Weekly", href: "/Weekly-Workout" },
   { label: "Stats", href: "/stats" },
+  { label: "Level", href: "/level" },
   { label: "Profile", href: "/profile" },
 ];
 
