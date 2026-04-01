@@ -128,18 +128,17 @@
     },
     {
       "id": "ex-1774955612317",
-      "name": "Killer 150",
-      "durationMin": 10,
+      "name": "Killer 150 - rechts",
+      "durationMin": 5,
       "category": "Basketball",
       "subcategory": "Handles",
-      "notes": "25 Pound Dribbles",
+      "notes": "25 Pound Dribbles\n25 rapid fire Dribbles\n25 in n out\n25 crossovers\n25 tween cross pound\n25 behind the back cross pound",
       "metricKeys": [
-        "misses",
         "time"
       ],
       "targetByMetric": {
         "misses": 10,
-        "time": 7
+        "time": 120
       },
       "trackingType": "reps"
     },
@@ -244,6 +243,156 @@
       },
       "trackingType": "reps",
       "targetValue": 20
+    },
+    {
+      "id": "ex-1775057909593",
+      "name": "Killer 150 - links",
+      "durationMin": 3,
+      "category": "Basketball",
+      "subcategory": "Handles",
+      "notes": "25 Pound Dribbles\n25 rapid fire Dribbles\n25 in n out\n25 crossovers\n25 tween cross pound\n25 behind the back cross pound",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 118
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775057983150",
+      "name": "tween, double between the legs",
+      "durationMin": 10,
+      "category": "Basketball",
+      "subcategory": "Handles",
+      "metricKeys": [
+        "tries",
+        "misses"
+      ],
+      "targetByMetric": {
+        "reps": 20,
+        "misses": 2,
+        "tries": 20
+      },
+      "trackingType": "reps",
+      "targetValue": 20
+    },
+    {
+      "id": "ex-1775058023917",
+      "name": "Elbow-Jumpers rechts",
+      "durationMin": 5,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 20,
+        "makes": 15
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775058079984",
+      "name": "Elbow-Jumpers links",
+      "durationMin": 5,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 20,
+        "makes": 15
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775058131067",
+      "name": "3 Pointers - 1",
+      "durationMin": 3,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "notes": "rechte Corner",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 10,
+        "makes": 5
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775058162303",
+      "name": "3 Pointers - 2",
+      "durationMin": 3,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "notes": "rechts schräg",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 10,
+        "makes": 4
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775058191016",
+      "name": "3 Pointers - 3",
+      "durationMin": 3,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "notes": "top of the key",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 10,
+        "makes": 5
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775058208177",
+      "name": "3 Pointers - 4",
+      "durationMin": 3,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "notes": "links schräg",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 10,
+        "makes": 5
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775058228908",
+      "name": "3 Pointers - 5",
+      "durationMin": 3,
+      "category": "Basketball",
+      "subcategory": "Shooting",
+      "notes": "linke corner",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 10,
+        "makes": 5
+      },
+      "trackingType": "reps"
     }
   ],
   "workouts": [
