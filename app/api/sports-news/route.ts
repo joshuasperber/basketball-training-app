@@ -28,13 +28,13 @@ type NewsItem = {
 const FALLBACK_ITEMS: NewsItem[] = [
   {
     title: "Demo: Lakers vs Warriors",
-    source: "Fallback • API-Key prüfen",
+    source: "Fallback - API-Key pruefen",
     date: new Date().toISOString(),
     url: "https://www.api-sports.io/",
   },
   {
     title: "Demo: Celtics vs Bucks",
-    source: "Fallback • API-Key prüfen",
+    source: "Fallback - API-Key pruefen",
     date: new Date().toISOString(),
     url: "https://www.api-sports.io/",
   },
@@ -70,16 +70,36 @@ export async function GET() {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const endpoint = `https://v1.basketball.api-sports.io/games?date=${today}`;
+    const endpointCandidates = [
+      `https://v1.basketball.api-sports.io/games?date=${today}`,
+      "https://v1.basketball.api-sports.io/games?next=10",
+    ];
 
-    const response = await fetch(endpoint, {
-      headers: {
-        "x-apisports-key": apiKey,
-        "x-rapidapi-key": apiKey,
-        "x-rapidapi-host": "v1.basketball.api-sports.io",
-      },
-      next: { revalidate: 900 },
-    });
+    let response: Response | null = null;
+    let endpointUsed = "";
+
+    for (const endpoint of endpointCandidates) {
+      const nextResponse = await fetch(endpoint, {
+        headers: {
+          "x-apisports-key": apiKey,
+        },
+        next: { revalidate: 900 },
+      });
+
+      response = nextResponse;
+      endpointUsed = endpoint;
+
+      if (nextResponse.ok) {
+        break;
+      }
+    }
+
+    if (!response) {
+      return NextResponse.json({
+        items: FALLBACK_ITEMS,
+        warning: "API-Aufruf konnte nicht gestartet werden. Es werden Demo-News angezeigt.",
+      });
+    }
 
     const contentType = response.headers.get("content-type") ?? "";
 
@@ -104,11 +124,12 @@ export async function GET() {
     }
 
     if (!response.ok || payload.errors) {
-      const apiErrorMessage = payload.errors
-        ? Object.entries(payload.errors)
+      const payloadErrors = payload.errors ?? {};
+      const apiErrorMessage = Object.keys(payloadErrors).length > 0
+        ? Object.entries(payloadErrors)
             .map(([key, value]) => `${key}: ${value}`)
             .join(" | ")
-        : `HTTP ${response.status}`;
+        : `HTTP ${response.status} (${endpointUsed || "unknown endpoint"})`;
 
       return NextResponse.json({
         items: FALLBACK_ITEMS,

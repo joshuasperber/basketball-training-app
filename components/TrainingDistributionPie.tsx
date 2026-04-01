@@ -1,7 +1,5 @@
 "use client";
 
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-
 type ChartItem = {
   name: string;
   value: number;
@@ -22,47 +20,31 @@ export default function TrainingDistributionPie({ data }: Props) {
     );
   }
 
+  const total = data.reduce((sum, item) => sum + Math.max(item.value, 0), 0);
+
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
       <h2 className="text-lg font-semibold text-white">Trainingsverteilung</h2>
       <p className="mt-1 text-sm text-zinc-400">Minuten pro Kategorie</p>
 
-      <div className="mt-4 h-72 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data}
-              dataKey="value"
-              nameKey="name"
-              outerRadius={90}
-              innerRadius={50}
-              paddingAngle={3}
-            >
-              {data.map((entry, index) => (
-                <Cell
-                  key={entry.name}
-                  fill={COLORS[index % COLORS.length]}
-                />
-              ))}
-            </Pie>
-            <Tooltip />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-
       <div className="mt-4 space-y-2">
-        {data.map((item, index) => (
-          <div key={item.name} className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-2">
-              <span
-                className="h-3 w-3 rounded-full"
-                style={{ backgroundColor: COLORS[index % COLORS.length] }}
-              />
-              <span className="text-zinc-300">{item.name}</span>
+        {data.map((item, index) => {
+          const share = total > 0 ? Math.round((item.value / total) * 100) : 0;
+          return (
+            <div key={item.name} className="space-y-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-zinc-300">{item.name}</span>
+                <span className="font-medium text-white">{item.value} Min ({share}%)</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${share}%`, backgroundColor: COLORS[index % COLORS.length] }}
+                />
+              </div>
             </div>
-            <span className="font-medium text-white">{item.value} Min</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

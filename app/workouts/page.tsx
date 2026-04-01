@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import {
@@ -39,7 +40,7 @@ function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
   }
 }
 
-export default function WorkoutsPage() {
+function WorkoutsPageContent() {
   const searchParams = useSearchParams();
   const dayParam = searchParams.get("day");
   const workoutIdParam = searchParams.get("workoutId");
@@ -52,6 +53,17 @@ export default function WorkoutsPage() {
   );
   const overrideStorageKey = `${WORKOUT_OVERRIDE_PREFIX}${dateKey}`;
   const [overrideWorkoutId, setOverrideWorkoutId] = useState<string | null>(null);
+  const [lastCompletedWorkoutId, setLastCompletedWorkoutId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
+    if (!rawHistory) return null;
+    try {
+      const parsed = JSON.parse(rawHistory) as CompletedWorkoutHistoryEntry[];
+      return parsed[0]?.workoutId ?? null;
+    } catch {
+      return null;
+    }
+  });
   const workoutOptions = useMemo(() => Object.values(WEEKLY_WORKOUT_PLAN), []);
   const trainingWorkouts = useMemo(() => loadWorkouts(), []);
   const trainingExercises = useMemo(() => loadExercises(), []);
@@ -92,7 +104,12 @@ export default function WorkoutsPage() {
     if (!overrideWorkoutId) return null;
     return workoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
   }, [overrideWorkoutId, workoutOptions]);
-  const activeWorkout = customWorkoutFromCatalog ?? selectedOverrideWorkout ?? defaultWorkout;
+  const activeWorkoutBase = selectedOverrideWorkout ?? customWorkoutFromCatalog ?? defaultWorkout;
+  const activeWorkout = useMemo(() => {
+    if (!lastCompletedWorkoutId) return activeWorkoutBase;
+    if (activeWorkoutBase.id !== lastCompletedWorkoutId) return activeWorkoutBase;
+    return workoutOptions.find((workout) => workout.id !== lastCompletedWorkoutId) ?? activeWorkoutBase;
+  }, [activeWorkoutBase, lastCompletedWorkoutId, workoutOptions]);
   const fallbackProgress = useMemo(
     () => getDefaultWorkoutProgress(dateKey, activeWorkout),
     [activeWorkout, dateKey],
@@ -215,6 +232,7 @@ export default function WorkoutsPage() {
     const historyEntry: CompletedWorkoutHistoryEntry = {
       id: `${completedProgress.date}-${completedProgress.workoutId}`,
       date: completedProgress.date,
+      workoutId: completedProgress.workoutId,
       title: completedProgress.title,
       sport: completedProgress.sport,
       subcategory: completedProgress.subcategory,
@@ -224,6 +242,7 @@ export default function WorkoutsPage() {
     };
 
     persistHistoryEntry(historyEntry);
+    setLastCompletedWorkoutId(completedProgress.workoutId);
 
     let achievedSets = 0;
     let totalSets = 0;
@@ -295,9 +314,6 @@ export default function WorkoutsPage() {
         <h2 className="text-xl font-semibold">{activeWorkout.title}</h2>
         <p className="mt-1 text-sm text-zinc-400">Sport: {activeWorkout.sport}</p>
         <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {activeWorkout.subcategory}</p>
-        <p className="mt-1 text-xs text-zinc-500">
-          Datum: {getDateForWeekday(effectiveDay).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
-        </p>
         {effectiveDay === todayDayIndex ? (
           <label className="mt-3 block text-sm text-zinc-300">
             Heutiges Workout manuell wählen
@@ -400,6 +416,12 @@ export default function WorkoutsPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                href={trainingWorkouts.some((workout) => workout.id === activeWorkout.id) ? `/workouts/${activeWorkout.id}` : "/training"}
+                className="rounded-xl border border-amber-500 px-4 py-2 text-sm font-semibold text-amber-300 hover:bg-amber-950"
+              >
+                Workout manuell bearbeiten
+              </Link>
               {progress.status === "not_started" ? (
                 <button
                   type="button"
@@ -424,5 +446,13 @@ export default function WorkoutsPage() {
         )}
       </section>
     </main>
+  );
+}
+
+export default function WorkoutsPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-black p-6 pb-24 text-white">Workouts werden geladen...</main>}>
+      <WorkoutsPageContent />
+    </Suspense>
   );
 }

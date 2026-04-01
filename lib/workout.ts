@@ -40,6 +40,7 @@ export type WorkoutProgress = {
 export type CompletedWorkoutHistoryEntry = {
   id: string;
   date: string;
+  workoutId?: string;
   title: string;
   sport: SportType;
   subcategory: string;
