@@ -19,6 +19,7 @@ import {
   getTodayWorkoutPlan,
   getWorkoutPlanForDay,
   parseWorkoutProgress,
+  toLocalDateKey,
   type WorkoutPlan,
 } from "@/lib/workout";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
@@ -28,18 +29,11 @@ const MANUAL_DAY_WORKOUTS_KEY = "bt.manual-day-workouts.v1";
 type ManualDayWorkout = {
   id: string;
   title: string;
-  sport: "Basketball" | "Gym" | "Home";
+  sport: "Basketball" | "Gym" | "Home" | "Rest";
   subcategory: string;
   notes: string;
   exerciseIds: string[];
 };
-
-function toLocalDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
   const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
@@ -85,6 +79,27 @@ function buildGroupedExercisesByFamily(params: {
   return Array.from(uniqueById.values());
 }
 
+function expandExercisesWithFamily(params: {
+  selectedExerciseIds: string[];
+  category: "Basketball" | "Gym" | "Home";
+  subcategory?: string;
+  exercises: ReturnType<typeof loadExercises>;
+}) {
+  const selected = params.selectedExerciseIds
+    .map((exerciseId) => params.exercises.find((exercise) => exercise.id === exerciseId))
+    .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise && exercise.category === params.category));
+  if (!selected.length) return [];
+  const families = new Set(selected.map((exercise) => normalizeExerciseFamily(exercise.name)));
+  const related = params.exercises.filter(
+    (exercise) =>
+      exercise.category === params.category &&
+      (!params.subcategory || exercise.subcategory === params.subcategory) &&
+      families.has(normalizeExerciseFamily(exercise.name)),
+  );
+  const unique = new Map([...selected, ...related].map((exercise) => [exercise.id, exercise]));
+  return Array.from(unique.values());
+}
+
 function WorkoutsPageContent() {
   const searchParams = useSearchParams();
   const dayParam = searchParams.get("day");
@@ -105,8 +120,10 @@ function WorkoutsPageContent() {
   const trainingExercises = useMemo(() => loadExercises(), []);
   const [manualWorkout, setManualWorkout] = useState<WorkoutPlan | null>(null);
   const [manualTitle, setManualTitle] = useState("Manuelles Workout");
-  const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home">("Basketball");
-  const [manualSubcategory, setManualSubcategory] = useState("Shooting");
+  const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home" | "Rest">("Basketball");
+  const [manualSubcategory, setManualSubcategory] = useState("");
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualTemplateWorkoutId, setManualTemplateWorkoutId] = useState("");
   const [manualNotes, setManualNotes] = useState("");
   const [selectedManualExerciseIds, setSelectedManualExerciseIds] = useState<string[]>([]);
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
@@ -246,10 +263,36 @@ function WorkoutsPageContent() {
 
     return { missingSubcategories, suggestedExercises };
   }, [trainingExercises]);
-  const manualExercisePool = useMemo(
-    () => trainingExercises.filter((exercise) => exercise.category === manualCategory),
+  const manualSubcategoryOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          trainingExercises
+            .filter((exercise) => exercise.category === manualCategory)
+            .map((exercise) => exercise.subcategory),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
     [manualCategory, trainingExercises],
   );
+  const manualTemplateOptions = useMemo(
+    () =>
+      trainingWorkouts.filter(
+        (workout) =>
+          workout.category === manualCategory &&
+          (!manualSubcategory || workout.subcategory === manualSubcategory),
+      ),
+    [manualCategory, manualSubcategory, trainingWorkouts],
+  );
+  const manualExercisePool = useMemo(() => {
+    if (manualCategory === "Rest") return [];
+    const query = manualSearch.trim().toLowerCase();
+    return trainingExercises.filter((exercise) => {
+      if (exercise.category !== manualCategory) return false;
+      if (manualSubcategory && exercise.subcategory !== manualSubcategory) return false;
+      if (!query) return true;
+      return `${exercise.name} ${exercise.subcategory}`.toLowerCase().includes(query);
+    });
+  }, [manualCategory, manualSearch, manualSubcategory, trainingExercises]);
   const savedManualWorkouts = useMemo(() => {
     void manualStorageVersion;
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
@@ -295,6 +338,7 @@ function WorkoutsPageContent() {
   };
 
   const isGymWorkout = workoutForExecution.sport === "Gym";
+  const isRestDay = workoutForExecution.sport === "Rest";
   const safeExerciseIndex = Math.min(
     Math.max(progress.exerciseIndex, 0),
     Math.max(0, workoutForExecution.exercises.length - 1),
@@ -306,7 +350,7 @@ function WorkoutsPageContent() {
   );
   const currentSet = currentExercise?.sets[safeSetIndex] ?? { targetKg: 0, targetReps: 0 };
   const currentLogKey = buildSetLogKey(safeExerciseIndex, safeSetIndex);
-  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "" };
+  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "" };
   const exerciseMeta = useMemo(() => {
     const lookup = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
     return workoutForExecution.exercises.map((exercise) => lookup.get(exercise.name) ?? null);
@@ -314,6 +358,7 @@ function WorkoutsPageContent() {
   const currentExerciseMeta = exerciseMeta[safeExerciseIndex];
   const currentMetricOptions = (currentExerciseMeta?.metricKeys?.length ? currentExerciseMeta.metricKeys : ["reps"]) as MetricKey[];
   const activeMetric = selectedMetricByExercise[safeExerciseIndex] ?? currentMetricOptions[0];
+  const tracksTriesAndMakes = !isGymWorkout && currentMetricOptions.includes("tries") && currentMetricOptions.includes("makes");
   const workoutNotes = useMemo(() => {
     const fromCatalog = customWorkoutFromCatalog ? trainingWorkouts.find((workout) => workout.id === customWorkoutFromCatalog.id)?.notes : null;
     return fromCatalog ?? null;
@@ -325,7 +370,9 @@ function WorkoutsPageContent() {
     if (!log) return false;
     const reps = Number(log.reps) || 0;
     const weight = Number(log.weight) || 0;
-    return reps > 0 || weight > 0;
+    const tries = Number(log.tries) || 0;
+    const makes = Number(log.makes) || 0;
+    return reps > 0 || weight > 0 || tries > 0 || makes > 0;
   };
 
   const getExerciseStatus = (exerciseIndex: number): "not_started" | "in_progress" | "completed" => {
@@ -347,7 +394,7 @@ function WorkoutsPageContent() {
     });
   };
 
-  const updateCurrentLog = (field: "weight" | "reps", value: string) => {
+  const updateCurrentLog = (field: "weight" | "reps" | "tries" | "makes", value: string) => {
     persistProgress({
       ...progress,
       logs: {
@@ -368,19 +415,60 @@ function WorkoutsPageContent() {
       previous.includes(exerciseId) ? previous.filter((id) => id !== exerciseId) : [...previous, exerciseId],
     );
   };
+  const moveManualExercise = (exerciseId: string, direction: "up" | "down") => {
+    setSelectedManualExerciseIds((previous) => {
+      const index = previous.indexOf(exerciseId);
+      if (index < 0) return previous;
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= previous.length) return previous;
+      const next = [...previous];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return next;
+    });
+  };
+  const applyTemplateWorkout = (workoutId: string) => {
+    const workout = trainingWorkouts.find((entry) => entry.id === workoutId);
+    if (!workout) return;
+    setManualCategory(workout.category);
+    setManualSubcategory(workout.subcategory);
+    setManualTitle(workout.name);
+    setSelectedManualExerciseIds(workout.exerciseIds);
+    setManualTemplateWorkoutId(workout.id);
+  };
   const applyManualWorkout = () => {
-    const selectedExercises = selectedManualExerciseIds
-      .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
-      .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise));
-    if (!selectedExercises.length) return;
-    const sameCategoryExercises = selectedExercises.filter((exercise) => exercise.category === manualCategory);
+    if (manualCategory === "Rest") {
+      setManualWorkout({
+        id: `manual-rest-${Date.now()}`,
+        title: manualTitle.trim() || "Ruhetag",
+        sport: "Rest",
+        subcategory: manualSubcategory.trim() || "Ruhetag",
+        exercises: [],
+      });
+      setOverrideWorkoutId(null);
+      window.localStorage.removeItem(overrideStorageKey);
+      return;
+    }
+    const sameCategoryExercises = expandExercisesWithFamily({
+      selectedExerciseIds: selectedManualExerciseIds,
+      category: manualCategory,
+      subcategory: manualSubcategory || undefined,
+      exercises: trainingExercises,
+    });
     if (!sameCategoryExercises.length) return;
+    const selectedOrder = new Map(selectedManualExerciseIds.map((id, index) => [id, index]));
+    const orderedIds = sameCategoryExercises.sort((left, right) => {
+      const leftIndex = selectedOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = selectedOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      return left.name.localeCompare(right.name);
+    });
     setManualWorkout({
       id: `manual-${Date.now()}`,
       title: manualTitle.trim() || "Manuelles Workout",
       sport: manualCategory,
       subcategory: manualSubcategory.trim() || sameCategoryExercises[0].subcategory,
-      exercises: sameCategoryExercises.map((exercise) => ({
+      exercises: orderedIds.map((exercise) => ({
         name: exercise.name,
         sets: [{
           targetKg: exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0,
@@ -388,19 +476,36 @@ function WorkoutsPageContent() {
         }],
       })),
     });
+    setOverrideWorkoutId(null);
+    window.localStorage.removeItem(overrideStorageKey);
   };
   const saveManualWorkoutForDay = () => {
-    const selectedExercises = selectedManualExerciseIds
-      .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
-      .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise && exercise.category === manualCategory));
-    if (!selectedExercises.length) return;
+    if (manualCategory !== "Rest" && selectedManualExerciseIds.length <= 0) return;
+    const selectedExercises =
+      manualCategory === "Rest"
+        ? []
+        : expandExercisesWithFamily({
+            selectedExerciseIds: selectedManualExerciseIds,
+            category: manualCategory,
+            subcategory: manualSubcategory || undefined,
+            exercises: trainingExercises,
+          });
+    const selectedOrder = new Map(selectedManualExerciseIds.map((id, index) => [id, index]));
+    const orderedExerciseIds = selectedExercises
+      .sort((left, right) => {
+        const leftIndex = selectedOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = selectedOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+        return left.name.localeCompare(right.name);
+      })
+      .map((exercise) => exercise.id);
     const nextEntry: ManualDayWorkout = {
       id: `manual-day-${Date.now()}`,
       title: manualTitle.trim() || "Manuelles Workout",
       sport: manualCategory,
-      subcategory: manualSubcategory.trim() || selectedExercises[0].subcategory,
+      subcategory: manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Ruhetag",
       notes: manualNotes.trim(),
-      exerciseIds: selectedExercises.map((exercise) => exercise.id),
+      exerciseIds: orderedExerciseIds,
     };
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
     let store: Record<string, ManualDayWorkout[]> = {};
@@ -416,6 +521,22 @@ function WorkoutsPageContent() {
     setManualStorageVersion((previous) => previous + 1);
   };
   const loadSavedManualWorkout = (entry: ManualDayWorkout) => {
+    setManualCategory(entry.sport);
+    setManualSubcategory(entry.subcategory);
+    setManualTitle(entry.title);
+    setSelectedManualExerciseIds(entry.exerciseIds);
+    setOverrideWorkoutId(null);
+    window.localStorage.removeItem(overrideStorageKey);
+    if (entry.sport === "Rest") {
+      setManualWorkout({
+        id: entry.id,
+        title: entry.title,
+        sport: "Rest",
+        subcategory: entry.subcategory,
+        exercises: [],
+      });
+      return;
+    }
     const selectedExercises = entry.exerciseIds
       .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
       .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise));
@@ -446,14 +567,17 @@ function WorkoutsPageContent() {
     const totals = Object.values(completedProgress.logs).reduce(
       (accumulator, setLog) => {
         const reps = Number(setLog.reps) || 0;
+        const makes = Number(setLog.makes) || 0;
+        const tries = Number(setLog.tries) || 0;
         const weight = Number(setLog.weight) || 0;
+        const effectiveReps = makes > 0 ? makes : reps;
 
-        if (reps > 0 || weight > 0) {
+        if (effectiveReps > 0 || weight > 0 || tries > 0) {
           accumulator.totalSets += 1;
         }
 
-        accumulator.totalReps += reps;
-        accumulator.totalVolumeKg += reps * weight;
+        accumulator.totalReps += effectiveReps;
+        accumulator.totalVolumeKg += effectiveReps * weight;
 
         return accumulator;
       },
@@ -480,8 +604,10 @@ function WorkoutsPageContent() {
         totalSets += 1;
         const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
         const reps = Number(log?.reps) || 0;
+        const makes = Number(log?.makes) || 0;
         const weight = Number(log?.weight) || 0;
-        const repsMet = reps >= set.targetReps;
+        const effectiveReps = makes > 0 ? makes : reps;
+        const repsMet = effectiveReps >= set.targetReps;
         const weightMet = set.targetKg <= 0 || weight >= set.targetKg;
         if (repsMet && weightMet) {
           achievedSets += 1;
@@ -561,7 +687,7 @@ function WorkoutsPageContent() {
             ))}
           </ul>
         </div>
-        {effectiveDay === todayDayIndex ? (
+        {effectiveDay === todayDayIndex && !manualWorkout ? (
           <label className="mt-3 block text-sm text-zinc-300">
             Heutiges Workout manuell wählen
             <select
@@ -593,6 +719,11 @@ function WorkoutsPageContent() {
             </p>
           </label>
         ) : null}
+        {effectiveDay === todayDayIndex && manualWorkout ? (
+          <p className="mt-3 text-xs text-emerald-300">
+            Manuelles Workout für heute aktiv. Die Standard-Auswahl ist ausgeblendet.
+          </p>
+        ) : null}
       </section>
       {manualParam === "1" ? (
         <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/20 p-4">
@@ -601,20 +732,45 @@ function WorkoutsPageContent() {
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <select
               value={manualCategory}
-              onChange={(event) => setManualCategory(event.target.value as "Basketball" | "Gym" | "Home")}
+              onChange={(event) => {
+                const nextCategory = event.target.value as "Basketball" | "Gym" | "Home" | "Rest";
+                setManualCategory(nextCategory);
+                setManualSubcategory("");
+                setManualTemplateWorkoutId("");
+                setSelectedManualExerciseIds([]);
+              }}
               className="w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
             >
               <option value="Basketball">Basketball</option>
               <option value="Gym">Gym</option>
               <option value="Home">Home</option>
+              <option value="Rest">Ruhetag</option>
             </select>
-            <input
+            <select
               value={manualSubcategory}
               onChange={(event) => setManualSubcategory(event.target.value)}
               className="w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
-              placeholder="Schwerpunkt / Unterkategorie"
-            />
+            >
+              <option value="">Kein fester Schwerpunkt</option>
+              {manualSubcategoryOptions.map((subcategory) => (
+                <option key={subcategory} value={subcategory}>
+                  {subcategory}
+                </option>
+              ))}
+            </select>
           </div>
+          <select
+            value={manualTemplateWorkoutId}
+            onChange={(event) => applyTemplateWorkout(event.target.value)}
+            className="mt-2 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+          >
+            <option value="">Workout-Template optional wählen</option>
+            {manualTemplateOptions.map((workout) => (
+              <option key={workout.id} value={workout.id}>
+                {workout.name}
+              </option>
+            ))}
+          </select>
           <input
             value={manualTitle}
             onChange={(event) => setManualTitle(event.target.value)}
@@ -628,18 +784,48 @@ function WorkoutsPageContent() {
             placeholder="Notizen"
             rows={2}
           />
-          <div className="mt-3 max-h-48 space-y-2 overflow-auto rounded-lg border border-zinc-700 p-2">
-            {manualExercisePool.map((exercise) => (
-              <label key={exercise.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedManualExerciseIds.includes(exercise.id)}
-                  onChange={() => toggleManualExercise(exercise.id)}
-                />
-                <span>{exercise.name} <span className="text-zinc-500">({exercise.subcategory})</span></span>
-              </label>
-            ))}
-          </div>
+          {manualCategory !== "Rest" ? (
+            <>
+              <input
+                value={manualSearch}
+                onChange={(event) => setManualSearch(event.target.value)}
+                className="mt-3 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+                placeholder="Exercise suchen..."
+              />
+              <div className="mt-3 max-h-48 space-y-2 overflow-auto rounded-lg border border-zinc-700 p-2">
+                {manualExercisePool.map((exercise) => (
+                  <label key={exercise.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedManualExerciseIds.includes(exercise.id)}
+                      onChange={() => toggleManualExercise(exercise.id)}
+                    />
+                    <span>{exercise.name} <span className="text-zinc-500">({exercise.subcategory})</span></span>
+                  </label>
+                ))}
+              </div>
+              {selectedManualExerciseIds.length > 0 ? (
+                <div className="mt-2 space-y-2 rounded-lg border border-zinc-700 p-2">
+                  <p className="text-xs text-zinc-400">Reihenfolge festlegen</p>
+                  {selectedManualExerciseIds.map((exerciseId, index) => {
+                    const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
+                    if (!exercise) return null;
+                    return (
+                      <div key={`order-${exerciseId}`} className="flex items-center justify-between text-sm">
+                        <span>{index + 1}. {exercise.name}</span>
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => moveManualExercise(exerciseId, "up")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↑</button>
+                          <button type="button" onClick={() => moveManualExercise(exerciseId, "down")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↓</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-zinc-300">Ruhetag gewählt: es werden keine Exercises geladen.</p>
+          )}
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -741,17 +927,40 @@ function WorkoutsPageContent() {
                 </label>
               ) : null}
 
-              <label className="text-sm text-zinc-300">
-                {isGymWorkout ? "Reps" : `Wert (${activeMetric})`}
-                <input
-                  value={currentLog.reps}
-                  onChange={(event) => updateCurrentLog("reps", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
-                  inputMode="numeric"
-                />
-              </label>
+              {tracksTriesAndMakes ? (
+                <>
+                  <label className="text-sm text-zinc-300">
+                    Tries
+                    <input
+                      value={currentLog.tries ?? ""}
+                      onChange={(event) => updateCurrentLog("tries", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <label className="text-sm text-zinc-300">
+                    Makes
+                    <input
+                      value={currentLog.makes ?? ""}
+                      onChange={(event) => updateCurrentLog("makes", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      inputMode="numeric"
+                    />
+                  </label>
+                </>
+              ) : (
+                <label className="text-sm text-zinc-300">
+                  {isGymWorkout ? "Reps" : `Wert (${activeMetric})`}
+                  <input
+                    value={currentLog.reps}
+                    onChange={(event) => updateCurrentLog("reps", event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                    inputMode="numeric"
+                  />
+                </label>
+              )}
             </div>
-            {!isGymWorkout && currentMetricOptions.length > 0 ? (
+            {!isGymWorkout && currentMetricOptions.length > 0 && !tracksTriesAndMakes ? (
               <div className="mt-3">
                 <p className="text-xs uppercase tracking-wide text-zinc-400">Attribute auswählen</p>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -778,10 +987,10 @@ function WorkoutsPageContent() {
 
             <div className="mt-3 text-sm text-zinc-400">
               <p>
-                Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : `${currentSet.targetReps} Treffer/Reps`}
+                Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksTriesAndMakes ? `${currentExerciseMeta?.targetByMetric?.tries ?? "-"} Tries • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} Treffer/Reps`}
               </p>
               <p className="mt-1">
-                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : `${currentLog.reps || 0}`}
+                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${currentLog.tries || 0} Tries • ${currentLog.makes || 0} Makes` : `${currentLog.reps || 0}`}
               </p>
             </div>
 
@@ -803,7 +1012,9 @@ function WorkoutsPageContent() {
             </div>
           </article>
         ) : (
-          <p className="text-sm text-zinc-500">Keine Exercise im Workout gefunden.</p>
+          <p className="text-sm text-zinc-500">
+            {isRestDay ? "Ruhetag aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
+          </p>
         )}
       </section>
 

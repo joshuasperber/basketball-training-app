@@ -39,6 +39,15 @@ function rotateArray<T>(items: T[], start: number) {
   return [...items.slice(offset), ...items.slice(0, offset)];
 }
 
+function normalizeExerciseFamily(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/\s*-\s*(rechts|links|right|left)\b/g, "")
+    .replace(/\s*[-–]?\s*\d+\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const DEFAULT_FOCUS: FocusProfile = {
   basketball: ["Handles", "Finishing", "Shooting", "Defense", "Komplett"],
   gym: ["Legs", "Core", "Pull", "Push"],
@@ -140,19 +149,29 @@ export function buildGeneratedWorkout(params: {
 
   const fallbackExercises = params.exercisePool.filter((exercise) => exercise.category === params.category);
   const source = relevantExercises.length > 0 ? relevantExercises : fallbackExercises;
+  const groupedByFamily = source.reduce(
+    (accumulator, exercise) => {
+      const key = normalizeExerciseFamily(exercise.name);
+      const current = accumulator.get(key) ?? [];
+      current.push(exercise);
+      accumulator.set(key, current);
+      return accumulator;
+    },
+    new Map<string, Exercise[]>(),
+  );
+  const groupedFamilies = Array.from(groupedByFamily.values())
+    .map((items) => items.sort((left, right) => left.name.localeCompare(right.name)));
   const rotatedSource = rotateArray(
-    source,
-    getSeedIndex(`${params.day}-${params.subcategory}-${params.category}`, source.length),
+    groupedFamilies,
+    getSeedIndex(`${params.day}-${params.subcategory}-${params.category}`, groupedFamilies.length),
   );
 
   const picked: Exercise[] = [];
   let totalDuration = 0;
 
-  for (const exercise of rotatedSource) {
-    if (picked.length >= 4) break;
-
-    picked.push(exercise);
-    totalDuration += exercise.durationMin;
+  for (const family of rotatedSource) {
+    picked.push(...family);
+    totalDuration += family.reduce((sum, exercise) => sum + exercise.durationMin, 0);
 
     if (totalDuration >= Math.max(20, params.targetMinutes - 5) && picked.length >= 2) {
       break;

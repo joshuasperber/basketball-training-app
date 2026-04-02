@@ -1,5 +1,5 @@
 export type WorkoutStatus = "not_started" | "in_progress" | "completed";
-export type SportType = "Gym" | "Basketball" | "Home";
+export type SportType = "Gym" | "Basketball" | "Home" | "Rest";
 
 
 export type WorkoutSet = {
@@ -23,6 +23,8 @@ export type WorkoutPlan = {
 export type SetLog = {
   weight: string;
   reps: string;
+  tries?: string;
+  makes?: string;
 };
 
 export type WorkoutProgress = {
@@ -242,13 +244,20 @@ export const getDateForWeekday = (dayIndex: number, fromDate = new Date()) => {
   return result;
 };
 
+export const toLocalDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export const getWeekdayName = (date: Date) =>
   date.toLocaleDateString("de-DE", { weekday: "long" });
 
 export const buildWorkoutStorageKey = (date: string) =>
   `${WORKOUT_PROGRESS_PREFIX}${date}`;
 
-export const getTodayDateKey = () => new Date().toISOString().slice(0, 10);
+export const getTodayDateKey = () => toLocalDateKey(new Date());
 
 export const buildSetLogKey = (exerciseIndex: number, setIndex: number) =>
   `${exerciseIndex}-${setIndex}`;

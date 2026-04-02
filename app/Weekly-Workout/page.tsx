@@ -11,6 +11,7 @@ import {
   getDateForWeekday,
   getTodayDateKey,
   getTodayWorkoutPlan,
+  toLocalDateKey,
 } from "@/lib/workout";
 import { buildWeeklyPlan, type DayKey, type WeekConfig } from "@/lib/planner";
 import {
@@ -44,7 +45,7 @@ const MANUAL_DAY_WORKOUTS_KEY = "bt.manual-day-workouts.v1";
 type ManualDayWorkout = {
   id: string;
   title: string;
-  sport: "Basketball" | "Gym" | "Home";
+  sport: "Basketball" | "Gym" | "Home" | "Rest";
   subcategory: string;
   notes: string;
   exerciseIds: string[];
@@ -411,7 +412,7 @@ export default function WeeklyWorkoutPage() {
         const manualByDate = rawManual ? (JSON.parse(rawManual) as Record<string, ManualDayWorkout[]>) : {};
         const manualByDay: Partial<Record<DayKey, ManualDayWorkout>> = {};
         weekdayOrder.forEach((index) => {
-          const date = getDateForWeekday(index).toISOString().slice(0, 10);
+          const date = toLocalDateKey(getDateForWeekday(index));
           const dayKey = dayByIndex[index];
           const entry = manualByDate[date]?.[0];
           if (entry) {
