@@ -245,6 +245,7 @@ function buildBasketballExerciseStats(): BasketballExerciseStat[] {
         usesShotMetrics: value.usesShotMetrics,
       };
     })
+    .filter((entry) => entry.usesShotMetrics)
     .sort((a, b) => b.attempts - a.attempts);
 }
 
@@ -346,8 +347,12 @@ function TrendChart({ points }: { points: number[] }) {
     .join(" ");
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-20 w-full rounded bg-zinc-900">
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-24 w-full rounded bg-zinc-900">
+      <line x1="0" y1={height - 2} x2={width} y2={height - 2} stroke="#52525b" strokeWidth="1" />
+      <line x1="2" y1="0" x2="2" y2={height} stroke="#52525b" strokeWidth="1" />
       <polyline fill="none" stroke="#38bdf8" strokeWidth="3" points={linePoints} />
+      <text x="8" y="12" fill="#a1a1aa" fontSize="9">Zeit (Sek.)</text>
+      <text x={width - 52} y={height - 6} fill="#a1a1aa" fontSize="9">Session</text>
     </svg>
   );
 }

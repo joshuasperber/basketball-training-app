@@ -24,6 +24,21 @@ export type GeneratedWorkout = {
   notes: string;
 };
 
+function getSeedIndex(seedSource: string, length: number) {
+  if (length <= 0) return 0;
+  let hash = 0;
+  for (let i = 0; i < seedSource.length; i += 1) {
+    hash = (hash * 31 + seedSource.charCodeAt(i)) >>> 0;
+  }
+  return hash % length;
+}
+
+function rotateArray<T>(items: T[], start: number) {
+  if (items.length <= 1) return items;
+  const offset = ((start % items.length) + items.length) % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
+}
+
 const DEFAULT_FOCUS: FocusProfile = {
   basketball: ["Handles", "Finishing", "Shooting", "Defense", "Komplett"],
   gym: ["Legs", "Core", "Pull", "Push"],
@@ -125,11 +140,15 @@ export function buildGeneratedWorkout(params: {
 
   const fallbackExercises = params.exercisePool.filter((exercise) => exercise.category === params.category);
   const source = relevantExercises.length > 0 ? relevantExercises : fallbackExercises;
+  const rotatedSource = rotateArray(
+    source,
+    getSeedIndex(`${params.day}-${params.subcategory}-${params.category}`, source.length),
+  );
 
   const picked: Exercise[] = [];
   let totalDuration = 0;
 
-  for (const exercise of source) {
+  for (const exercise of rotatedSource) {
     if (picked.length >= 4) break;
 
     picked.push(exercise);

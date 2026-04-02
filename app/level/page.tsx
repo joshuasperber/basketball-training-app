@@ -13,7 +13,16 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises } from "@/lib/training-storage";
 import { type Category } from "@/lib/training-data";
 
-type SkillCard = { name: string; score: number; lastTrained: string | null; daysSince: number | null; points: number };
+type SkillCard = {
+  name: string;
+  score: number;
+  level: number;
+  xpIntoLevel: number;
+  xpForCurrentLevel: number;
+  lastTrained: string | null;
+  daysSince: number | null;
+  points: number;
+};
 type DailyStreak = { current: number; best: number };
 
 type ExercisePointEntry = {
@@ -140,8 +149,18 @@ function buildSkillCards(entries: ExercisePointEntry[]): SkillCard[] {
       const daysSince = latest ? getDaysSince(latest.date) : null;
       const totalPoints = subEntries.reduce((sum, item) => sum + item.points, 0);
       const decayFactor = daysSince !== null && daysSince > 14 ? Math.max(0.6, 1 - (daysSince - 14) * 0.02) : 1;
-      const score = Math.min(100, Math.round(totalPoints * decayFactor));
-      return { name, score, lastTrained: latest?.date ?? null, daysSince, points: totalPoints };
+      const score = Math.max(0, Math.round(totalPoints * decayFactor));
+      const levelData = getLevelFromXp(score);
+      return {
+        name,
+        score,
+        level: levelData.level,
+        xpIntoLevel: levelData.xpIntoLevel,
+        xpForCurrentLevel: levelData.xpForCurrentLevel,
+        lastTrained: latest?.date ?? null,
+        daysSince,
+        points: totalPoints,
+      };
     })
     .sort((a, b) => b.score - a.score);
 }
@@ -265,7 +284,8 @@ export default function LevelPage() {
             skillCards.map((skill) => (
               <div key={skill.name} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
                 <p className="font-semibold">{skill.name}</p>
-                <p className="text-sm text-zinc-300">Score: {skill.score}/100</p>
+                <p className="text-sm text-zinc-300">Skill Level: Lv. {skill.level} ({skill.xpIntoLevel}/{skill.xpForCurrentLevel} XP)</p>
+                <p className="text-xs text-zinc-400">Skill Score: {skill.score}</p>
                 <p className="text-xs text-zinc-400">Exercise Points: {skill.points}</p>
                 <p className="text-xs text-zinc-500">Letztes Training: {skill.lastTrained ?? "-"} {skill.daysSince !== null ? `(${skill.daysSince} Tage)` : ""}</p>
               </div>

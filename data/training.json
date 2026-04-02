@@ -1,24 +1,6 @@
 {
   "exercises": [
     {
-      "id": "ex-1",
-      "name": "Cone Handles",
-      "durationMin": 12,
-      "category": "Basketball",
-      "subcategory": "Handles",
-      "notes": "Low and fast",
-      "metricKeys": [
-        "reps",
-        "time"
-      ],
-      "targetByMetric": {
-        "reps": 80,
-        "time": 60
-      },
-      "trackingType": "reps",
-      "targetValue": 80
-    },
-    {
       "id": "ex-2",
       "name": "Mikan Finishes",
       "durationMin": 12,
@@ -33,8 +15,7 @@
         "tries": 80,
         "makes": 60
       },
-      "trackingType": "reps",
-      "targetValue": 60
+      "trackingType": "reps"
     },
     {
       "id": "ex-5",
@@ -129,7 +110,7 @@
     {
       "id": "ex-1774955612317",
       "name": "Killer 150 - rechts",
-      "durationMin": 5,
+      "durationMin": 3,
       "category": "Basketball",
       "subcategory": "Handles",
       "notes": "25 Pound Dribbles\n25 rapid fire Dribbles\n25 in n out\n25 crossovers\n25 tween cross pound\n25 behind the back cross pound",
@@ -255,7 +236,7 @@
         "time"
       ],
       "targetByMetric": {
-        "time": 118
+        "time": 120
       },
       "trackingType": "reps"
     },
@@ -393,6 +374,40 @@
         "makes": 5
       },
       "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775062908492",
+      "name": "Rebound-Finish",
+      "durationMin": 10,
+      "category": "Basketball",
+      "subcategory": "Finishing",
+      "notes": "ball off the rebound - easy finish",
+      "metricKeys": [
+        "tries",
+        "makes"
+      ],
+      "targetByMetric": {
+        "tries": 50,
+        "makes": 45
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1775063396821",
+      "name": "Dribble with two balls",
+      "durationMin": 10,
+      "category": "Basketball",
+      "subcategory": "Handles",
+      "metricKeys": [
+        "reps",
+        "misses"
+      ],
+      "targetByMetric": {
+        "misses": 5,
+        "reps": 30
+      },
+      "trackingType": "reps",
+      "targetValue": 30
     }
   ],
   "workouts": [
@@ -404,7 +419,9 @@
       "notes": "Fokus Catch&Shoot",
       "level": 1,
       "exerciseIds": [
-        "ex-1774961895979"
+        "ex-1774961895979",
+        "ex-1774962194568",
+        "ex-1774962225019"
       ]
     },
     {
@@ -464,6 +481,33 @@
         "ex-1774962194568",
         "ex-1774962225019",
         "ex-1774962469561"
+      ]
+    },
+    {
+      "id": "wo-1775062949285",
+      "name": "Big-Man Workout",
+      "category": "Basketball",
+      "subcategory": "Finishing",
+      "level": 2,
+      "exerciseIds": [
+        "ex-2",
+        "ex-1774962059225",
+        "ex-1775062908492",
+        "ex-1774962469561",
+        "ex-1775048668707"
+      ]
+    },
+    {
+      "id": "wo-1775063423072",
+      "name": "Kyrie-like-Handles",
+      "category": "Basketball",
+      "subcategory": "Handles",
+      "level": 1,
+      "exerciseIds": [
+        "ex-1774955612317",
+        "ex-1775057909593",
+        "ex-1775057983150",
+        "ex-1775063396821"
       ]
     }
   ]
