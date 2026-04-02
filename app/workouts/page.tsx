@@ -2,10 +2,10 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type MetricKey } from "@/lib/training-data";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
-import { getWorkoutSessions } from "@/lib/session-storage";
+import { appendWorkoutSession, getWorkoutSessions } from "@/lib/session-storage";
 import {
   CompletedWorkoutHistoryEntry,
   WorkoutProgress,
@@ -100,7 +100,27 @@ function expandExercisesWithFamily(params: {
   return Array.from(unique.values());
 }
 
+function getExercisePrimaryTargetValue(exercise: ReturnType<typeof loadExercises>[number]) {
+  const metricOrder = exercise.metricKeys?.length ? exercise.metricKeys : ["reps"];
+  const primaryMetric = metricOrder[0];
+  const primaryTarget = exercise.targetByMetric?.[primaryMetric];
+  if (primaryTarget !== undefined) return primaryTarget;
+
+  return (
+    exercise.targetByMetric?.reps ??
+    exercise.targetByMetric?.makes ??
+    exercise.targetByMetric?.tries ??
+    exercise.targetByMetric?.time ??
+    exercise.targetByMetric?.points ??
+    exercise.targetByMetric?.distance ??
+    exercise.targetByMetric?.weight ??
+    exercise.targetValue ??
+    12
+  );
+}
+
 function WorkoutsPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const dayParam = searchParams.get("day");
   const workoutIdParam = searchParams.get("workoutId");
@@ -127,6 +147,7 @@ function WorkoutsPageContent() {
   const [manualNotes, setManualNotes] = useState("");
   const [selectedManualExerciseIds, setSelectedManualExerciseIds] = useState<string[]>([]);
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
+  const [setValidationError, setSetValidationError] = useState<string | null>(null);
 
   const autoWorkoutFromWeekly = useMemo<WorkoutPlan | null>(() => {
     if (!autoWorkoutParam) return null;
@@ -158,7 +179,7 @@ function WorkoutsPageContent() {
                 name: exercise.name,
                 sets: [{
                   targetKg: exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0,
-                  targetReps: exercise.targetByMetric?.reps ?? exercise.targetByMetric?.makes ?? exercise.targetValue ?? 12,
+                  targetReps: getExercisePrimaryTargetValue(exercise),
                 }],
               }))
           : exerciseNames.map((name) => ({
@@ -184,11 +205,10 @@ function WorkoutsPageContent() {
     });
     const exercises = groupedExercises
       .map((exercise) => {
-        const targetReps = exercise.targetByMetric?.reps ?? exercise.targetByMetric?.makes ?? exercise.targetValue ?? 12;
         const targetKg = exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 20 : 0;
         return {
           name: exercise.name,
-          sets: [{ targetKg, targetReps }],
+          sets: [{ targetKg, targetReps: getExercisePrimaryTargetValue(exercise) }],
         };
       });
 
@@ -202,8 +222,7 @@ function WorkoutsPageContent() {
       exercises,
     };
   }, [trainingExercises, trainingWorkouts, workoutIdParam]);
-
-  const defaultWorkout = useMemo(
+    const defaultWorkout = useMemo(
     () => (selectedDay !== null && Number.isInteger(selectedDay) ? getWorkoutPlanForDay(selectedDay) : getTodayWorkoutPlan()),
     [selectedDay],
   );
@@ -293,18 +312,6 @@ function WorkoutsPageContent() {
       return `${exercise.name} ${exercise.subcategory}`.toLowerCase().includes(query);
     });
   }, [manualCategory, manualSearch, manualSubcategory, trainingExercises]);
-  const savedManualWorkouts = useMemo(() => {
-    void manualStorageVersion;
-    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
-      return parsed[dateKey] ?? [];
-    } catch {
-      return [];
-    }
-  }, [dateKey, manualStorageVersion]);
-
   useEffect(() => {
     const rawOverride = window.localStorage.getItem(overrideStorageKey);
     const timer = window.setTimeout(() => {
@@ -316,6 +323,21 @@ function WorkoutsPageContent() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [overrideStorageKey]);
+
+  useEffect(() => {
+    void manualStorageVersion;
+    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
+      const latest = parsed[dateKey]?.[0];
+      if (!latest) return;
+      loadSavedManualWorkout(latest, false);
+    } catch {
+      // noop
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateKey, manualStorageVersion]);
 
   useEffect(() => {
     const parsed = parseWorkoutProgress(
@@ -350,7 +372,7 @@ function WorkoutsPageContent() {
   );
   const currentSet = currentExercise?.sets[safeSetIndex] ?? { targetKg: 0, targetReps: 0 };
   const currentLogKey = buildSetLogKey(safeExerciseIndex, safeSetIndex);
-  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "" };
+  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "", misses: "" };
   const exerciseMeta = useMemo(() => {
     const lookup = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
     return workoutForExecution.exercises.map((exercise) => lookup.get(exercise.name) ?? null);
@@ -372,7 +394,8 @@ function WorkoutsPageContent() {
     const weight = Number(log.weight) || 0;
     const tries = Number(log.tries) || 0;
     const makes = Number(log.makes) || 0;
-    return reps > 0 || weight > 0 || tries > 0 || makes > 0;
+    const misses = Number(log.misses) || 0;
+    return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0;
   };
 
   const getExerciseStatus = (exerciseIndex: number): "not_started" | "in_progress" | "completed" => {
@@ -394,7 +417,8 @@ function WorkoutsPageContent() {
     });
   };
 
-  const updateCurrentLog = (field: "weight" | "reps" | "tries" | "makes", value: string) => {
+  const updateCurrentLog = (field: "weight" | "reps" | "tries" | "makes" | "misses", value: string) => {
+    setSetValidationError(null);
     persistProgress({
       ...progress,
       logs: {
@@ -406,11 +430,16 @@ function WorkoutsPageContent() {
       },
     });
   };
+  const parseNonNegative = (value?: string) => {
+    const parsed = Number(value ?? "");
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return parsed;
+  };
 
   const selectMetric = (metric: MetricKey) => {
     setSelectedMetricByExercise((previous) => ({ ...previous, [safeExerciseIndex]: metric }));
   };
-  const toggleManualExercise = (exerciseId: string) => {
+    const toggleManualExercise = (exerciseId: string) => {
     setSelectedManualExerciseIds((previous) =>
       previous.includes(exerciseId) ? previous.filter((id) => id !== exerciseId) : [...previous, exerciseId],
     );
@@ -447,6 +476,7 @@ function WorkoutsPageContent() {
       });
       setOverrideWorkoutId(null);
       window.localStorage.removeItem(overrideStorageKey);
+      router.push("/Weekly-Workout");
       return;
     }
     const sameCategoryExercises = expandExercisesWithFamily({
@@ -472,12 +502,13 @@ function WorkoutsPageContent() {
         name: exercise.name,
         sets: [{
           targetKg: exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0,
-          targetReps: exercise.targetByMetric?.reps ?? exercise.targetByMetric?.makes ?? exercise.targetValue ?? 12,
+          targetReps: getExercisePrimaryTargetValue(exercise),
         }],
       })),
     });
     setOverrideWorkoutId(null);
     window.localStorage.removeItem(overrideStorageKey);
+    router.push("/Weekly-Workout");
   };
   const saveManualWorkoutForDay = () => {
     if (manualCategory !== "Rest" && selectedManualExerciseIds.length <= 0) return;
@@ -519,8 +550,9 @@ function WorkoutsPageContent() {
     store[dateKey] = [nextEntry, ...(store[dateKey] ?? [])];
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
     setManualStorageVersion((previous) => previous + 1);
+    loadSavedManualWorkout(nextEntry, false);
   };
-  const loadSavedManualWorkout = (entry: ManualDayWorkout) => {
+  function loadSavedManualWorkout(entry: ManualDayWorkout, shouldRoute = true) {
     setManualCategory(entry.sport);
     setManualSubcategory(entry.subcategory);
     setManualTitle(entry.title);
@@ -550,11 +582,14 @@ function WorkoutsPageContent() {
         name: exercise.name,
         sets: [{
           targetKg: exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0,
-          targetReps: exercise.targetByMetric?.reps ?? exercise.targetByMetric?.makes ?? exercise.targetValue ?? 12,
+          targetReps: getExercisePrimaryTargetValue(exercise),
         }],
       })),
     });
-  };
+    if (shouldRoute) {
+      router.push("/Weekly-Workout");
+    }
+  }
 
   const startWorkout = () => {
     persistProgress({ ...progress, status: "in_progress" });
@@ -583,8 +618,7 @@ function WorkoutsPageContent() {
       },
       { totalSets: 0, totalReps: 0, totalVolumeKg: 0 },
     );
-
-    const historyEntry: CompletedWorkoutHistoryEntry = {
+        const historyEntry: CompletedWorkoutHistoryEntry = {
       id: `${completedProgress.date}-${completedProgress.workoutId}`,
       date: completedProgress.date,
       workoutId: completedProgress.workoutId,
@@ -597,6 +631,39 @@ function WorkoutsPageContent() {
     };
 
     persistHistoryEntry(historyEntry);
+    const nowIso = new Date().toISOString();
+    const sessionLogs = workoutForExecution.exercises.flatMap((exercise, exerciseIndex) => {
+      const exerciseDef = trainingExercises.find((item) => item.name === exercise.name);
+      if (!exerciseDef) return [];
+      return exercise.sets.map((_, setIndex) => {
+        const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
+        const makes = parseNonNegative(log?.makes);
+        const misses = parseNonNegative(log?.misses);
+        const computedTries = makes + misses;
+        const fallbackReps = parseNonNegative(log?.reps);
+        const completedValue = makes > 0 ? makes : fallbackReps > 0 ? fallbackReps : null;
+        return {
+          exerciseId: exerciseDef.id,
+          completedValue,
+          note: "",
+          made: makes > 0 ? makes : null,
+          misses: misses > 0 ? misses : null,
+          attempts: computedTries > 0 ? computedTries : null,
+          weightKg: parseNonNegative(log?.weight) || null,
+        };
+      });
+    });
+    if (sessionLogs.length > 0) {
+      appendWorkoutSession({
+        id: `ws-${Date.now()}-${completedProgress.workoutId}`,
+        dateISO: nowIso,
+        workoutId: completedProgress.workoutId,
+        workoutName: completedProgress.title,
+        workoutCategory: completedProgress.sport,
+        workoutSubcategory: completedProgress.subcategory,
+        logs: sessionLogs,
+      });
+    }
     let achievedSets = 0;
     let totalSets = 0;
     workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {
@@ -638,9 +705,27 @@ function WorkoutsPageContent() {
     } else if (xpResult.levelDelta < 0) {
       window.alert(`⬇️ Level-Down: ${Math.abs(xpResult.levelDelta)} Level verloren`);
     }
+    window.alert("Good Job, workout completed ✅");
+    router.push("/stats");
   };
 
   const finishSet = () => {
+    if (tracksTriesAndMakes) {
+      const makes = parseNonNegative(currentLog.makes);
+      const misses = parseNonNegative(currentLog.misses);
+      const triesInput = parseNonNegative(currentLog.tries);
+      const computedTries = makes + misses;
+      const effectiveTries = triesInput > 0 ? triesInput : computedTries;
+      if (effectiveTries > 0 && makes > effectiveTries) {
+        setSetValidationError("Makes dürfen nicht größer als Tries sein.");
+        return;
+      }
+      if (triesInput > 0 && computedTries > triesInput) {
+        setSetValidationError("Makes + Misses darf nicht größer als Tries sein.");
+        return;
+      }
+    }
+
     const isLastSetInExercise = safeSetIndex === currentExercise.sets.length - 1;
     const isLastExercise = safeExerciseIndex === workoutForExecution.exercises.length - 1;
 
@@ -677,16 +762,6 @@ function WorkoutsPageContent() {
         <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {workoutForExecution.subcategory}</p>
         {workoutNotes ? <p className="mt-1 text-sm text-zinc-500">Notiz: {workoutNotes}</p> : null}
 
-        <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-          <p className="text-xs uppercase tracking-wide text-zinc-400">Übungen im Workout</p>
-          <ul className="mt-2 space-y-1 text-sm text-zinc-200">
-            {workoutForExecution.exercises.map((exercise, index) => (
-              <li key={`${workoutForExecution.id}-overview-${exercise.name}`}>
-                {index + 1}. {exercise.name}
-              </li>
-            ))}
-          </ul>
-        </div>
         {effectiveDay === todayDayIndex && !manualWorkout ? (
           <label className="mt-3 block text-sm text-zinc-300">
             Heutiges Workout manuell wählen
@@ -730,7 +805,7 @@ function WorkoutsPageContent() {
           <h2 className="text-lg font-semibold text-emerald-200">Workout manuell erstellen</h2>
           <p className="mt-1 text-xs text-emerald-100">Fehlende Unterkategorien diese Woche: {recommendations.missingSubcategories.join(", ") || "keine"}</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <select
+                        <select
               value={manualCategory}
               onChange={(event) => {
                 const nextCategory = event.target.value as "Basketball" | "Gym" | "Home" | "Rest";
@@ -842,21 +917,6 @@ function WorkoutsPageContent() {
               Für diesen Tag speichern
             </button>
           </div>
-          {savedManualWorkouts.length > 0 ? (
-            <div className="mt-3 space-y-2">
-              <p className="text-xs text-zinc-400">Gespeicherte Workouts für {dateKey}</p>
-              {savedManualWorkouts.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => loadSavedManualWorkout(entry)}
-                  className="block w-full rounded-lg border border-zinc-700 px-3 py-2 text-left text-sm hover:bg-zinc-900"
-                >
-                  {entry.title} • {entry.sport} • {entry.subcategory}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </section>
       ) : null}
 
@@ -930,19 +990,19 @@ function WorkoutsPageContent() {
               {tracksTriesAndMakes ? (
                 <>
                   <label className="text-sm text-zinc-300">
-                    Tries
+                    Makes
                     <input
-                      value={currentLog.tries ?? ""}
-                      onChange={(event) => updateCurrentLog("tries", event.target.value)}
+                      value={currentLog.makes ?? ""}
+                      onChange={(event) => updateCurrentLog("makes", event.target.value)}
                       className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                       inputMode="numeric"
                     />
                   </label>
                   <label className="text-sm text-zinc-300">
-                    Makes
+                    Misses
                     <input
-                      value={currentLog.makes ?? ""}
-                      onChange={(event) => updateCurrentLog("makes", event.target.value)}
+                      value={currentLog.misses ?? ""}
+                      onChange={(event) => updateCurrentLog("misses", event.target.value)}
                       className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                       inputMode="numeric"
                     />
@@ -990,17 +1050,18 @@ function WorkoutsPageContent() {
                 Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksTriesAndMakes ? `${currentExerciseMeta?.targetByMetric?.tries ?? "-"} Tries • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} Treffer/Reps`}
               </p>
               <p className="mt-1">
-                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${currentLog.tries || 0} Tries • ${currentLog.makes || 0} Makes` : `${currentLog.reps || 0}`}
+                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.makes) + parseNonNegative(currentLog.misses)} Tries • ${currentLog.makes || 0} Makes • ${currentLog.misses || 0} Misses` : `${currentLog.reps || 0}`}
               </p>
             </div>
+            {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
 
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
-                onClick={startWorkout}
+                onClick={progress.status === "in_progress" ? completeWorkout : startWorkout}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
               >
-                Workout starten
+                {progress.status === "in_progress" ? "Workout beenden" : "Workout starten"}
               </button>
               <button
                 type="button"

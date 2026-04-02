@@ -14,6 +14,7 @@ const METRIC_OPTIONS: MetricKey[] = [
   "makes",
   "misses",
   "tries",
+  "points",
   "intensity",
 ];
 
@@ -25,6 +26,7 @@ const METRIC_LABELS: Record<MetricKey, string> = {
   makes: "Makes",
   misses: "Misses",
   tries: "Trys",
+  points: "Punkte",
   intensity: "Intensität",
 };
 
@@ -255,8 +257,7 @@ export function WorkoutsTab({
                       checked={checked}
                       onChange={() =>
                         onSelectedExerciseIdsChange(
-                          checked
-                            ? selectedExerciseIds.filter((id) => id !== exercise.id)
+                          checked                            ? selectedExerciseIds.filter((id) => id !== exercise.id)
                             : [...selectedExerciseIds, exercise.id],
                         )
                       }
@@ -555,8 +556,7 @@ export function ExercisesTab({
               Zeit (Minuten) – pro Exercise
               <input
                 type="number"
-                min={1}
-                value={newExerciseDurationMin}
+                min={1}                value={newExerciseDurationMin}
                 onChange={(event) => onNewExerciseDurationMinChange(event.target.value)}
                 placeholder="z. B. 12"
                 className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"

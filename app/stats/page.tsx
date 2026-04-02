@@ -38,6 +38,13 @@ type GymExerciseGoalStat = {
   suggestedReps: number;
 };
 
+type SessionDetail = {
+  id: string;
+  dateISO: string;
+  workoutName: string;
+  logs: ReturnType<typeof getWorkoutSessions>[number]["logs"];
+};
+
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
 function normalizeGymSubcategory(subcategory: string): (typeof GYM_SUBCATEGORIES)[number] | null {
@@ -205,20 +212,19 @@ function buildBasketballExerciseStats(): BasketballExerciseStat[] {
       if (!exercise || exercise.category !== "Basketball") return;
 
       const current = map.get(log.exerciseId) ?? { attempts: 0, made: 0, misses: 0, usesShotMetrics: false };
-      const hasShotInput = log.made !== null || log.misses !== null;
+      const hasShotInput = log.made != null || log.misses != null;
 
       let made = Math.max(0, log.made ?? 0);
       let misses = Math.max(0, log.misses ?? 0);
       let tries = Math.max(0, log.attempts ?? 0);
-
-      if (hasShotInput) {
-        if (log.made !== null && log.misses !== null) {
+            if (hasShotInput) {
+        if (log.made != null && log.misses != null) {
           tries = made + misses;
-        } else if (log.made !== null && log.attempts !== null) {
-          tries = Math.max(0, log.attempts);
+        } else if (log.made != null && log.attempts != null) {
+          tries = Math.max(0, log.attempts ?? 0);
           misses = Math.max(0, tries - made);
-        } else if (log.misses !== null && log.attempts !== null) {
-          tries = Math.max(0, log.attempts);
+        } else if (log.misses != null && log.attempts != null) {
+          tries = Math.max(0, log.attempts ?? 0);
           made = Math.max(0, tries - misses);
         }
       }
@@ -385,6 +391,8 @@ export default function StatsPage() {
   const [basketballStats, setBasketballStats] = useState<BasketballExerciseStat[]>([]);
   const [timedTrends, setTimedTrends] = useState<TimedExerciseTrend[]>([]);
   const [gymGoals, setGymGoals] = useState<GymExerciseGoalStat[]>([]);
+  const [sessionDetails, setSessionDetails] = useState<SessionDetail[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -392,6 +400,12 @@ export default function StatsPage() {
       setBasketballStats(buildBasketballExerciseStats());
       setTimedTrends(buildTimedExerciseTrends());
       setGymGoals(buildGymExerciseGoals());
+      setSessionDetails(getWorkoutSessions().map((session) => ({
+        id: session.id,
+        dateISO: session.dateISO,
+        workoutName: session.workoutName,
+        logs: session.logs,
+      })));
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -413,6 +427,11 @@ export default function StatsPage() {
   const sportSlices = useMemo(() => buildSlices(history, "sport"), [history]);
   const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(history), [history]);
   const sortedHistory = useMemo(() => [...history].sort((a, b) => (a.date < b.date ? 1 : -1)), [history]);
+  const exerciseLookup = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise.name])), []);
+  const selectedSession = useMemo(
+    () => sessionDetails.find((session) => session.id === selectedSessionId) ?? null,
+    [selectedSessionId, sessionDetails],
+  );
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
@@ -437,8 +456,7 @@ export default function StatsPage() {
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-lg font-semibold">Basketball Quoten je Übung</h2>
         <p className="mt-1 text-sm text-zinc-400">Für Shot-Übungen wird tries immer aus makes+misses gebaut (oder daraus abgeleitet).</p>
-        {basketballStats.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">Noch keine Basketball-Übungsdaten vorhanden.</p>
+        {basketballStats.length === 0 ? (          <p className="mt-3 text-sm text-zinc-500">Noch keine Basketball-Übungsdaten vorhanden.</p>
         ) : (
           <div className="mt-3 space-y-2">
             {basketballStats.map((entry) => (
@@ -491,14 +509,39 @@ export default function StatsPage() {
         <h2 className="text-xl font-semibold">Historie abgeschlossener Trainings</h2>
         <div className="mt-4 space-y-2">
           {sortedHistory.length === 0 ? <p className="text-sm text-zinc-500">Noch keine Trainingshistorie vorhanden.</p> : sortedHistory.map((entry) => (
-            <article key={entry.id} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
+            <button
+              type="button"
+              key={entry.id}
+              onClick={() => {
+                const match = sessionDetails.find((session) => session.workoutName === entry.title && session.dateISO.slice(0, 10) === entry.date);
+                setSelectedSessionId(match?.id ?? null);
+              }}
+              className="block w-full rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-left text-sm"
+            >
               <p className="font-semibold">{entry.title}</p>
               <p className="text-zinc-400">{entry.date} • {entry.sport} • {entry.subcategory}</p>
               <p className="text-zinc-300">Sätze: {entry.totalSets} • Reps: {entry.totalReps} • Volumen: {entry.totalVolumeKg} kg</p>
-            </article>
+            </button>
           ))}
         </div>
       </section>
+
+      {selectedSession ? (
+        <section className="mt-6 rounded-2xl border border-cyan-800 bg-cyan-950/20 p-4">
+          <h2 className="text-lg font-semibold">Workout-Details: {selectedSession.workoutName}</h2>
+          <p className="mt-1 text-xs text-cyan-200">{new Date(selectedSession.dateISO).toLocaleString("de-DE")}</p>
+          <div className="mt-3 space-y-2">
+            {selectedSession.logs.map((log, index) => (
+              <article key={`${selectedSession.id}-${log.exerciseId}-${index}`} className="rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-sm">
+                <p className="font-medium">{exerciseLookup.get(log.exerciseId) ?? log.exerciseId}</p>
+                <p className="text-zinc-300">
+                  Reps/Wert: {log.completedValue ?? "-"} • Gewicht: {log.weightKg ?? "-"} kg • Tries: {log.attempts ?? "-"} • Makes: {log.made ?? "-"} • Misses: {log.misses ?? "-"}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }

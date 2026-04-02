@@ -21,6 +21,7 @@ export type MetricKey =
   | "makes"
   | "misses"
   | "tries"
+  | "points"
   | "intensity";
 
 export type Workout = {

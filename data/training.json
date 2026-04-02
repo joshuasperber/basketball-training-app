@@ -129,9 +129,8 @@
       "durationMin": 12,
       "category": "Basketball",
       "subcategory": "Shooting",
-      "notes": "1. 5 Swishes (3 am Stück) von 5 Positionen\n2. 3 Makes aus der Mitteldistanz von 5 Positionen\n3. 10 Free-Throws\n4. 5 Elbows von beiden Seiten",
+      "notes": "1. 5 Swishes (3 am Stück) von 5 Positionen\n2. 3 Makes aus der Mitteldistanz von 5 Positionen\n3. 10 Free-Throws\n4. 5 Elbows von beiden Seiten\n\n60 Treffer insgesamt",
       "metricKeys": [
-        "makes",
         "misses"
       ],
       "targetByMetric": {

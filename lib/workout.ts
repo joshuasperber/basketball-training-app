@@ -25,6 +25,7 @@ export type SetLog = {
   reps: string;
   tries?: string;
   makes?: string;
+  misses?: string;
 };
 
 export type WorkoutProgress = {

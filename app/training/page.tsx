@@ -218,7 +218,7 @@ export default function TrainingPage() {
     event.preventDefault();
 
     const normalizedName = newExerciseName.trim();
-    if (!normalizedName) return;
+        if (!normalizedName) return;
 
     const validationError = validateMetricTargets(newExerciseMetrics, newExerciseTargets);
     if (validationError) {
@@ -235,14 +235,14 @@ export default function TrainingPage() {
         category: newExerciseCategory,
         subcategory: newExerciseSubcategory,
         notes: newExerciseNotes.trim() || undefined,
-        metricKeys: newExerciseMetrics.length > 0 ? newExerciseMetrics : ["reps"],
+        metricKeys: newExerciseMetrics.length > 0 ? newExerciseMetrics : (["reps"] as MetricKey[]),
         targetByMetric: Object.fromEntries(
           Object.entries(newExerciseTargets).flatMap(([metric, value]) => {
             const parsed = parseMetricInput(value);
             return parsed === null ? [] : [[metric, parsed]];
           }),
         ) as Partial<Record<MetricKey, number>>,
-        trackingType: newExerciseMetrics.includes("weight") ? "weight" : "reps",
+        trackingType: (newExerciseMetrics.includes("weight") ? "weight" : "reps") as "weight" | "reps",
         targetValue: Number(newExerciseTargets.reps ?? newExerciseTargets.weight ?? "") || undefined,
       },
     ];
@@ -367,7 +367,7 @@ export default function TrainingPage() {
       return;
     }
 
-    const metrics = editExerciseMetrics.length > 0 ? editExerciseMetrics : ["reps"];
+    const metrics: MetricKey[] = editExerciseMetrics.length > 0 ? editExerciseMetrics : ["reps"];
     const numericTargets = Object.fromEntries(
       Object.entries(editExerciseTargets).flatMap(([metric, value]) => {
         const parsed = parseMetricInput(value);
@@ -389,7 +389,7 @@ export default function TrainingPage() {
         notes: editExerciseNotes.trim() || undefined,
         metricKeys: metrics,
         targetByMetric: numericTargets,
-        trackingType: metrics.includes("weight") ? "weight" : "reps",
+        trackingType: (metrics.includes("weight") ? "weight" : "reps") as "weight" | "reps",
         targetValue: Number(editExerciseTargets.reps ?? editExerciseTargets.weight ?? "") || undefined,
       };
 
@@ -438,7 +438,7 @@ export default function TrainingPage() {
 
         {activeTab === "Workouts" ? (
           <WorkoutsTab
-            categories={categories}
+                      categories={categories}
             subcategories={workoutSubcategoriesByCategory}
             selectedCategory={workoutCategory}
             selectedSubcategory={workoutSubcategory}
