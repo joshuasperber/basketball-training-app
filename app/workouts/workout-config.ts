@@ -43,19 +43,19 @@ export const CATEGORIES: Category[] = [
   {
     id: "handles",
     title: "Handles",
-    description: "Trys + entweder Makes ODER Misses (das andere wird abgeleitet).",
+    description: "Trys + Makes als getrennte Eingaben (Misses werden automatisch berechnet).",
     defaultMetrics: ["tries", "makes"],
   },
   {
     id: "finishes",
     title: "Finishes",
-    description: "Trys + entweder Makes ODER Misses (das andere wird abgeleitet).",
+    description: "Trys + Makes als getrennte Eingaben (Misses werden automatisch berechnet).",
     defaultMetrics: ["tries", "makes"],
   },
   {
     id: "shooting",
     title: "Shooting",
-    description: "Trys + entweder Makes ODER Misses (das andere wird abgeleitet).",
+    description: "Trys + Makes als getrennte Eingaben (Misses werden automatisch berechnet).",
     defaultMetrics: ["tries", "makes"],
   },
   {

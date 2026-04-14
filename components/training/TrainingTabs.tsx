@@ -202,6 +202,12 @@ export function WorkoutsTab({
                     >
                       Löschen
                     </button>
+                    <a
+                      href="#new-workout-form"
+                      className="rounded-lg border border-cyan-500 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-950"
+                      >
+                        Weiteres Workout hinzufügen
+                      </a>
                   </div>
                 </div>
               ))
@@ -210,7 +216,7 @@ export function WorkoutsTab({
         </section>
       </div>
 
-      <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
+      <section id="new-workout-form" className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
         <h3 className="text-2xl font-semibold">Neues Workout erstellen</h3>
 
         <form className="mt-3 space-y-3" onSubmit={onCreateWorkout}>

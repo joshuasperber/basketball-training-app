@@ -8,6 +8,8 @@ import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import { appendWorkoutSession, getWorkoutSessions } from "@/lib/session-storage";
 import {
   CompletedWorkoutHistoryEntry,
+  type WorkoutExercise,
+  type WorkoutPlan,
   WorkoutProgress,
   WORKOUT_OVERRIDE_PREFIX,
   WORKOUT_HISTORY_KEY,
@@ -20,7 +22,6 @@ import {
   getWorkoutPlanForDay,
   parseWorkoutProgress,
   toLocalDateKey,
-  type WorkoutPlan,
 } from "@/lib/workout";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
 
@@ -125,6 +126,7 @@ function WorkoutsPageContent() {
   const dayParam = searchParams.get("day");
   const workoutIdParam = searchParams.get("workoutId");
   const autoWorkoutParam = searchParams.get("autoWorkout");
+  const manualWorkoutIdParam = searchParams.get("manualWorkoutId");
   const manualParam = searchParams.get("manual");
   const selectedDay = dayParam !== null ? Number(dayParam) : null;
   const todayDayIndex = useMemo(() => new Date().getDay(), []);
@@ -148,6 +150,11 @@ function WorkoutsPageContent() {
   const [selectedManualExerciseIds, setSelectedManualExerciseIds] = useState<string[]>([]);
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
+  const [isClientReady, setIsClientReady] = useState(false);
+
+  useEffect(() => {
+    setIsClientReady(true);
+  }, []);
 
   const autoWorkoutFromWeekly = useMemo<WorkoutPlan | null>(() => {
     if (!autoWorkoutParam) return null;
@@ -162,9 +169,24 @@ function WorkoutsPageContent() {
         exercises?: string[];
       };
 
-      const sport = parsed.sport === "Gym" || parsed.sport === "Home" ? parsed.sport : "Basketball";
+      const sport =
+        parsed.sport === "Gym" || parsed.sport === "Home"
+          ? parsed.sport
+          : parsed.sport === "-"
+            ? "Rest"
+            : "Basketball";
       const exerciseNames = parsed.exercises?.filter(Boolean) ?? [];
-      if (!parsed.title || exerciseNames.length === 0) return null;
+      if (!parsed.title) return null;
+      if (sport === "Rest") {
+        return {
+          id: `auto-weekly-rest-${effectiveDay}`,
+          title: parsed.title,
+          sport: "Rest",
+          subcategory: parsed.subcategory ?? "Keine Zeit",
+          exercises: [],
+        };
+      }
+      if (exerciseNames.length === 0) return null;
 
       return {
         id: `auto-weekly-${effectiveDay}`,
@@ -231,17 +253,13 @@ function WorkoutsPageContent() {
     return workoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
   }, [overrideWorkoutId, workoutOptions]);
   const activeWorkoutBase = manualWorkout ?? selectedOverrideWorkout ?? customWorkoutFromCatalog ?? autoWorkoutFromWeekly ?? defaultWorkout;
-  const activeWorkout = activeWorkoutBase;
+  const [sessionWorkout, setSessionWorkout] = useState<WorkoutPlan>(activeWorkoutBase);
+  useEffect(() => {
+    setSessionWorkout(activeWorkoutBase);
+  }, [activeWorkoutBase]);
   const workoutForExecution = useMemo<WorkoutPlan>(() => {
-    if (activeWorkout.sport === "Gym") return activeWorkout;
-    return {
-      ...activeWorkout,
-      exercises: activeWorkout.exercises.map((exercise) => ({
-        ...exercise,
-        sets: [exercise.sets[0] ?? { targetKg: 0, targetReps: 0 }],
-      })),
-    };
-  }, [activeWorkout]);
+    return sessionWorkout;
+  }, [sessionWorkout]);
   const fallbackProgress = useMemo(
     () => getDefaultWorkoutProgress(dateKey, workoutForExecution),
     [dateKey, workoutForExecution],
@@ -330,14 +348,19 @@ function WorkoutsPageContent() {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
-      const latest = parsed[dateKey]?.[0];
-      if (!latest) return;
-      loadSavedManualWorkout(latest, false);
+      const entries = parsed[dateKey] ?? [];
+      if (!entries.length) return;
+      const selected =
+        (manualWorkoutIdParam
+          ? entries.find((entry) => entry.id === manualWorkoutIdParam)
+          : null) ?? entries[0];
+      if (!selected) return;
+      loadSavedManualWorkout(selected, false);
     } catch {
       // noop
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateKey, manualStorageVersion]);
+  }, [dateKey, manualStorageVersion, manualWorkoutIdParam]);
 
   useEffect(() => {
     const parsed = parseWorkoutProgress(
@@ -549,6 +572,14 @@ function WorkoutsPageContent() {
     }
     store[dateKey] = [nextEntry, ...(store[dateKey] ?? [])];
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
+    const selectedMinutes =
+      manualCategory === "Rest"
+        ? 0
+        : orderedExerciseIds.reduce((sum, exerciseId) => {
+            const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
+            return sum + (exercise?.durationMin ?? 10);
+          }, 0);
+    syncProfileDayConfig(effectiveDay, manualCategory, Math.ceil(selectedMinutes * 1.1 / 5) * 5);
     setManualStorageVersion((previous) => previous + 1);
     loadSavedManualWorkout(nextEntry, false);
   };
@@ -590,6 +621,67 @@ function WorkoutsPageContent() {
       router.push("/Weekly-Workout");
     }
   }
+
+  const syncProfileDayConfig = (
+    dayIndex: number,
+    category: "Basketball" | "Gym" | "Home" | "Rest",
+    minutes: number,
+  ) => {
+    const dayMap: Record<number, "sunday" | "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday"> = {
+      0: "sunday",
+      1: "monday",
+      2: "tuesday",
+      3: "wednesday",
+      4: "thursday",
+      5: "friday",
+      6: "saturday",
+    };
+    const dayKey = dayMap[((dayIndex % 7) + 7) % 7];
+    const rawProfileCache = window.localStorage.getItem("profile_cache_v4");
+    if (!rawProfileCache || !dayKey) return;
+    try {
+      const parsed = JSON.parse(rawProfileCache) as {
+        weekConfig?: Record<string, { mode: string; minutes: number }>;
+      };
+      const currentWeek = parsed.weekConfig ?? {};
+      const nextMode =
+        category === "Gym"
+          ? "gym"
+          : category === "Rest"
+            ? "unavailable"
+            : category === "Basketball"
+              ? "basketball_training"
+              : "custom";
+      parsed.weekConfig = {
+        ...currentWeek,
+        [dayKey]: {
+          mode: nextMode,
+          minutes: Math.max(0, Math.round(minutes)),
+        },
+      };
+      window.localStorage.setItem("profile_cache_v4", JSON.stringify(parsed));
+    } catch {
+      // noop
+    }
+  };
+
+  const addSetToCurrentExercise = () => {
+    if (!currentExercise) return;
+    const baseSet = currentExercise.sets[safeSetIndex] ?? currentExercise.sets[currentExercise.sets.length - 1] ?? { targetKg: 0, targetReps: 0 };
+    setSessionWorkout((previous) => {
+      const nextExercises: WorkoutExercise[] = previous.exercises.map((exercise, index) => {
+        if (index !== safeExerciseIndex) return exercise;
+        return {
+          ...exercise,
+          sets: [...exercise.sets, { ...baseSet }],
+        };
+      });
+      return {
+        ...previous,
+        exercises: nextExercises,
+      };
+    });
+  };
 
   const startWorkout = () => {
     persistProgress({ ...progress, status: "in_progress" });
@@ -638,8 +730,10 @@ function WorkoutsPageContent() {
       return exercise.sets.map((_, setIndex) => {
         const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
         const makes = parseNonNegative(log?.makes);
+        const tries = parseNonNegative(log?.tries);
         const misses = parseNonNegative(log?.misses);
-        const computedTries = makes + misses;
+        const computedTries = tries > 0 ? tries : makes + misses;
+        const computedMisses = computedTries > 0 ? Math.max(0, computedTries - makes) : misses;
         const fallbackReps = parseNonNegative(log?.reps);
         const completedValue = makes > 0 ? makes : fallbackReps > 0 ? fallbackReps : null;
         return {
@@ -647,7 +741,7 @@ function WorkoutsPageContent() {
           completedValue,
           note: "",
           made: makes > 0 ? makes : null,
-          misses: misses > 0 ? misses : null,
+          misses: computedMisses > 0 ? computedMisses : null,
           attempts: computedTries > 0 ? computedTries : null,
           weightKg: parseNonNegative(log?.weight) || null,
         };
@@ -712,16 +806,13 @@ function WorkoutsPageContent() {
   const finishSet = () => {
     if (tracksTriesAndMakes) {
       const makes = parseNonNegative(currentLog.makes);
-      const misses = parseNonNegative(currentLog.misses);
       const triesInput = parseNonNegative(currentLog.tries);
-      const computedTries = makes + misses;
-      const effectiveTries = triesInput > 0 ? triesInput : computedTries;
-      if (effectiveTries > 0 && makes > effectiveTries) {
+      if (triesInput > 0 && makes > triesInput) {
         setSetValidationError("Makes dürfen nicht größer als Tries sein.");
         return;
       }
-      if (triesInput > 0 && computedTries > triesInput) {
-        setSetValidationError("Makes + Misses darf nicht größer als Tries sein.");
+      if (makes > 0 && triesInput <= 0) {
+        setSetValidationError("Bitte auch Tries angeben, damit die Quote berechnet werden kann.");
         return;
       }
     }
@@ -750,6 +841,10 @@ function WorkoutsPageContent() {
         status: "in_progress",
       });
   };
+
+  if (!isClientReady) {
+    return <main className="min-h-screen bg-black p-6 pb-24 text-white">Workouts werden geladen...</main>;
+  }
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
@@ -990,19 +1085,19 @@ function WorkoutsPageContent() {
               {tracksTriesAndMakes ? (
                 <>
                   <label className="text-sm text-zinc-300">
-                    Makes
+                    Tries
                     <input
-                      value={currentLog.makes ?? ""}
-                      onChange={(event) => updateCurrentLog("makes", event.target.value)}
+                      value={currentLog.tries ?? ""}
+                      onChange={(event) => updateCurrentLog("tries", event.target.value)}
                       className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                       inputMode="numeric"
                     />
                   </label>
                   <label className="text-sm text-zinc-300">
-                    Misses
+                    Makes
                     <input
-                      value={currentLog.misses ?? ""}
-                      onChange={(event) => updateCurrentLog("misses", event.target.value)}
+                      value={currentLog.makes ?? ""}
+                      onChange={(event) => updateCurrentLog("makes", event.target.value)}
                       className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                       inputMode="numeric"
                     />
@@ -1050,7 +1145,7 @@ function WorkoutsPageContent() {
                 Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksTriesAndMakes ? `${currentExerciseMeta?.targetByMetric?.tries ?? "-"} Tries • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} Treffer/Reps`}
               </p>
               <p className="mt-1">
-                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.makes) + parseNonNegative(currentLog.misses)} Tries • ${currentLog.makes || 0} Makes • ${currentLog.misses || 0} Misses` : `${currentLog.reps || 0}`}
+                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.tries)} Tries • ${currentLog.makes || 0} Makes • ${Math.max(0, parseNonNegative(currentLog.tries) - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0}`}
               </p>
             </div>
             {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
@@ -1069,6 +1164,13 @@ function WorkoutsPageContent() {
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
               >
                 Satz abschließen
+              </button>
+              <button
+                type="button"
+                onClick={addSetToCurrentExercise}
+                className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-950"
+              >
+                Satz hinzufügen
               </button>
             </div>
           </article>
