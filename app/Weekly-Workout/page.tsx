@@ -19,6 +19,7 @@ import {
   getFocusProfile,
   pickSubcategoryForDay,
 } from "@/lib/player-workout-engine";
+import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap, type PlannedWorkoutTag } from "@/lib/activity-calendar";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
 
@@ -41,7 +42,6 @@ const dayByIndex: Record<(typeof weekdayOrder)[number], DayKey> = {
   5: "friday",
   6: "saturday",
 };
-const MANUAL_DAY_WORKOUTS_KEY = "bt.manual-day-workouts.v1";
 type ManualDayWorkout = {
   id: string;
   title: string;
@@ -49,6 +49,14 @@ type ManualDayWorkout = {
   subcategory: string;
   notes: string;
   exerciseIds: string[];
+};
+const TAG_TO_SPORT: Partial<Record<PlannedWorkoutTag, "Basketball" | "Gym" | "Home" | "-">> = {
+  Spieltag: "Basketball",
+  Trainingstag: "Basketball",
+  Spieltraining: "Basketball",
+  Gym: "Gym",
+  "Home-Workout": "Home",
+  Regeneration: "-",
 };
 
 type ProfileLocalCache = {
@@ -198,8 +206,8 @@ function selectBestWorkout(
   position: string,
   playStyle: string,
 ): SuggestedWorkout {
-  const targetWithExtra = mode === "game-training" ? targetMinutes + 30 : targetMinutes;
-  const modeLabel = mode === "game-training" ? "Trainingsspiel + 30 Min Zusatztraining" : "Direktes Training";
+  const targetWithExtra = targetMinutes;
+  const modeLabel = mode === "game-training" ? "Spieltraining (15 Min vorab + 30 Min danach)" : "Direktes Training";
   const fallback = buildFallbackSuggestion(mode, targetWithExtra);
   if (fallback) return fallback;
 
@@ -380,6 +388,7 @@ export default function WeeklyWorkoutPage() {
   const [manualWorkoutsByDate, setManualWorkoutsByDate] = useState<Record<string, ManualDayWorkout[]>>({});
   const [selectedWorkoutByDay, setSelectedWorkoutByDay] = useState<Partial<Record<DayKey, string>>>({});
   const [manualVersion, setManualVersion] = useState(0);
+  const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -507,6 +516,13 @@ export default function WeeklyWorkoutPage() {
     return () => window.clearTimeout(timer);
   }, [todayIndex, manualVersion]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDailyPlanMap(readDailyPlanMap());
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const deleteManualWorkout = (dayIndex: (typeof weekdayOrder)[number], manualWorkoutId: string) => {
     const dateKey = toLocalDateKey(getDateForWeekday(dayIndex));
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
@@ -520,6 +536,40 @@ export default function WeeklyWorkoutPage() {
       }
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(next));
       setManualWorkoutsByDate(next);
+      setManualVersion((current) => current + 1);
+    } catch {
+      // noop
+    }
+  };
+  const deleteAllManualWorkouts = (dayIndex: (typeof weekdayOrder)[number]) => {
+    const dateKey = toLocalDateKey(getDateForWeekday(dayIndex));
+    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
+      delete parsed[dateKey];
+      window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+      setManualWorkoutsByDate(parsed);
+      setManualVersion((current) => current + 1);
+    } catch {
+      // noop
+    }
+  };
+  const moveManualWorkoutToTomorrow = (dayIndex: (typeof weekdayOrder)[number], manualWorkoutId: string) => {
+    const sourceDateKey = toLocalDateKey(getDateForWeekday(dayIndex));
+    const targetDateKey = toLocalDateKey(getDateForWeekday((dayIndex + 1) % 7));
+    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
+      const currentEntries = parsed[sourceDateKey] ?? [];
+      const moving = currentEntries.find((entry) => entry.id === manualWorkoutId);
+      if (!moving) return;
+      parsed[sourceDateKey] = currentEntries.filter((entry) => entry.id !== manualWorkoutId);
+      if (parsed[sourceDateKey].length === 0) delete parsed[sourceDateKey];
+      parsed[targetDateKey] = [moving, ...(parsed[targetDateKey] ?? [])];
+      window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+      setManualWorkoutsByDate(parsed);
       setManualVersion((current) => current + 1);
     } catch {
       // noop
@@ -582,6 +632,7 @@ export default function WeeklyWorkoutPage() {
           const suggestedWorkout = suggestionsByDay?.[dayByIndex[day]] ?? null;
           const manualDateKey = toLocalDateKey(getDateForWeekday(day));
           const dayManualEntries = manualWorkoutsByDate[manualDateKey] ?? [];
+          const plannedTags = dailyPlanMap[manualDateKey] ?? [];
           const primaryManual = dayManualEntries[0];
           const workoutCards: WorkoutCardItem[] = [];
           if (primaryManual) {
@@ -605,18 +656,17 @@ export default function WeeklyWorkoutPage() {
               autoSuggestion: suggestedWorkout.workoutId ? undefined : suggestedWorkout,
               durationMin: suggestedWorkout.durationMin,
             });
-          }
-          dayManualEntries.slice(1).forEach((manual) => {
+          } else if (plannedTags.length > 0) {
+            const primaryTag = plannedTags[0];
             workoutCards.push({
-              id: manual.id,
-              title: manual.title,
-              sport: manual.sport,
-              subcategory: manual.subcategory,
-              notes: manual.notes || "Manuell geplant.",
-              manualWorkoutId: manual.id,
+              id: `planned-${manualDateKey}`,
+              title: primaryTag,
+              sport: TAG_TO_SPORT[primaryTag] ?? "Basketball",
+              subcategory: plannedTags.slice(1).join(", ") || primaryTag,
+              notes: `Geplant: ${plannedTags.join(", ")}`,
               durationMin: profilePlan?.minutes ?? 0,
             });
-          });
+          }
           const selectedCardId = selectedWorkoutByDay[dayByIndex[day]] ?? workoutCards[0]?.id;
           const selectedCard = workoutCards.find((entry) => entry.id === selectedCardId) ?? workoutCards[0] ?? null;
           const startHref = (() => {
@@ -706,14 +756,26 @@ export default function WeeklyWorkoutPage() {
                   >
                     Workout löschen
                   </button>
+                  <button
+                    type="button"
+                    disabled={!selectedCard.manualWorkoutId}
+                    onClick={() => {
+                      if (!selectedCard.manualWorkoutId) return;
+                      moveManualWorkoutToTomorrow(day, selectedCard.manualWorkoutId);
+                    }}
+                    className="rounded-lg border border-cyan-500 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Auf morgen schieben
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteAllManualWorkouts(day)}
+                    className="rounded-lg border border-zinc-500 px-3 py-1 text-xs font-semibold text-zinc-200 hover:bg-zinc-800"
+                  >
+                    Alle löschen
+                  </button>
                 </div>
               ) : null}
-              <Link
-                href={`/workouts?day=${day}&manual=1`}
-                className="ml-2 mt-3 inline-block rounded-lg border border-cyan-500 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-950"
-              >
-                Weiteres Workout hinzufügen
-              </Link>
 
               {selectedCard ? (
                 <p className="mt-2 text-xs text-zinc-500">{selectedCard.notes}</p>

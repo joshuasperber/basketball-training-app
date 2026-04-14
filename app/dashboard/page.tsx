@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SportsNewsSection from "@/components/SportsNewsSection";
+import { getWorkoutSessions } from "@/lib/session-storage";
 import {
   WorkoutProgress,
   buildWorkoutStorageKey,
@@ -12,6 +13,7 @@ import {
   getWeekdayName,
   parseWorkoutProgress,
 } from "@/lib/workout";
+import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap } from "@/lib/activity-calendar";
 
 export default function DashboardPage() {
   const dateKey = useMemo(() => getTodayDateKey(), []);
@@ -23,15 +25,52 @@ export default function DashboardPage() {
   );
 
   const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
+  const [todayLabel, setTodayLabel] = useState<string | null>(null);
+  const [plannedTags, setPlannedTags] = useState<string[]>([]);
 
   useEffect(() => {
-    setProgress(
-      parseWorkoutProgress(
-        window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
-        fallbackProgress,
-      ),
-    );
+    const timer = window.setTimeout(() => {
+      setProgress(
+        parseWorkoutProgress(
+          window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
+          fallbackProgress,
+        ),
+      );
+      try {
+        const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+        if (rawManual) {
+          const parsed = JSON.parse(rawManual) as Record<string, Array<{ title: string }>>;
+          const todayManual = parsed[dateKey]?.[0];
+          if (todayManual?.title) {
+            setTodayLabel(todayManual.title);
+          }
+        }
+        const dailyPlans = readDailyPlanMap();
+        setPlannedTags(dailyPlans[dateKey] ?? []);
+      } catch {
+        // noop
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [dateKey, fallbackProgress]);
+
+  const weeklyCompleted = useMemo(() => {
+    const start = new Date();
+    start.setDate(start.getDate() - 6);
+    return getWorkoutSessions().filter((session) => new Date(session.dateISO) >= start).length;
+  }, []);
+  const streakDays = useMemo(() => {
+    const dateSet = new Set(getWorkoutSessions().map((entry) => entry.dateISO.slice(0, 10)));
+    let streak = 0;
+    const cursor = new Date();
+    while (true) {
+      const key = cursor.toISOString().slice(0, 10);
+      if (!dateSet.has(key)) break;
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }, []);
 
   const isCompleted = progress.status === "completed";
   const isInProgress = progress.status === "in_progress";
@@ -46,9 +85,12 @@ export default function DashboardPage() {
           <p className="text-xs uppercase tracking-wide text-zinc-500">
             Heutiges Workout • {weekdayLabel}
           </p>
-          <h2 className="mt-2 text-xl font-semibold">{todayWorkout.title}</h2>
+          <h2 className="mt-2 text-xl font-semibold">{todayLabel ?? todayWorkout.title}</h2>
           <p className="text-sm text-zinc-400">Sport: {todayWorkout.sport}</p>
           <p className="text-sm text-zinc-400">Unterkategorie: {todayWorkout.subcategory}</p>
+          {plannedTags.length > 0 ? (
+            <p className="mt-2 text-xs text-zinc-300">Geplant heute: {plannedTags.join(", ")}</p>
+          ) : null}
 
           <p className="mt-4 text-sm text-zinc-300">
             {isInProgress
@@ -71,6 +113,17 @@ export default function DashboardPage() {
           </p>
         </section>
       )}
+
+      <section className="mt-6 grid gap-3 sm:grid-cols-2">
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Workouts (7 Tage)</p>
+          <p className="mt-2 text-3xl font-bold">{weeklyCompleted}</p>
+        </article>
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Aktuelle Streak</p>
+          <p className="mt-2 text-3xl font-bold">{streakDays} Tage</p>
+        </article>
+      </section>
 
       <SportsNewsSection />
     </main>

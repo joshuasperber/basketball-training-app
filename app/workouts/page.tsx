@@ -25,7 +25,7 @@ import {
 } from "@/lib/workout";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
 
-const MANUAL_DAY_WORKOUTS_KEY = "bt.manual-day-workouts.v1";
+import { MANUAL_DAY_WORKOUTS_KEY } from "@/lib/activity-calendar";
 
 type ManualDayWorkout = {
   id: string;
@@ -582,6 +582,7 @@ function WorkoutsPageContent() {
     syncProfileDayConfig(effectiveDay, manualCategory, Math.ceil(selectedMinutes * 1.1 / 5) * 5);
     setManualStorageVersion((previous) => previous + 1);
     loadSavedManualWorkout(nextEntry, false);
+    router.push("/Weekly-Workout");
   };
   function loadSavedManualWorkout(entry: ManualDayWorkout, shouldRoute = true) {
     setManualCategory(entry.sport);

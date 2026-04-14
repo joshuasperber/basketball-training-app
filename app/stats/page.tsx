@@ -44,6 +44,7 @@ type SessionDetail = {
   workoutName: string;
   logs: ReturnType<typeof getWorkoutSessions>[number]["logs"];
 };
+type StatsRange = "all" | "weekly" | "monthly";
 
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
@@ -393,6 +394,7 @@ export default function StatsPage() {
   const [gymGoals, setGymGoals] = useState<GymExerciseGoalStat[]>([]);
   const [sessionDetails, setSessionDetails] = useState<SessionDetail[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [range, setRange] = useState<StatsRange>("all");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -410,41 +412,112 @@ export default function StatsPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  const weeklyCompleted = useMemo(() => {
-    const today = new Date();
-    const weekAgo = new Date();
-    weekAgo.setDate(today.getDate() - 6);
-    return history.filter((entry) => {
-      const date = new Date(entry.date);
-      return date >= weekAgo && date <= today;
-    }).length;
-  }, [history]);
-
-  const totalSets = history.reduce((sum, entry) => sum + entry.totalSets, 0);
-  const totalReps = history.reduce((sum, entry) => sum + entry.totalReps, 0);
-  const totalVolume = history.filter((entry) => entry.sport === "Gym").reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
-
-  const sportSlices = useMemo(() => buildSlices(history, "sport"), [history]);
-  const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(history), [history]);
-  const sortedHistory = useMemo(() => [...history].sort((a, b) => (a.date < b.date ? 1 : -1)), [history]);
+  const filteredHistory = useMemo(() => {
+    if (range === "all") return history;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    if (range === "weekly") start.setDate(start.getDate() - 6);
+    if (range === "monthly") start.setDate(start.getDate() - 29);
+    return history.filter((entry) => new Date(entry.date) >= start);
+  }, [history, range]);
+  const filteredSessions = useMemo(() => {
+    if (range === "all") return sessionDetails;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    if (range === "weekly") start.setDate(start.getDate() - 6);
+    if (range === "monthly") start.setDate(start.getDate() - 29);
+    return sessionDetails.filter((session) => new Date(session.dateISO) >= start);
+  }, [range, sessionDetails]);
+  const totalSets = filteredHistory.reduce((sum, entry) => sum + entry.totalSets, 0);
+  const totalReps = filteredHistory.reduce((sum, entry) => sum + entry.totalReps, 0);
+  const totalVolume = filteredHistory.filter((entry) => entry.sport === "Gym").reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
+  const sportSlices = useMemo(() => buildSlices(filteredHistory, "sport"), [filteredHistory]);
+  const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(filteredHistory), [filteredHistory]);
+  const sortedHistory = useMemo(() => [...filteredHistory].sort((a, b) => (a.date < b.date ? 1 : -1)), [filteredHistory]);
   const exerciseLookup = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise.name])), []);
   const selectedSession = useMemo(
     () => sessionDetails.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessionDetails],
   );
+  const basketballShotSummary = useMemo(() => {
+    const exercises = loadExercises();
+    const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+    const summary = {
+      freeThrows: { made: 0, attempts: 0 },
+      twoPointers: { made: 0, attempts: 0 },
+      threePointers: { made: 0, attempts: 0 },
+    };
+    filteredSessions.forEach((session) => {
+      session.logs.forEach((log) => {
+        const exercise = exerciseLookup.get(log.exerciseId);
+        if (!exercise || exercise.category !== "Basketball") return;
+        const name = exercise.name.toLowerCase();
+        const attempts = Math.max(0, log.attempts ?? ((log.made ?? 0) + (log.misses ?? 0)));
+        const made = Math.max(0, log.made ?? 0);
+        if (attempts <= 0) return;
+        if (name.includes("freiwurf") || name.includes("free throw")) {
+          summary.freeThrows.attempts += attempts;
+          summary.freeThrows.made += made;
+        } else if (name.includes("3 pointer") || name.includes("3-pointer") || name.includes("3pt")) {
+          summary.threePointers.attempts += attempts;
+          summary.threePointers.made += made;
+        } else {
+          summary.twoPointers.attempts += attempts;
+          summary.twoPointers.made += made;
+        }
+      });
+    });
+    return summary;
+  }, [filteredSessions]);
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Statistiken</h1>
       <p className="mt-2 text-zinc-400">Langfristige Auswertung deiner abgeschlossenen Workouts</p>
+      <div className="mt-4 inline-flex rounded-lg border border-zinc-700 bg-zinc-900 p-1 text-sm">
+        {[
+          { id: "all", label: "All Time" },
+          { id: "weekly", label: "Weekly" },
+          { id: "monthly", label: "Monthly" },
+        ].map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => setRange(option.id as StatsRange)}
+            className={`rounded-md px-3 py-1 ${range === option.id ? "bg-cyan-600 text-white" : "text-zinc-300"}`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Workouts</p><p className="mt-2 text-3xl font-bold">{history.length}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Weekly (7 Tage)</p><p className="mt-2 text-3xl font-bold">{weeklyCompleted}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Workouts</p><p className="mt-2 text-3xl font-bold">{filteredHistory.length}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Zeitraum</p><p className="mt-2 text-3xl font-bold">{range === "all" ? "All Time" : range === "weekly" ? "7 Tage" : "30 Tage"}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Sätze gesamt</p><p className="mt-2 text-3xl font-bold">{totalSets}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Reps gesamt</p><p className="mt-2 text-3xl font-bold">{totalReps}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:col-span-2"><p className="text-xs uppercase tracking-wide text-zinc-500">Volumen gesamt (kg)</p><p className="mt-2 text-3xl font-bold">{totalVolume}</p></div>
       </div>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="text-lg font-semibold">Basketball Wurfquoten (aggregiert)</h2>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3 text-sm">
+          {[
+            { label: "FreeThrow Quote", value: basketballShotSummary.freeThrows },
+            { label: "2 Pointer Quote", value: basketballShotSummary.twoPointers },
+            { label: "3 Pointer Quote", value: basketballShotSummary.threePointers },
+          ].map((item) => {
+            const pct = item.value.attempts > 0 ? Math.round((item.value.made / item.value.attempts) * 100) : 0;
+            return (
+              <div key={item.label} className="rounded-lg border border-zinc-700 bg-zinc-950 p-3">
+                <p className="text-zinc-400">{item.label}</p>
+                <p className="text-xl font-semibold">{pct}%</p>
+                <p className="text-xs text-zinc-500">{item.value.made}/{item.value.attempts}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <PieCard title="Kategorien Vergleich (Basketball / Gym / Home)" slices={sportSlices} />

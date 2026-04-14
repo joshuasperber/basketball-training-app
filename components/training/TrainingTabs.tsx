@@ -181,7 +181,6 @@ export function WorkoutsTab({
                     Min
                   </p>
                   <div className="mt-1 flex items-center justify-between gap-3">
-                    <p className="text-sm text-zinc-400">Level {workout.level}</p>
                     <Link
                       href={`/workouts/${workout.id}`}
                       className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
@@ -202,12 +201,6 @@ export function WorkoutsTab({
                     >
                       Löschen
                     </button>
-                    <a
-                      href="#new-workout-form"
-                      className="rounded-lg border border-cyan-500 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-950"
-                      >
-                        Weiteres Workout hinzufügen
-                      </a>
                   </div>
                 </div>
               ))

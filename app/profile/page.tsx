@@ -9,10 +9,20 @@ import {
   type DayMode,
   type WeekConfig,
 } from "@/lib/planner";
+import { getWorkoutSessions } from "@/lib/session-storage";
+import { toLocalDateKey } from "@/lib/workout";
+import {
+  getCompletedWorkoutDateSet,
+  readDailyPlanMap,
+  type PlannedWorkoutTag,
+  writeDailyPlanMap,
+} from "@/lib/activity-calendar";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { loadExercises } from "@/lib/training-storage";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
+const PLANNED_TAGS: PlannedWorkoutTag[] = ["Spieltag", "Trainingstag", "Spieltraining", "Gym", "Home-Workout", "Regeneration"];
 
 const DAY_LABELS: Record<DayKey, string> = {
   monday: "Montag",
@@ -22,24 +32,6 @@ const DAY_LABELS: Record<DayKey, string> = {
   friday: "Freitag",
   saturday: "Samstag",
   sunday: "Sonntag",
-};
-
-function formatDateLabel(date: Date) {
-  return date.toLocaleDateString("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-  });
-}
-
-const DAY_MODE_LABELS: Record<DayMode, string> = {
-  unavailable: "Keine Zeit",
-  rest: "Ruhetag",
-  recovery: "Regeneration",
-  game_day: "Spieltag",
-  game_training: "Spieltraining",
-  basketball_training: "Basketballtraining",
-  gym: "Gym",
-  custom: "Custom",
 };
 
 const PLAY_STYLE_BY_POSITION: Record<string, string[]> = {
@@ -63,6 +55,11 @@ type ProfileLocalCache = {
   playStyle: string;
   weekConfig: WeekConfig;
   weeklyGoalSessions: number;
+  bodyMetrics?: {
+    wingspan_cm: number | null;
+    standing_reach_cm: number | null;
+    body_fat_pct: number | null;
+  };
 };
 
 function getDefaultPlayStyle(position: string | null) {
@@ -74,11 +71,11 @@ function getDefaultWeekConfig(): WeekConfig {
   return {
     monday: { mode: "gym", minutes: 60 },
     tuesday: { mode: "basketball_training", minutes: 45 },
-    wednesday: { mode: "game_training", minutes: 30 },
+    wednesday: { mode: "game_training", minutes: 45 },
     thursday: { mode: "recovery", minutes: 30 },
     friday: { mode: "basketball_training", minutes: 45 },
     saturday: { mode: "gym", minutes: 60 },
-    sunday: { mode: "game_training", minutes: 30 },
+    sunday: { mode: "game_day", minutes: 20 },
   };
 }
 
@@ -86,7 +83,6 @@ function loadLocalCache() {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
   if (!raw) return null;
-
   try {
     return JSON.parse(raw) as ProfileLocalCache;
   } catch {
@@ -99,52 +95,71 @@ function saveLocalCache(payload: ProfileLocalCache) {
   window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(payload));
 }
 
+function getMonthMatrix(reference: Date) {
+  const monthStart = new Date(reference.getFullYear(), reference.getMonth(), 1);
+  const monthEnd = new Date(reference.getFullYear(), reference.getMonth() + 1, 0);
+  const startOffset = (monthStart.getDay() + 6) % 7;
+  const daysInMonth = monthEnd.getDate();
+  const cells: Array<Date | null> = Array.from({ length: 42 }, () => null);
+  for (let i = 0; i < daysInMonth; i += 1) {
+    cells[startOffset + i] = new Date(reference.getFullYear(), reference.getMonth(), i + 1);
+  }
+  return cells;
+}
+
+function mapTagToDayConfig(tags: PlannedWorkoutTag[]): { mode: DayMode; minutes: number } {
+  if (tags.includes("Spieltraining")) return { mode: "game_training", minutes: 45 };
+  if (tags.includes("Spieltag")) return { mode: "game_day", minutes: 20 };
+  if (tags.includes("Gym")) return { mode: "gym", minutes: 60 };
+  if (tags.includes("Home-Workout")) return { mode: "custom", minutes: 30 };
+  if (tags.includes("Regeneration")) return { mode: "recovery", minutes: 25 };
+  if (tags.includes("Trainingstag")) return { mode: "basketball_training", minutes: 45 };
+  return { mode: "unavailable", minutes: 0 };
+}
+
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const [profile, setProfile] = useState<ProfileRow>({
-    username: "joshua",
-    full_name: "Joshua Sperber",
-    favorite_position: "pf",
-    height_cm: 198,
-    weight_kg: 98,
-  });
+  const [profile, setProfile] = useState<ProfileRow>({ username: "joshua", full_name: "Joshua Sperber", favorite_position: "pf", height_cm: 198, weight_kg: 98 });
   const [playStyle, setPlayStyle] = useState<string>("Stretch Four");
   const [weekConfig, setWeekConfig] = useState<WeekConfig>(getDefaultWeekConfig());
-  const [weeklyGoalSessions, setWeeklyGoalSessions] = useState<number>(4);
+  const [weeklyGoalSessions] = useState<number>(4);
+  const [bodyMetrics, setBodyMetrics] = useState({
+    wingspan_cm: null as number | null,
+    standing_reach_cm: null as number | null,
+    body_fat_pct: null as number | null,
+  });
+
+  const [currentMonth, setCurrentMonth] = useState(() => new Date());
+  const [selectedDateKey, setSelectedDateKey] = useState(() => toLocalDateKey(new Date()));
+  const [completedDates, setCompletedDates] = useState<Set<string>>(new Set());
+  const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
 
   const persistCurrentCache = useCallback(() => {
-    saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions });
-  }, [playStyle, profile, weekConfig, weeklyGoalSessions]);
+    saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+  }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
 
   const loadProfile = useCallback(async (usernameOverride?: string) => {
     const localCache = loadLocalCache();
-
     if (localCache) {
       setProfile(localCache.profile);
       setPlayStyle(localCache.playStyle);
       setWeekConfig(localCache.weekConfig);
-      setWeeklyGoalSessions(localCache.weeklyGoalSessions);
+      setBodyMetrics(localCache.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null });
     }
 
-    const username =
-      usernameOverride ??
-      localCache?.profile.username ??
-      (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) ??
-      "joshua";
+    const username = usernameOverride ?? localCache?.profile.username ?? (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) ?? "joshua";
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("profiles")
       .select("username, full_name, favorite_position, height_cm, weight_kg")
       .eq("username", username)
       .limit(1)
       .maybeSingle<ProfileRow>();
 
-    if (error) {
-      setMessage(`Fehler beim Laden: ${error.message}`);
-    } else if (data) {
+    if (data) {
       const mergedProfile: ProfileRow = {
         username: data.username ?? localCache?.profile.username ?? username,
         full_name: data.full_name ?? localCache?.profile.full_name ?? "",
@@ -152,18 +167,12 @@ export default function ProfilePage() {
         height_cm: data.height_cm ?? localCache?.profile.height_cm ?? null,
         weight_kg: data.weight_kg ?? localCache?.profile.weight_kg ?? null,
       };
-
       setProfile(mergedProfile);
       setPlayStyle(localCache?.playStyle ?? getDefaultPlayStyle(mergedProfile.favorite_position));
-
-      if (localCache) {
-        saveLocalCache({
-          ...localCache,
-          profile: mergedProfile,
-        });
-      }
     }
 
+    setCompletedDates(getCompletedWorkoutDateSet());
+    setDailyPlanMap(readDailyPlanMap());
     setLoading(false);
   }, []);
 
@@ -171,7 +180,6 @@ export default function ProfilePage() {
     const timer = window.setTimeout(() => {
       void loadProfile();
     }, 0);
-
     return () => window.clearTimeout(timer);
   }, [loadProfile]);
 
@@ -180,30 +188,42 @@ export default function ProfilePage() {
     persistCurrentCache();
   }, [loading, persistCurrentCache]);
 
-  const planPreview = useMemo(() => {
-    return buildWeeklyPlan({
-      position: profile.favorite_position ?? "sg",
-      playStyle,
-      weekConfig,
-      weeklyGoalSessions,
-    });
-  }, [playStyle, profile.favorite_position, weekConfig, weeklyGoalSessions]);
   const orderedDays = useMemo(() => getDaysStartingToday(), []);
+  const planPreview = useMemo(() => buildWeeklyPlan({ position: profile.favorite_position ?? "sg", playStyle, weekConfig, weeklyGoalSessions }), [playStyle, profile.favorite_position, weekConfig, weeklyGoalSessions]);
+  const monthCells = useMemo(() => getMonthMatrix(currentMonth), [currentMonth]);
+  const todayKey = toLocalDateKey(new Date());
+  const selectedTags = dailyPlanMap[selectedDateKey] ?? [];
+  const selectedSessions = useMemo(
+    () => getWorkoutSessions().filter((entry) => toLocalDateKey(new Date(entry.dateISO)) === selectedDateKey),
+    [selectedDateKey],
+  );
+  const exerciseNameById = useMemo(
+    () => new Map(loadExercises().map((exercise) => [exercise.id, exercise.name])),
+    [],
+  );
 
-  const updateDayConfig = (day: DayKey, patch: Partial<WeekConfig[DayKey]>) => {
-    setWeekConfig((current) => ({
-      ...current,
-      [day]: {
-        ...current[day],
-        ...patch,
-      },
-    }));
+  const toggleTagForSelectedDate = (tag: PlannedWorkoutTag) => {
+    if (selectedDateKey < todayKey) return;
+    setDailyPlanMap((current) => {
+      const currentTags = current[selectedDateKey] ?? [];
+      const nextTags = currentTags.includes(tag) ? currentTags.filter((entry) => entry !== tag) : [...currentTags, tag];
+      const next = { ...current, [selectedDateKey]: nextTags };
+      if (nextTags.length === 0) delete next[selectedDateKey];
+      writeDailyPlanMap(next);
+
+      const selectedDate = new Date(`${selectedDateKey}T00:00:00`);
+      const dayIndex = selectedDate.getDay();
+      const dayMap: Record<number, DayKey> = { 0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday" };
+      const targetDay = dayMap[dayIndex];
+      const config = mapTagToDayConfig(nextTags);
+      setWeekConfig((prev) => ({ ...prev, [targetDay]: config }));
+
+      return next;
+    });
   };
 
   const onSave = async () => {
     setSaving(true);
-    setMessage(null);
-
     const username = (profile.username ?? "").trim().toLowerCase();
     if (!username) {
       setSaving(false);
@@ -211,192 +231,148 @@ export default function ProfilePage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("profiles")
-      .upsert({
-        username,
-        full_name: profile.full_name,
-        favorite_position: profile.favorite_position,
-        height_cm: profile.height_cm,
-        weight_kg: profile.weight_kg,
-      });
-
+    const { error } = await supabase.from("profiles").upsert({
+      username,
+      full_name: profile.full_name,
+      favorite_position: profile.favorite_position,
+      height_cm: profile.height_cm,
+      weight_kg: profile.weight_kg,
+    });
     if (error) {
       setSaving(false);
       setMessage(`Speichern fehlgeschlagen: ${error.message}`);
       return;
     }
 
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-    }
-
-    saveLocalCache({
-      profile: { ...profile, username },
-      playStyle,
-      weekConfig,
-      weeklyGoalSessions,
-    });
-
-    await loadProfile(username);
+    window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
+    saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
     setSaving(false);
     setMessage("Profil gespeichert ✅");
   };
 
   return (
     <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
-      <div className="mx-auto max-w-4xl space-y-4">
+      <div className="mx-auto max-w-5xl space-y-4">
         <h1 className="text-2xl font-bold">Profil & Wochenplanung</h1>
-        <p className="text-zinc-400">Wähle pro Tag die Trainingsart (Kalender-Ansicht) und beeinflusse damit den Weekly-Plan.</p>
 
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-zinc-400">Username</label>
-              <input
-                value={profile.username ?? ""}
-                onChange={(e) => setProfile((p) => ({ ...p, username: e.target.value }))}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-400">Vollständiger Name</label>
-              <input
-                value={profile.full_name ?? ""}
-                onChange={(e) => setProfile((p) => ({ ...p, full_name: e.target.value }))}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-              />
-            </div>
+            <input value={profile.username ?? ""} onChange={(e) => setProfile((p) => ({ ...p, username: e.target.value }))} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" placeholder="Username" />
+            <input value={profile.full_name ?? ""} onChange={(e) => setProfile((p) => ({ ...p, full_name: e.target.value }))} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" placeholder="Vollständiger Name" />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-zinc-400">Position</label>
-              <select
-                value={profile.favorite_position ?? "sg"}
-                onChange={(e) => {
-                  const nextPosition = e.target.value;
-                  setProfile((p) => ({ ...p, favorite_position: nextPosition }));
-                  setPlayStyle(getDefaultPlayStyle(nextPosition));
-                }}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-              >
-                <option value="pg">PG</option>
-                <option value="sg">SG</option>
-                <option value="sf">SF</option>
-                <option value="pf">PF</option>
-                <option value="c">C</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-400">Spieltyp</label>
-              <select
-                value={playStyle}
-                onChange={(e) => setPlayStyle(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-              >
-                {(PLAY_STYLE_BY_POSITION[profile.favorite_position ?? "sg"] ?? []).map((style) => (
-                  <option key={style} value={style}>
-                    {style}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select value={profile.favorite_position ?? "sg"} onChange={(e) => { const next = e.target.value; setProfile((p) => ({ ...p, favorite_position: next })); setPlayStyle(getDefaultPlayStyle(next)); }} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm">
+              <option value="pg">PG</option><option value="sg">SG</option><option value="sf">SF</option><option value="pf">PF</option><option value="c">C</option>
+            </select>
+            <select value={playStyle} onChange={(e) => setPlayStyle(e.target.value)} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm">
+              {(PLAY_STYLE_BY_POSITION[profile.favorite_position ?? "sg"] ?? []).map((style) => (<option key={style} value={style}>{style}</option>))}
+            </select>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-zinc-400">Größe (cm)</label>
-              <input
-                type="number"
-                value={profile.height_cm ?? ""}
-                onChange={(e) =>
-                  setProfile((p) => ({
-                    ...p,
-                    height_cm: e.target.value ? Number(e.target.value) : null,
-                  }))
-                }
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-400">Gewicht (kg)</label>
-              <input
-                type="number"
-                value={profile.weight_kg ?? ""}
-                onChange={(e) =>
-                  setProfile((p) => ({
-                    ...p,
-                    weight_kg: e.target.value ? Number(e.target.value) : null,
-                  }))
-                }
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
-
-          <section className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            <h2 className="text-sm font-semibold">Kalender: Trainingsart pro Tag</h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {orderedDays.map((day) => (
-                <article key={day} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-                  <p className="text-sm font-semibold">
-                    {DAY_LABELS[day]} ({formatDateLabel(getNextDateForDay(day))})
-                  </p>
-
-                  <label className="mt-2 block text-xs text-zinc-400">Trainingsart</label>
-                  <select
-                    value={weekConfig[day].mode}
-                    onChange={(e) => updateDayConfig(day, { mode: e.target.value as DayMode })}
-                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-sm"
-                  >
-                    {(Object.keys(DAY_MODE_LABELS) as DayMode[]).map((mode) => (
-                      <option key={mode} value={mode}>
-                        {DAY_MODE_LABELS[mode]}
-                      </option>
-                    ))}
-                  </select>
-
-                  <label className="mt-2 block text-xs text-zinc-400">Minuten</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={180}
-                    value={weekConfig[day].minutes}
-                    onChange={(e) =>
-                      updateDayConfig(day, {
-                        minutes: e.target.value === "" ? 0 : Math.max(0, Math.min(180, Number(e.target.value) || 0)),
-                      })
-                    }
-                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-sm"
-                  />
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <div>
-            <label className="mb-1 block text-xs text-zinc-400">Wochenziel (Sessions)</label>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <input
               type="number"
-              min={0}
-              max={14}
-              value={weeklyGoalSessions}
-              onChange={(e) =>
-                setWeeklyGoalSessions(
-                  e.target.value === "" ? 0 : Math.max(0, Math.min(14, Number(e.target.value) || 0)),
-                )
-              }
+              placeholder="Größe (cm)"
+              value={profile.height_cm ?? ""}
+              onChange={(e) => setProfile((p) => ({ ...p, height_cm: e.target.value ? Number(e.target.value) : null }))}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            />
+            <input
+              type="number"
+              placeholder="Gewicht (kg)"
+              value={profile.weight_kg ?? ""}
+              onChange={(e) => setProfile((p) => ({ ...p, weight_kg: e.target.value ? Number(e.target.value) : null }))}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            />
+            <input
+              type="number"
+              placeholder="Spannweite (cm)"
+              value={bodyMetrics.wingspan_cm ?? ""}
+              onChange={(e) => setBodyMetrics((prev) => ({ ...prev, wingspan_cm: e.target.value ? Number(e.target.value) : null }))}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            />
+            <input
+              type="number"
+              placeholder="Standing Reach (cm)"
+              value={bodyMetrics.standing_reach_cm ?? ""}
+              onChange={(e) => setBodyMetrics((prev) => ({ ...prev, standing_reach_cm: e.target.value ? Number(e.target.value) : null }))}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            />
+            <input
+              type="number"
+              placeholder="KFA (%)"
+              value={bodyMetrics.body_fat_pct ?? ""}
+              onChange={(e) => setBodyMetrics((prev) => ({ ...prev, body_fat_pct: e.target.value ? Number(e.target.value) : null }))}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
             />
           </div>
 
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saving || loading}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
-          >
+          <section className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Workout Activity</h2>
+              <div className="flex gap-2 text-xs">
+                <button type="button" onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="rounded border border-zinc-600 px-2 py-1">◀</button>
+                <span className="px-2 py-1">{currentMonth.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</span>
+                <button type="button" onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="rounded border border-zinc-600 px-2 py-1">▶</button>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-7 gap-2 text-center text-xs text-zinc-500">
+              {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((label) => <p key={label}>{label}</p>)}
+            </div>
+            <div className="mt-2 grid grid-cols-7 gap-2">
+              {monthCells.map((cell, index) => {
+                if (!cell) return <div key={`empty-${index}`} className="h-12 rounded-lg bg-zinc-900/50" />;
+                const key = toLocalDateKey(cell);
+                const isPast = key < todayKey;
+                const isToday = key === todayKey;
+                const trained = completedDates.has(key);
+                const base = key > todayKey ? "bg-white text-black" : trained ? "bg-emerald-500/30 text-emerald-100" : "bg-zinc-700/40 text-zinc-200";
+                return (
+                  <button key={key} type="button" onClick={() => setSelectedDateKey(key)} className={`h-12 rounded-lg border ${isToday ? "border-cyan-400" : "border-zinc-700"} ${base}`}>
+                    <span className="text-sm font-semibold">{cell.getDate()}</span>
+                    {isPast && trained ? <span className="block text-[10px]">✓</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-zinc-700 bg-zinc-900 p-3">
+              <p className="text-sm font-semibold">{selectedDateKey}</p>
+              {selectedDateKey < todayKey ? (
+                <div className="mt-2 space-y-2 text-sm">
+                  {selectedSessions.length === 0 ? <p className="text-zinc-500">Kein Training an diesem Tag.</p> : selectedSessions.map((session) => (
+                    <div key={session.id} className="rounded border border-zinc-700 bg-zinc-950 p-2">
+                      <p className="font-medium">{session.workoutName}</p>
+                      <p className="text-xs text-zinc-400">Exercises: {session.logs.length} • Dauer ca. {session.logs.length * 4} Min</p>
+                      <div className="mt-2 space-y-1 text-xs text-zinc-300">
+                        {session.logs.map((log, idx) => (
+                          <div key={`${session.id}-${idx}`} className="rounded border border-zinc-800 bg-zinc-900 p-2">
+                            <p className="font-medium">{exerciseNameById.get(log.exerciseId) ?? log.exerciseId}</p>
+                            <p>Makes: {log.made ?? "-"} • Misses: {log.misses ?? "-"} • Tries: {log.attempts ?? "-"}</p>
+                            <p>Reps/Wert: {log.completedValue ?? "-"} • Gewicht: {log.weightKg ?? "-"} kg</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2">
+                  <p className="text-xs text-zinc-400">Plane heute/zukünftige Tage (mehrere Tags möglich):</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {PLANNED_TAGS.map((tag) => (
+                      <button key={tag} type="button" onClick={() => toggleTagForSelectedDate(tag)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(tag) ? "border-cyan-400 bg-cyan-500/20 text-cyan-100" : "border-zinc-600 text-zinc-300"}`}>
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <button type="button" onClick={onSave} disabled={saving || loading} className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">
             {saving ? "Speichern..." : "Profil speichern"}
           </button>
         </div>
@@ -408,21 +384,16 @@ export default function ProfilePage() {
               const entry = planPreview.find((planEntry) => planEntry.day === day);
               if (!entry) return null;
               return (
-              <li key={entry.day}>
-                <span className="font-semibold">
-                  {DAY_LABELS[entry.day]} ({formatDateLabel(getNextDateForDay(entry.day))})
-                </span>
-                : {entry.sessionType} • {entry.intensity} • {entry.minutes} Min
-                {entry.reason ? ` (${entry.reason})` : ""}
-              </li>
+                <li key={entry.day}>
+                  <span className="font-semibold">{DAY_LABELS[entry.day]} ({getNextDateForDay(entry.day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })})</span>
+                  : {entry.sessionType} • {entry.intensity} • {entry.minutes} Min
+                </li>
               );
             })}
           </ul>
         </section>
 
-        {message ? (
-          <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-200">{message}</div>
-        ) : null}
+        {message ? <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-200">{message}</div> : null}
       </div>
     </main>
   );

@@ -61,7 +61,8 @@ const DAY_TO_INDEX: Record<DayKey, number> = {
 
 function normalizeMinutes(mode: DayMode, minutes: number) {
   if (mode === "unavailable" || mode === "rest") return 0;
-  if (mode === "game_day" || mode === "game_training") return Math.min(Math.max(minutes, 0), 30);
+  if (mode === "game_day") return Math.min(Math.max(minutes, 0), 20);
+  if (mode === "game_training") return Math.min(Math.max(minutes, 0), 45);
   return Math.max(minutes, 0);
 }
 
@@ -78,9 +79,9 @@ export function buildWeeklyPlan(input: PlannerInput): PlannedDay[] {
       case "recovery":
         return { day, minutes, intensity: "recovery", sessionType: "recovery", reason: "Aktive Regeneration" };
       case "game_day":
-        return { day, minutes, intensity: "light", sessionType: "game", reason: "Spieltag: Volumen bewusst niedrig" };
+        return { day, minutes, intensity: "light", sessionType: "game", reason: "Spieltag: leichtes Warm-up" };
       case "game_training":
-        return { day, minutes, intensity: "light", sessionType: "game-training", reason: "Spieltraining: max. 30 Min Zusatzvolumen" };
+         return { day, minutes, intensity: "light", sessionType: "game-training", reason: "Spieltraining: 15 Min vorab + 30 Min Nachgang" };
       case "basketball_training":
         return {
           day,
