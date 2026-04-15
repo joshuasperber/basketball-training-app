@@ -1,13 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { type Exercise, type Workout } from "@/lib/training-data";
 import {
   appendExerciseHistory,
   appendWorkoutSession,
-  getExerciseHistoryMap,
 } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts, saveWorkouts } from "@/lib/training-storage";
 
@@ -43,6 +42,7 @@ function validateMetricValues(values: Partial<Record<string, string>>) {
 }
 
 export default function WorkoutExecutionPage() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const workoutId = params.id;
   const [exercises] = useState<Exercise[]>(() => loadExercises());
@@ -63,19 +63,6 @@ export default function WorkoutExecutionPage() {
 
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
   const [saved, setSaved] = useState(false);
-  const [historyMap, setHistoryMap] = useState<Record<string, { dateISO: string; value: number }[]>>(() => {
-    const history = getExerciseHistoryMap();
-    const compactHistory: Record<string, { dateISO: string; value: number }[]> = {};
-
-    for (const [exerciseId, entries] of Object.entries(history)) {
-      compactHistory[exerciseId] = entries
-        .filter((entry) => Number.isFinite(entry.value))
-        .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
-        .slice(0, 5);
-    }
-
-    return compactHistory;
-  });
 
   function getLog(exerciseId: string) {
     return logs.find((entry) => entry.exerciseId === exerciseId);
@@ -178,17 +165,8 @@ export default function WorkoutExecutionPage() {
       saveWorkouts(updatedWorkouts);
     }
 
-    const updatedHistory = getExerciseHistoryMap();
-    const compactHistory: Record<string, { dateISO: string; value: number }[]> = {};
-    for (const [exerciseId, entries] of Object.entries(updatedHistory)) {
-      compactHistory[exerciseId] = entries
-        .filter((entry) => Number.isFinite(entry.value))
-        .map((entry) => ({ dateISO: entry.dateISO, value: entry.value }))
-        .slice(0, 5);
-    }
-
-    setHistoryMap(compactHistory);
     setSaved(true);
+    router.push("/stats");
   }
 
   if (!workout) {
@@ -275,20 +253,6 @@ export default function WorkoutExecutionPage() {
                     />
                   </label>
 
-                  <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Letzte 5 Einträge</p>
-                    {(historyMap[exercise.id] ?? []).length === 0 ? (
-                      <p className="mt-1 text-xs text-zinc-500">Noch keine History vorhanden.</p>
-                    ) : (
-                      <ul className="mt-2 space-y-1 text-xs text-zinc-300">
-                        {(historyMap[exercise.id] ?? []).map((entry, index) => (
-                          <li key={`${entry.dateISO}-${index}`}>
-                            {new Date(entry.dateISO).toLocaleDateString("de-DE")} • {entry.value}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
                 </article>
               );
             })

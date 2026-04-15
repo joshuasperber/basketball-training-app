@@ -44,7 +44,7 @@ type SessionDetail = {
   workoutName: string;
   logs: ReturnType<typeof getWorkoutSessions>[number]["logs"];
 };
-type StatsRange = "all" | "weekly" | "monthly";
+type StatsRange = "all" | "monthly" | "weekly";
 
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
@@ -477,8 +477,8 @@ export default function StatsPage() {
       <div className="mt-4 inline-flex rounded-lg border border-zinc-700 bg-zinc-900 p-1 text-sm">
         {[
           { id: "all", label: "All Time" },
-          { id: "weekly", label: "Weekly" },
           { id: "monthly", label: "Monthly" },
+          { id: "weekly", label: "Weekly" },
         ].map((option) => (
           <button
             key={option.id}

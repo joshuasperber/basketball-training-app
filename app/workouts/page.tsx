@@ -25,7 +25,11 @@ import {
 } from "@/lib/workout";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
 
-import { MANUAL_DAY_WORKOUTS_KEY } from "@/lib/activity-calendar";
+import {
+  MANUAL_DAY_WORKOUTS_KEY,
+  readManualDayDisabledMap,
+  writeManualDayDisabledMap,
+} from "@/lib/activity-calendar";
 
 type ManualDayWorkout = {
   id: string;
@@ -254,7 +258,7 @@ function WorkoutsPageContent() {
   }, [overrideWorkoutId, workoutOptions]);
   const activeWorkoutBase = manualWorkout ?? selectedOverrideWorkout ?? customWorkoutFromCatalog ?? autoWorkoutFromWeekly ?? defaultWorkout;
   const [sessionWorkout, setSessionWorkout] = useState<WorkoutPlan>(activeWorkoutBase);
-  useEffect(() => {
+    useEffect(() => {
     setSessionWorkout(activeWorkoutBase);
   }, [activeWorkoutBase]);
   const workoutForExecution = useMemo<WorkoutPlan>(() => {
@@ -533,7 +537,7 @@ function WorkoutsPageContent() {
     window.localStorage.removeItem(overrideStorageKey);
     router.push("/Weekly-Workout");
   };
-  const saveManualWorkoutForDay = () => {
+    const saveManualWorkoutForDay = () => {
     if (manualCategory !== "Rest" && selectedManualExerciseIds.length <= 0) return;
     const selectedExercises =
       manualCategory === "Rest"
@@ -572,6 +576,12 @@ function WorkoutsPageContent() {
     }
     store[dateKey] = [nextEntry, ...(store[dateKey] ?? [])];
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
+    const disabledMap = readManualDayDisabledMap();
+    if (disabledMap[dateKey]) {
+      const nextDisabled = { ...disabledMap };
+      delete nextDisabled[dateKey];
+      writeManualDayDisabledMap(nextDisabled);
+    }
     const selectedMinutes =
       manualCategory === "Rest"
         ? 0
@@ -1016,12 +1026,13 @@ function WorkoutsPageContent() {
         </section>
       ) : null}
 
-      {progress.status === "completed" ? (
+      {manualParam !== "1" && progress.status === "completed" ? (
         <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-200">
           Workout abgeschlossen. Sehr stark! ✅
         </section>
       ) : null}
 
+      {manualParam !== "1" ? (
       <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <div className="mb-3">
           <p className="text-xs uppercase tracking-wide text-zinc-400">Workout-Fortschritt</p>
@@ -1181,6 +1192,7 @@ function WorkoutsPageContent() {
           </p>
         )}
       </section>
+      ) : null}
 
       <div className="mt-4">
         <Link href="/Weekly-Workout" className="text-sm text-indigo-300 hover:text-indigo-200">

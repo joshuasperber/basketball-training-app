@@ -22,7 +22,11 @@ import { loadExercises } from "@/lib/training-storage";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
-const PLANNED_TAGS: PlannedWorkoutTag[] = ["Spieltag", "Trainingstag", "Spieltraining", "Gym", "Home-Workout", "Regeneration"];
+const PRIMARY_DAY_TABS = ["Gym", "Basketball", "HomeWorkout", "Regeneration", "Keine Zeit"] as const;
+type PrimaryDayTab = (typeof PRIMARY_DAY_TABS)[number];
+const BASKETBALL_TAGS: PlannedWorkoutTag[] = ["Spieltag", "Trainingstag", "Spieltraining"];
+const GYM_TAGS = ["Conditioning", "Push", "Pull", "Legs", "Core"] as const;
+type GymTag = (typeof GYM_TAGS)[number];
 
 const DAY_LABELS: Record<DayKey, string> = {
   monday: "Montag",
@@ -117,6 +121,22 @@ function mapTagToDayConfig(tags: PlannedWorkoutTag[]): { mode: DayMode; minutes:
   return { mode: "unavailable", minutes: 0 };
 }
 
+function getPrimaryTabByTags(tags: PlannedWorkoutTag[]): PrimaryDayTab | null {
+  if (tags.includes("Spieltag") || tags.includes("Trainingstag") || tags.includes("Spieltraining")) return "Basketball";
+  if (tags.includes("Gym")) return "Gym";
+  if (tags.includes("Home-Workout")) return "HomeWorkout";
+  if (tags.includes("Regeneration")) return "Regeneration";
+  if (tags.length === 0) return "Keine Zeit";
+  return null;
+}
+
+function getGymSubtagFromTags(tags: PlannedWorkoutTag[]): GymTag | null {
+  const gymSubtag = tags.find((tag) => tag.startsWith("Gym:"));
+  if (!gymSubtag) return null;
+  const value = gymSubtag.replace("Gym:", "") as GymTag;
+  return GYM_TAGS.includes(value) ? value : null;
+}
+
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -202,11 +222,9 @@ export default function ProfilePage() {
     [],
   );
 
-  const toggleTagForSelectedDate = (tag: PlannedWorkoutTag) => {
+  const updateSelectedDatePlan = (nextTags: PlannedWorkoutTag[]) => {
     if (selectedDateKey < todayKey) return;
     setDailyPlanMap((current) => {
-      const currentTags = current[selectedDateKey] ?? [];
-      const nextTags = currentTags.includes(tag) ? currentTags.filter((entry) => entry !== tag) : [...currentTags, tag];
       const next = { ...current, [selectedDateKey]: nextTags };
       if (nextTags.length === 0) delete next[selectedDateKey];
       writeDailyPlanMap(next);
@@ -220,6 +238,37 @@ export default function ProfilePage() {
 
       return next;
     });
+  };
+
+  const activePrimaryTab = getPrimaryTabByTags(selectedTags);
+  const activeGymSubtag = getGymSubtagFromTags(selectedTags);
+
+  const applyPrimaryTab = (tab: PrimaryDayTab) => {
+    if (tab === "Basketball") {
+      updateSelectedDatePlan(["Trainingstag"]);
+      return;
+    }
+    if (tab === "Gym") {
+      updateSelectedDatePlan(["Gym", "Gym:Push" as PlannedWorkoutTag]);
+      return;
+    }
+    if (tab === "HomeWorkout") {
+      updateSelectedDatePlan(["Home-Workout"]);
+      return;
+    }
+    if (tab === "Regeneration") {
+      updateSelectedDatePlan(["Regeneration"]);
+      return;
+    }
+    updateSelectedDatePlan([]);
+  };
+
+  const applyBasketballTag = (tag: PlannedWorkoutTag) => {
+    updateSelectedDatePlan([tag]);
+  };
+
+  const applyGymSubtag = (tag: GymTag) => {
+    updateSelectedDatePlan(["Gym", `Gym:${tag}` as PlannedWorkoutTag]);
   };
 
   const onSave = async () => {
@@ -326,12 +375,22 @@ export default function ProfilePage() {
                 const key = toLocalDateKey(cell);
                 const isPast = key < todayKey;
                 const isToday = key === todayKey;
+                const isSelected = key === selectedDateKey;
                 const trained = completedDates.has(key);
+                const hasPlannedTags = (dailyPlanMap[key] ?? []).length > 0;
                 const base = key > todayKey ? "bg-white text-black" : trained ? "bg-emerald-500/30 text-emerald-100" : "bg-zinc-700/40 text-zinc-200";
                 return (
-                  <button key={key} type="button" onClick={() => setSelectedDateKey(key)} className={`h-12 rounded-lg border ${isToday ? "border-cyan-400" : "border-zinc-700"} ${base}`}>
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedDateKey(key)}
+                    className={`relative h-12 rounded-lg border ${isSelected ? "border-fuchsia-400 ring-2 ring-fuchsia-500/60" : isToday ? "border-cyan-400" : "border-zinc-700"} ${base}`}
+                  >
                     <span className="text-sm font-semibold">{cell.getDate()}</span>
                     {isPast && trained ? <span className="block text-[10px]">✓</span> : null}
+                    {hasPlannedTags ? (
+                      <span className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-fuchsia-400" />
+                    ) : null}
                   </button>
                 );
               })}
@@ -359,14 +418,32 @@ export default function ProfilePage() {
                 </div>
               ) : (
                 <div className="mt-2">
-                  <p className="text-xs text-zinc-400">Plane heute/zukünftige Tage (mehrere Tags möglich):</p>
+                  <p className="text-xs text-zinc-400">Plane heute/zukünftige Tage:</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {PLANNED_TAGS.map((tag) => (
-                      <button key={tag} type="button" onClick={() => toggleTagForSelectedDate(tag)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(tag) ? "border-cyan-400 bg-cyan-500/20 text-cyan-100" : "border-zinc-600 text-zinc-300"}`}>
-                        {tag}
+                    {PRIMARY_DAY_TABS.map((tab) => (
+                      <button key={tab} type="button" onClick={() => applyPrimaryTab(tab)} className={`rounded-full border px-3 py-1 text-xs ${activePrimaryTab === tab ? "border-cyan-400 bg-cyan-500/20 text-cyan-100" : "border-zinc-600 text-zinc-300"}`}>
+                        {tab}
                       </button>
                     ))}
                   </div>
+                  {activePrimaryTab === "Basketball" ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {BASKETBALL_TAGS.map((tag) => (
+                        <button key={tag} type="button" onClick={() => applyBasketballTag(tag)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(tag) ? "border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-600 text-zinc-300"}`}>
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {activePrimaryTab === "Gym" ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {GYM_TAGS.map((tag) => (
+                        <button key={tag} type="button" onClick={() => applyGymSubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeGymSubtag === tag ? "border-amber-400 bg-amber-500/20 text-amber-100" : "border-zinc-600 text-zinc-300"}`}>
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>

@@ -10,7 +10,6 @@ import {
   WEEKLY_WORKOUT_PLAN,
   getDateForWeekday,
   getTodayDateKey,
-  getTodayWorkoutPlan,
   toLocalDateKey,
 } from "@/lib/workout";
 import { buildWeeklyPlan, type DayKey, type WeekConfig } from "@/lib/planner";
@@ -19,7 +18,13 @@ import {
   getFocusProfile,
   pickSubcategoryForDay,
 } from "@/lib/player-workout-engine";
-import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap, type PlannedWorkoutTag } from "@/lib/activity-calendar";
+import {
+  MANUAL_DAY_WORKOUTS_KEY,
+  readDailyPlanMap,
+  readManualDayDisabledMap,
+  type PlannedWorkoutTag,
+  writeManualDayDisabledMap,
+} from "@/lib/activity-calendar";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
 
@@ -378,17 +383,16 @@ export default function WeeklyWorkoutPage() {
   const todayIndex = new Date().getDay() as (typeof weekdayOrder)[number];
   const orderedDays = useMemo(
     () => [...weekdayOrder]
-      .sort((left, right) => ((left - todayIndex + 7) % 7) - ((right - todayIndex + 7) % 7))
-      .filter((day) => day !== todayIndex),
+      .sort((left, right) => ((left - todayIndex + 7) % 7) - ((right - todayIndex + 7) % 7)),
     [todayIndex],
   );
-  const todayWorkout = getTodayWorkoutPlan();
   const [plannedEntries, setPlannedEntries] = useState<PlannedUiEntry[] | null>(null);
   const [suggestionsByDay, setSuggestionsByDay] = useState<Record<DayKey, SuggestedWorkout> | null>(null);
   const [manualWorkoutsByDate, setManualWorkoutsByDate] = useState<Record<string, ManualDayWorkout[]>>({});
   const [selectedWorkoutByDay, setSelectedWorkoutByDay] = useState<Partial<Record<DayKey, string>>>({});
   const [manualVersion, setManualVersion] = useState(0);
   const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
+  const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -434,7 +438,9 @@ export default function WeeklyWorkoutPage() {
         };
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
         const manualByDate = rawManual ? (JSON.parse(rawManual) as Record<string, ManualDayWorkout[]>) : {};
+        const disabledMap = readManualDayDisabledMap();
         setManualWorkoutsByDate(manualByDate);
+        setDisabledManualDays(disabledMap);
         const manualByDay: Partial<Record<DayKey, ManualDayWorkout[]>> = {};
         weekdayOrder.forEach((index) => {
           const date = toLocalDateKey(getDateForWeekday(index));
@@ -533,6 +539,9 @@ export default function WeeklyWorkoutPage() {
       const next = { ...parsed, [dateKey]: nextEntries };
       if (nextEntries.length === 0) {
         delete next[dateKey];
+        const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
+        writeManualDayDisabledMap(disabledMap);
+        setDisabledManualDays(disabledMap);
       }
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(next));
       setManualWorkoutsByDate(next);
@@ -549,6 +558,9 @@ export default function WeeklyWorkoutPage() {
       const parsed = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
       delete parsed[dateKey];
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+      const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
+      writeManualDayDisabledMap(disabledMap);
+      setDisabledManualDays(disabledMap);
       setManualWorkoutsByDate(parsed);
       setManualVersion((current) => current + 1);
     } catch {
@@ -576,54 +588,10 @@ export default function WeeklyWorkoutPage() {
     }
   };
 
-  const plannedToday = useMemo(() => {
-    if (!plannedEntries) return null;
-    return plannedEntries.find((entry) => entry.day === dayByIndex[todayIndex]) ?? null;
-  }, [plannedEntries, todayIndex]);
-
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Weekly Workout Plan</h1>
-      <p className="mt-2 text-zinc-400">Wochenübersicht mit heutigem Fokus</p>
-
-      <section className="mt-6 rounded-2xl border border-green-800 bg-green-950/50 p-4">
-        <p className="text-xs uppercase tracking-wide text-green-300">Heute</p>
-        <p className="text-xs text-green-100">
-          {getDateForWeekday(todayIndex).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
-        </p>
-        <h2 className="mt-2 text-xl font-semibold">
-          {suggestionsByDay?.[dayByIndex[todayIndex]]?.title ?? todayWorkout.title}
-        </h2>
-        <p className="mt-1 text-sm text-green-200">
-          Sport: {suggestionsByDay?.[dayByIndex[todayIndex]]?.sport ?? todayWorkout.sport}
-        </p>
-        <p className="text-sm text-green-200">
-          Unterkategorie: {suggestionsByDay?.[dayByIndex[todayIndex]]?.subcategory ?? todayWorkout.subcategory}
-        </p>
-        {plannedToday ? (
-          <p className="mt-2 text-sm text-green-100">
-            Profil-Plan: {plannedToday.sessionType} • {plannedToday.intensity} • {plannedToday.minutes} Min
-          </p>
-        ) : null}
-        <Link
-          href={(() => {
-            const todaySuggestion = suggestionsByDay?.[dayByIndex[todayIndex]];
-            const workoutIdQuery = todaySuggestion?.workoutId ? `&workoutId=${todaySuggestion.workoutId}` : "";
-            const autoSuggestion = todaySuggestion && !todaySuggestion.workoutId ? encodeAutoWorkoutSuggestion(todaySuggestion) : null;
-            const autoQuery = autoSuggestion ? `&autoWorkout=${autoSuggestion}` : "";
-            return `/workouts?day=${todayIndex}${workoutIdQuery}${autoQuery}`;
-          })()}
-          className="mt-4 inline-block rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
-        >
-          Zum heutigen Workout
-        </Link>
-        <Link
-          href={`/workouts?day=${todayIndex}&manual=1`}
-          className="ml-2 mt-4 inline-block rounded-xl border border-emerald-400 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-900/40"
-        >
-          Workout manuell erstellen
-        </Link>
-      </section>
+      <p className="mt-2 text-zinc-400">Alle Tage sind direkt bearbeitbar – inklusive heute.</p>
 
       <div className="mt-6 space-y-3">
         {orderedDays.map((day) => {
@@ -632,6 +600,7 @@ export default function WeeklyWorkoutPage() {
           const suggestedWorkout = suggestionsByDay?.[dayByIndex[day]] ?? null;
           const manualDateKey = toLocalDateKey(getDateForWeekday(day));
           const dayManualEntries = manualWorkoutsByDate[manualDateKey] ?? [];
+          const isDayDisabled = disabledManualDays[manualDateKey] === true;
           const plannedTags = dailyPlanMap[manualDateKey] ?? [];
           const primaryManual = dayManualEntries[0];
           const workoutCards: WorkoutCardItem[] = [];
@@ -645,7 +614,7 @@ export default function WeeklyWorkoutPage() {
               manualWorkoutId: primaryManual.id,
               durationMin: profilePlan?.minutes ?? suggestedWorkout?.durationMin ?? 0,
             });
-          } else if (suggestedWorkout) {
+          } else if (suggestedWorkout && !isDayDisabled) {
             workoutCards.push({
               id: suggestedWorkout.workoutId ?? `auto-${day}`,
               title: suggestedWorkout.title,
@@ -686,7 +655,7 @@ export default function WeeklyWorkoutPage() {
           return (
             <article
               key={day}
-              className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
+              className={`rounded-2xl border p-4 ${day === todayIndex ? "border-green-700 bg-green-950/20" : "border-zinc-800 bg-zinc-900"}`}
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">
@@ -698,7 +667,7 @@ export default function WeeklyWorkoutPage() {
 
               </div>
 
-              <p className="mt-2 text-lg font-medium">{suggestedWorkout?.title ?? workout.title}</p>
+              <p className="mt-2 text-lg font-medium">{isDayDisabled ? "Kein Workout geplant" : suggestedWorkout?.title ?? workout.title}</p>
               {profilePlan ? (
                 <p className="mt-2 text-sm text-emerald-300">
                   Profil-Plan: {profilePlan.sessionType} • {profilePlan.intensity} • {profilePlan.minutes} Min
@@ -745,6 +714,12 @@ export default function WeeklyWorkoutPage() {
                   >
                     Workout bearbeiten
                   </Link>
+                  <Link
+                    href={`/workouts?day=${day}&manual=1`}
+                    className="rounded-lg border border-emerald-500 px-3 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-950"
+                  >
+                    Workout hinzufügen
+                  </Link>
                   <button
                     type="button"
                     disabled={!selectedCard.manualWorkoutId}
@@ -774,6 +749,16 @@ export default function WeeklyWorkoutPage() {
                   >
                     Alle löschen
                   </button>
+                </div>
+              ) : null}
+              {!selectedCard ? (
+                <div className="mt-3">
+                  <Link
+                    href={`/workouts?day=${day}&manual=1`}
+                    className="rounded-lg border border-emerald-500 px-3 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-950"
+                  >
+                    Workout hinzufügen
+                  </Link>
                 </div>
               ) : null}
 

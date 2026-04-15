@@ -231,11 +231,12 @@ export default function LevelPage() {
   const levelData = useMemo(() => getLevelFromXp(totalXp), [totalXp]);
   const xpUntilNextLevel = Math.max(0, levelData.xpForCurrentLevel - levelData.xpIntoLevel);
   const nextLevelXpRequirement = getXpForNextLevel(levelData.level);
+  const levelProgressPercent = Math.min(100, Math.round((levelData.xpIntoLevel / Math.max(1, nextLevelXpRequirement)) * 100));
 
   return (
-    <main className="min-h-screen bg-black p-6 pb-24 text-white">
+    <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Level</h1>
-      <p className="mt-2 text-zinc-400">Ein globales Level – Punkte kommen aus einzelnen Exercises je Unterkategorie.</p>
+      <p className="mt-2 text-zinc-400">Ein globales Level mit klaren Karten, Progress-Bars und Wochen-Belastung.</p>
 
       {popupMessage ? (
         <div className="mt-4 rounded-2xl border border-cyan-500 bg-cyan-950/40 p-4">
@@ -248,7 +249,7 @@ export default function LevelPage() {
         </div>
       ) : null}
 
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+      <section className="mt-6 rounded-2xl border border-indigo-700/50 bg-gradient-to-br from-zinc-900 via-zinc-900 to-indigo-950/40 p-4">
         <h2 className="text-xl font-semibold">Globales Level</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
@@ -256,6 +257,9 @@ export default function LevelPage() {
             <p className="text-3xl font-bold">Lv. {levelData.level}</p>
             <p className="text-sm text-zinc-300">{levelData.xpIntoLevel}/{nextLevelXpRequirement} XP in diesem Level</p>
             <p className="text-xs text-zinc-500">{xpUntilNextLevel} XP bis zum nächsten Level</p>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full rounded-full bg-indigo-400" style={{ width: `${levelProgressPercent}%` }} />
+            </div>
           </div>
           <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
             <p className="text-xs text-zinc-500">Gesamt-XP</p>
@@ -288,6 +292,9 @@ export default function LevelPage() {
                 <p className="text-xs text-zinc-400">Skill Score: {skill.score}</p>
                 <p className="text-xs text-zinc-400">Exercise Points: {skill.points}</p>
                 <p className="text-xs text-zinc-500">Letztes Training: {skill.lastTrained ?? "-"} {skill.daysSince !== null ? `(${skill.daysSince} Tage)` : ""}</p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round((skill.xpIntoLevel / Math.max(1, skill.xpForCurrentLevel)) * 100))}%` }} />
+                </div>
               </div>
             ))
           )}
