@@ -289,7 +289,7 @@ export default function LevelPage() {
         </div>
 
         <p className="mt-3 text-sm text-zinc-400">Belastung letzte 7 Tage: <span className="font-semibold text-white">{thisWeekXp} XP</span> | davor: <span className="font-semibold text-white">{lastWeekXp} XP</span> (Ratio: {overloadRatio.toFixed(2)})</p>
-        <p className="mt-2 text-2xl font-bold">Skill Score Level {skillScoreLevel}: {skillScorePoints}/100</p>
+        <p className="mt-2 text-2xl font-bold">Basketball Skill Score Level {skillScoreLevel}: {skillScorePoints}/100</p>
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">

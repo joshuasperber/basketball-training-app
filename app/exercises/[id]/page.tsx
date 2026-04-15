@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
@@ -38,6 +38,7 @@ function validateMetricValues(values: Partial<Record<string, string>>) {
 }
 
 export default function ExerciseExecutionPage() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const exerciseId = params.id;
   const [exercises] = useState<Exercise[]>(() => loadExercises());
@@ -144,6 +145,7 @@ export default function ExerciseExecutionPage() {
 
     await refreshHistory();
     setSaved(true);
+    router.push("/training?completed=exercise");
   }
 
   useEffect(() => {

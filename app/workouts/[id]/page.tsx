@@ -166,7 +166,7 @@ export default function WorkoutExecutionPage() {
     }
 
     setSaved(true);
-    router.push("/stats");
+    router.push("/training?completed=workout");
   }
 
   if (!workout) {

@@ -60,67 +60,57 @@ export async function GET() {
       "https://v1.basketball.api-sports.io/games?next=10",
     ];
 
-    let response: Response | null = null;
+    let payloadToUse: BasketballApiPayload | null = null;
     let endpointUsed = "";
+    let lastApiErrorMessage = "Unbekannter API-Fehler";
 
     for (const endpoint of endpointCandidates) {
-      const nextResponse = await fetch(endpoint, {
+      const response = await fetch(endpoint, {
         headers: {
           "x-apisports-key": apiKey,
         },
         next: { revalidate: 900 },
       });
 
-      response = nextResponse;
       endpointUsed = endpoint;
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        lastApiErrorMessage = "API hat kein JSON geliefert. Prüfe Key/Plan.";
+        continue;
+      }
 
-      if (nextResponse.ok) {
+      let payload: BasketballApiPayload = {};
+
+      try {
+        payload = (await response.json()) as BasketballApiPayload;
+      } catch {
+        lastApiErrorMessage = "API JSON konnte nicht gelesen werden.";
+        continue;
+      }
+
+      const payloadErrors = payload.errors ?? {};
+      const hasPayloadErrors = Object.keys(payloadErrors).length > 0;
+
+      if (response.ok && !hasPayloadErrors) {
+        payloadToUse = payload;
         break;
       }
-    }
 
-    if (!response) {
-      return NextResponse.json({
-        items: [],
-        warning: "API-Aufruf konnte nicht gestartet werden.",
-      });
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-
-    if (!contentType.includes("application/json")) {
-      return NextResponse.json({
-        items: [],
-        warning: "API hat kein JSON geliefert. Prüfe Key/Plan.",
-      });
-    }
-
-    let payload: BasketballApiPayload = {};
-
-    try {
-      payload = (await response.json()) as BasketballApiPayload;
-    } catch {
-      return NextResponse.json({
-        items: [],
-        warning: "API JSON konnte nicht gelesen werden.",
-      });
-    }
-
-    if (!response.ok || payload.errors) {
-      const payloadErrors = payload.errors ?? {};
-      const apiErrorMessage = Object.keys(payloadErrors).length > 0
+      lastApiErrorMessage = hasPayloadErrors
         ? Object.entries(payloadErrors)
             .map(([key, value]) => `${key}: ${value}`)
             .join(" | ")
         : `HTTP ${response.status} (${endpointUsed || "unknown endpoint"})`;
+    }
 
+    if (!payloadToUse) {
       return NextResponse.json({
         items: [],
-        warning: `API-Sports Fehler: ${apiErrorMessage}.`,
+        warning: `API-Sports Fehler: ${lastApiErrorMessage}.`,
       });
     }
 
-    const mappedItems = mapGamesToItems(payload.response ?? []);
+    const mappedItems = mapGamesToItems(payloadToUse.response ?? []);
 
     return NextResponse.json({
       items: mappedItems,
