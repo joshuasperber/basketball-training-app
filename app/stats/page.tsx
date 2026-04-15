@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { type Category } from "@/lib/training-data";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
@@ -8,7 +9,7 @@ import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home";
 const GYM_SUBCATEGORIES = ["Push", "Pull", "Legs", "Core"] as const;
-const BASKETBALL_SUBCATEGORIES = ["Shooting", "Finishing", "Defense", "Handles"] as const;
+const BASKETBALL_SUBCATEGORIES = ["Shooting", "Finishing", "Conditioning", "Handles"] as const;
 
 type BasketballExerciseStat = {
   exerciseId: string;
@@ -46,6 +47,17 @@ type SessionDetail = {
 };
 type StatsRange = "all" | "monthly" | "weekly";
 
+type HistorySportBucket = "Basketball" | "Gym" | "Home";
+
+type HistoryItem = {
+  id: string;
+  title: string;
+  dateISO: string;
+  sportBucket: HistorySportBucket;
+  exerciseCount: number;
+  totalValue: number;
+};
+
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
 function normalizeGymSubcategory(subcategory: string): (typeof GYM_SUBCATEGORIES)[number] | null {
@@ -61,7 +73,7 @@ function normalizeBasketballSubcategory(subcategory: string): (typeof BASKETBALL
   const s = subcategory.trim().toLowerCase();
   if (s === "shooting") return "Shooting";
   if (s === "finishing") return "Finishing";
-  if (s === "defense") return "Defense";
+  if (s === "conditioning" || s === "defense") return "Conditioning";
   if (s === "handles" || s === "handling") return "Handles";
   return null;
 }
@@ -188,7 +200,7 @@ function buildCategorySubcategorySlices(entries: CompletedWorkoutHistoryEntry[])
             if (key) c[key] += 1;
             return c;
           },
-          { Shooting: 0, Finishing: 0, Defense: 0, Handles: 0 },
+          { Shooting: 0, Finishing: 0, Conditioning: 0, Handles: 0 },
         );
         acc.Basketball = BASKETBALL_SUBCATEGORIES.filter((k) => counts[k] > 0).map((k, i) => ({ label: k, value: counts[k], color: PIE_COLORS[i % PIE_COLORS.length] }));
         return acc;
@@ -201,8 +213,17 @@ function buildCategorySubcategorySlices(entries: CompletedWorkoutHistoryEntry[])
   );
 }
 
-function buildBasketballExerciseStats(): BasketballExerciseStat[] {
-  const sessions = getWorkoutSessions();
+function filterSessionsByRange(sessions: ReturnType<typeof getWorkoutSessions>, range: StatsRange) {
+  if (range === "all") return sessions;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  if (range === "weekly") start.setDate(start.getDate() - 6);
+  if (range === "monthly") start.setDate(start.getDate() - 29);
+  return sessions.filter((session) => new Date(session.dateISO) >= start);
+}
+
+function buildBasketballExerciseStats(range: StatsRange): BasketballExerciseStat[] {
+  const sessions = filterSessionsByRange(getWorkoutSessions(), range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, { attempts: number; made: number; misses: number; usesShotMetrics: boolean }>();
@@ -213,12 +234,12 @@ function buildBasketballExerciseStats(): BasketballExerciseStat[] {
       if (!exercise || exercise.category !== "Basketball") return;
 
       const current = map.get(log.exerciseId) ?? { attempts: 0, made: 0, misses: 0, usesShotMetrics: false };
-      const hasShotInput = log.made != null || log.misses != null;
+      const hasShotInput = log.made != null || log.misses != null || log.attempts != null;
 
       let made = Math.max(0, log.made ?? 0);
       let misses = Math.max(0, log.misses ?? 0);
       let tries = Math.max(0, log.attempts ?? 0);
-            if (hasShotInput) {
+      if (hasShotInput) {
         if (log.made != null && log.misses != null) {
           tries = made + misses;
         } else if (log.made != null && log.attempts != null) {
@@ -256,8 +277,8 @@ function buildBasketballExerciseStats(): BasketballExerciseStat[] {
     .sort((a, b) => b.attempts - a.attempts);
 }
 
-function buildTimedExerciseTrends(): TimedExerciseTrend[] {
-  const sessions = getWorkoutSessions();
+function buildTimedExerciseTrends(range: StatsRange): TimedExerciseTrend[] {
+  const sessions = filterSessionsByRange(getWorkoutSessions(), range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, number[]>();
@@ -277,14 +298,14 @@ function buildTimedExerciseTrends(): TimedExerciseTrend[] {
     .map(([exerciseId, points]) => ({
       exerciseId,
       exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
-      subcategory: exerciseLookup.get(exerciseId)?.subcategory ?? "Shooting",
+      subcategory: normalizeBasketballSubcategory(exerciseLookup.get(exerciseId)?.subcategory ?? "") ?? "Shooting",
       points: points.slice(-10),
     }))
     .sort((a, b) => b.points.length - a.points.length);
 }
 
-function buildGymExerciseGoals(): GymExerciseGoalStat[] {
-  const sessions = getWorkoutSessions();
+function buildGymExerciseGoals(range: StatsRange): GymExerciseGoalStat[] {
+  const sessions = filterSessionsByRange(getWorkoutSessions(), range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, { weights: number[]; reps: number[]; latestISO: string | null; maxWeight: number; maxRepsAtMaxWeight: number }>();
@@ -297,7 +318,7 @@ function buildGymExerciseGoals(): GymExerciseGoalStat[] {
       const reps = log.completedValue ?? log.attempts ?? 0;
       const current = map.get(log.exerciseId) ?? { weights: [], reps: [], latestISO: null, maxWeight: 0, maxRepsAtMaxWeight: 0 };
       if (weight > 0) current.weights.push(weight);
-      if (reps > 0) current.reps.push(reps);
+      if (reps > 0 && reps <= 30) current.reps.push(reps);
       if (weight >= current.maxWeight) {
         current.maxRepsAtMaxWeight = weight > current.maxWeight ? Math.max(0, reps) : Math.max(current.maxRepsAtMaxWeight, Math.max(0, reps));
         current.maxWeight = weight;
@@ -323,7 +344,7 @@ function buildGymExerciseGoals(): GymExerciseGoalStat[] {
         maxWeightKg: data.maxWeight,
         maxRepsAtMaxWeight: data.maxRepsAtMaxWeight,
         suggestedWeightKg: Math.max(0, Math.round(avgWeightKg * growthFactor * decayFactor)),
-        suggestedReps: Math.max(1, Math.round(avgReps * (daysSince <= 14 ? 1.02 : 1))),
+        suggestedReps: Math.min(20, Math.max(3, Math.round(avgReps * (daysSince <= 14 ? 1.02 : 1)))),
       };
     })
     .sort((a, b) => b.maxWeightKg - a.maxWeightKg);
@@ -387,21 +408,36 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
   );
 }
 
+function resolveHistorySport(session: SessionDetail): HistorySportBucket {
+  const exercises = loadExercises();
+  const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const scores: Record<Category, number> = { Basketball: 0, Gym: 0, Home: 0 };
+  session.logs.forEach((log) => {
+    const ex = exerciseLookup.get(log.exerciseId);
+    if (!ex) return;
+    const intensity = Math.max(1, (log.completedValue ?? 0) + (log.attempts ?? 0) + (log.weightKg ?? 0) * 0.1);
+    scores[ex.category] += intensity;
+  });
+  if (scores.Gym >= scores.Basketball && scores.Gym >= scores.Home) return "Gym";
+  if (scores.Home >= scores.Basketball && scores.Home >= scores.Gym) return "Home";
+  return "Basketball";
+}
+
 export default function StatsPage() {
   const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
-  const [basketballStats, setBasketballStats] = useState<BasketballExerciseStat[]>([]);
-  const [timedTrends, setTimedTrends] = useState<TimedExerciseTrend[]>([]);
-  const [gymGoals, setGymGoals] = useState<GymExerciseGoalStat[]>([]);
   const [sessionDetails, setSessionDetails] = useState<SessionDetail[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [range, setRange] = useState<StatsRange>("all");
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    basketballQuotes: false,
+    timeExercises: false,
+    history: false,
+  });
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setHistory(loadCombinedHistory());
-      setBasketballStats(buildBasketballExerciseStats());
-      setTimedTrends(buildTimedExerciseTrends());
-      setGymGoals(buildGymExerciseGoals());
       setSessionDetails(getWorkoutSessions().map((session) => ({
         id: session.id,
         dateISO: session.dateISO,
@@ -420,28 +456,79 @@ export default function StatsPage() {
     if (range === "monthly") start.setDate(start.getDate() - 29);
     return history.filter((entry) => new Date(entry.date) >= start);
   }, [history, range]);
-  const filteredSessions = useMemo(() => {
-    if (range === "all") return sessionDetails;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    if (range === "weekly") start.setDate(start.getDate() - 6);
-    if (range === "monthly") start.setDate(start.getDate() - 29);
-    return sessionDetails.filter((session) => new Date(session.dateISO) >= start);
-  }, [range, sessionDetails]);
+
+  const filteredSessions = useMemo(() => filterSessionsByRange(sessionDetails, range), [range, sessionDetails]);
+
+  const basketballStats = useMemo(() => buildBasketballExerciseStats(range), [range]);
+  const timedTrends = useMemo(() => buildTimedExerciseTrends(range), [range]);
+  const gymGoals = useMemo(() => buildGymExerciseGoals(range), [range]);
+
   const totalSets = filteredHistory.reduce((sum, entry) => sum + entry.totalSets, 0);
   const totalReps = filteredHistory.reduce((sum, entry) => sum + entry.totalReps, 0);
   const totalVolume = filteredHistory.filter((entry) => entry.sport === "Gym").reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
   const sportSlices = useMemo(() => buildSlices(filteredHistory, "sport"), [filteredHistory]);
   const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(filteredHistory), [filteredHistory]);
-  const sortedHistory = useMemo(() => [...filteredHistory].sort((a, b) => (a.date < b.date ? 1 : -1)), [filteredHistory]);
+
   const exerciseLookup = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise.name])), []);
+  const exerciseDataLookup = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise])), []);
+
   const selectedSession = useMemo(
     () => sessionDetails.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessionDetails],
   );
+
+  const historyBuckets = useMemo(() => {
+    const mapped: HistoryItem[] = filteredSessions.map((session) => ({
+      id: session.id,
+      title: session.workoutName,
+      dateISO: session.dateISO,
+      sportBucket: resolveHistorySport(session),
+      exerciseCount: session.logs.length,
+      totalValue: session.logs.reduce((sum, log) => sum + Math.max(0, log.completedValue ?? 0), 0),
+    }));
+
+    return {
+      Basketball: mapped.filter((item) => item.sportBucket === "Basketball"),
+      Gym: mapped.filter((item) => item.sportBucket === "Gym"),
+      Home: mapped.filter((item) => item.sportBucket === "Home"),
+    };
+  }, [filteredSessions]);
+
+  const subcategoryOptions = useMemo(
+    () => [
+      ...new Set(filteredHistory.map((entry) => entry.subcategory).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b)),
+    [filteredHistory],
+  );
+
+  const subcategoryDetails = useMemo(() => {
+    if (!selectedSubcategory) return [];
+    return filteredSessions
+      .map((session) => {
+        const logs = session.logs.filter((log) => {
+          const ex = exerciseDataLookup.get(log.exerciseId);
+          if (!ex) return false;
+          const normalized = ex.category === "Basketball"
+            ? normalizeBasketballSubcategory(ex.subcategory)
+            : ex.category === "Gym"
+              ? normalizeGymSubcategory(ex.subcategory)
+              : ex.subcategory;
+          return normalized === selectedSubcategory || ex.subcategory === selectedSubcategory;
+        });
+        if (logs.length === 0) return null;
+        return {
+          sessionId: session.id,
+          workoutName: session.workoutName,
+          dateISO: session.dateISO,
+          exercises: logs.map((log) => exerciseLookup.get(log.exerciseId) ?? log.exerciseId),
+        };
+      })
+      .filter((value): value is { sessionId: string; workoutName: string; dateISO: string; exercises: string[] } => Boolean(value));
+  }, [exerciseDataLookup, exerciseLookup, filteredSessions, selectedSubcategory]);
+
   const basketballShotSummary = useMemo(() => {
     const exercises = loadExercises();
-    const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+    const exerciseLookupMap = new Map(exercises.map((exercise) => [exercise.id, exercise]));
     const summary = {
       freeThrows: { made: 0, attempts: 0 },
       twoPointers: { made: 0, attempts: 0 },
@@ -449,8 +536,9 @@ export default function StatsPage() {
     };
     filteredSessions.forEach((session) => {
       session.logs.forEach((log) => {
-        const exercise = exerciseLookup.get(log.exerciseId);
+        const exercise = exerciseLookupMap.get(log.exerciseId);
         if (!exercise || exercise.category !== "Basketball") return;
+        const normalizedSubcategory = normalizeBasketballSubcategory(exercise.subcategory);
         const name = exercise.name.toLowerCase();
         const attempts = Math.max(0, log.attempts ?? ((log.made ?? 0) + (log.misses ?? 0)));
         const made = Math.max(0, log.made ?? 0);
@@ -461,7 +549,7 @@ export default function StatsPage() {
         } else if (name.includes("3 pointer") || name.includes("3-pointer") || name.includes("3pt")) {
           summary.threePointers.attempts += attempts;
           summary.threePointers.made += made;
-        } else {
+        } else if (normalizedSubcategory === "Shooting" || normalizedSubcategory === "Finishing") {
           summary.twoPointers.attempts += attempts;
           summary.twoPointers.made += made;
         }
@@ -469,6 +557,10 @@ export default function StatsPage() {
     });
     return summary;
   }, [filteredSessions]);
+
+  const toggleSection = (key: "basketballQuotes" | "timeExercises" | "history") => {
+    setOpenSections((current) => ({ ...current, [key]: !current[key] }));
+  };
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
@@ -501,7 +593,7 @@ export default function StatsPage() {
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-lg font-semibold">Basketball Wurfquoten (aggregiert)</h2>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3 text-sm">
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
           {[
             { label: "FreeThrow Quote", value: basketballShotSummary.freeThrows },
             { label: "2 Pointer Quote", value: basketballShotSummary.twoPointers },
@@ -527,40 +619,63 @@ export default function StatsPage() {
       </div>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-lg font-semibold">Basketball Quoten je Übung</h2>
-        <p className="mt-1 text-sm text-zinc-400">Für Shot-Übungen wird tries immer aus makes+misses gebaut (oder daraus abgeleitet).</p>
-        {basketballStats.length === 0 ? (          <p className="mt-3 text-sm text-zinc-500">Noch keine Basketball-Übungsdaten vorhanden.</p>
-        ) : (
+        <h2 className="text-lg font-semibold">Unterkategorie Explorer</h2>
+        <p className="mt-1 text-sm text-zinc-400">Klicke eine Unterkategorie und du siehst alle Workouts + Exercises dazu.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {subcategoryOptions.map((subcategory) => (
+            <button
+              key={subcategory}
+              type="button"
+              onClick={() => setSelectedSubcategory(subcategory)}
+              className={`rounded-full border px-3 py-1 text-xs ${selectedSubcategory === subcategory ? "border-cyan-400 bg-cyan-500/20 text-cyan-100" : "border-zinc-600 text-zinc-300"}`}
+            >
+              {subcategory}
+            </button>
+          ))}
+        </div>
+        {selectedSubcategory ? (
           <div className="mt-3 space-y-2">
-            {basketballStats.map((entry) => (
-              <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                <p className="font-medium">{entry.exerciseName}</p>
-                {entry.usesShotMetrics ? (
-                  <p className="mt-1 text-sm text-zinc-300">Quote: <strong>{entry.quote ?? 0}%</strong> • Makes: {entry.made} • Tries: {entry.attempts} • Misses: {entry.misses}</p>
-                ) : (
-                  <p className="mt-1 text-sm text-zinc-400">Keine Quote (zeit-/reps-basiert).</p>
-                )}
+            {subcategoryDetails.length === 0 ? <p className="text-sm text-zinc-500">Keine Workouts in diesem Zeitraum.</p> : subcategoryDetails.map((entry) => (
+              <div key={entry.sessionId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
+                <p className="font-semibold">{entry.workoutName}</p>
+                <p className="text-zinc-400">{new Date(entry.dateISO).toLocaleString("de-DE")}</p>
+                <p className="text-zinc-300">Exercises: {entry.exercises.join(", ")}</p>
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-lg font-semibold">Zeitbasierte Basketball-Übungen (Verlauf)</h2>
-        <p className="mt-1 text-sm text-zinc-400">Bei timed Exercises nur Verlauf, keine Quote.</p>
-        {timedTrends.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">Noch keine zeitbasierten Verläufe vorhanden.</p>
-        ) : (
-          <div className="mt-3 space-y-3">
-            {timedTrends.map((trend) => (
-              <div key={trend.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                <p className="text-sm font-semibold">{trend.exerciseName} <span className="text-zinc-400">({trend.subcategory})</span></p>
-                <div className="mt-2"><TrendChart points={trend.points} /></div>
-              </div>
-            ))}
-          </div>
-        )}
+        <button type="button" onClick={() => toggleSection("basketballQuotes")} className="w-full text-left text-lg font-semibold">Basketball-Quoten je Übung</button>
+        {openSections.basketballQuotes ? (
+          basketballStats.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine Basketball-Übungsdaten vorhanden.</p> : (
+            <div className="mt-3 space-y-2">
+              {basketballStats.map((entry) => (
+                <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                  <p className="font-medium">{entry.exerciseName}</p>
+                  <p className="mt-1 text-sm text-zinc-300">Quote: <strong>{entry.quote ?? 0}%</strong> • Makes: {entry.made} • Tries: {entry.attempts} • Misses: {entry.misses}</p>
+                </div>
+              ))}
+            </div>
+          )
+        ) : null}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <button type="button" onClick={() => toggleSection("timeExercises")} className="w-full text-left text-lg font-semibold">Zeitbasierte Basketball-Übungen</button>
+        {openSections.timeExercises ? (
+          timedTrends.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine zeitbasierten Verläufe vorhanden.</p> : (
+            <div className="mt-3 space-y-3">
+              {timedTrends.map((trend) => (
+                <div key={trend.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                  <p className="text-sm font-semibold">{trend.exerciseName} <span className="text-zinc-400">({trend.subcategory})</span></p>
+                  <div className="mt-2"><TrendChart points={trend.points} /></div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : null}
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -579,24 +694,34 @@ export default function StatsPage() {
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-xl font-semibold">Historie abgeschlossener Trainings</h2>
-        <div className="mt-4 space-y-2">
-          {sortedHistory.length === 0 ? <p className="text-sm text-zinc-500">Noch keine Trainingshistorie vorhanden.</p> : sortedHistory.map((entry) => (
-            <button
-              type="button"
-              key={entry.id}
-              onClick={() => {
-                const match = sessionDetails.find((session) => session.workoutName === entry.title && session.dateISO.slice(0, 10) === entry.date);
-                setSelectedSessionId(match?.id ?? null);
-              }}
-              className="block w-full rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-left text-sm"
-            >
-              <p className="font-semibold">{entry.title}</p>
-              <p className="text-zinc-400">{entry.date} • {entry.sport} • {entry.subcategory}</p>
-              <p className="text-zinc-300">Sätze: {entry.totalSets} • Reps: {entry.totalReps} • Volumen: {entry.totalVolumeKg} kg</p>
-            </button>
-          ))}
-        </div>
+        <button type="button" onClick={() => toggleSection("history")} className="w-full text-left text-xl font-semibold">Historie</button>
+        {openSections.history ? (
+          <div className="mt-4 space-y-3">
+            {([
+              ["Basketball-Historie", historyBuckets.Basketball],
+              ["Gym-Historie", historyBuckets.Gym],
+              ["Home-workout-Historie", historyBuckets.Home],
+            ] as const).map(([title, bucket]) => (
+              <div key={title} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                <p className="font-semibold">{title}</p>
+                <div className="mt-2 space-y-2">
+                  {bucket.length === 0 ? <p className="text-sm text-zinc-500">Keine Einträge.</p> : bucket.map((entry) => (
+                    <button
+                      type="button"
+                      key={entry.id}
+                      onClick={() => setSelectedSessionId(entry.id)}
+                      className="block w-full rounded-lg border border-zinc-700 bg-black/30 p-3 text-left text-sm"
+                    >
+                      <p className="font-semibold">{entry.title}</p>
+                      <p className="text-zinc-400">{new Date(entry.dateISO).toLocaleString("de-DE")} • Übungen: {entry.exerciseCount}</p>
+                      <p className="text-zinc-300">Gesamtwert: {entry.totalValue}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       {selectedSession ? (

@@ -293,7 +293,7 @@ function WorkoutsPageContent() {
       weeklySessions.map((session) => session.workoutSubcategory).filter(Boolean),
     );
 
-    const targetSubcategories = ["Handles", "Shooting", "Finishing", "Defense", "Push", "Pull", "Legs", "Core"];
+    const targetSubcategories = ["Handles", "Shooting", "Finishing", "Conditioning", "Push", "Pull", "Legs", "Core"];
     const missingSubcategories = targetSubcategories.filter((subcategory) => !completedSubcategories.has(subcategory));
 
     const suggestedExercises = trainingExercises.filter(

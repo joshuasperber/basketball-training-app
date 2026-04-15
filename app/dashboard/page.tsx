@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
   const [todayLabel, setTodayLabel] = useState<string | null>(null);
   const [plannedTags, setPlannedTags] = useState<string[]>([]);
+  const [username, setUsername] = useState<string>("Player");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -47,6 +48,8 @@ export default function DashboardPage() {
         }
         const dailyPlans = readDailyPlanMap();
         setPlannedTags(dailyPlans[dateKey] ?? []);
+        const profileUsername = window.localStorage.getItem("profile_username");
+        if (profileUsername) setUsername(profileUsername);
       } catch {
         // noop
       }
@@ -71,6 +74,23 @@ export default function DashboardPage() {
     }
     return streak;
   }, []);
+  const weeklyPlannedCount = useMemo(() => {
+    const plans = readDailyPlanMap();
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return Object.keys(plans).filter((key) => {
+      const d = new Date(`${key}T00:00:00`);
+      return d >= start && d <= end;
+    }).length;
+  }, []);
+  const completionRate = useMemo(() => {
+    if (weeklyPlannedCount === 0) return 0;
+    return Math.min(100, Math.round((weeklyCompleted / weeklyPlannedCount) * 100));
+  }, [weeklyCompleted, weeklyPlannedCount]);
 
   const isCompleted = progress.status === "completed";
   const isInProgress = progress.status === "in_progress";
@@ -78,7 +98,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Dashboard</h1>
-      <p className="mt-2 text-zinc-400">Übersicht über dein Training</p>
+      <p className="mt-2 text-zinc-400">Übersicht über dein Training, {username}</p>
 
       {!isCompleted ? (
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -122,6 +142,14 @@ export default function DashboardPage() {
         <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <p className="text-xs uppercase tracking-wide text-zinc-500">Aktuelle Streak</p>
           <p className="mt-2 text-3xl font-bold">{streakDays} Tage</p>
+        </article>
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Geplante Workouts (Woche)</p>
+          <p className="mt-2 text-3xl font-bold">{weeklyPlannedCount}</p>
+        </article>
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Erfüllungsquote (Woche)</p>
+          <p className="mt-2 text-3xl font-bold">{completionRate}%</p>
         </article>
       </section>
 

@@ -46,13 +46,13 @@ export type WeekdayKey =
 export const categories: Category[] = ["Basketball", "Gym", "Home"];
 
 export const workoutSubcategoriesByCategory: Record<Category, string[]> = {
-  Basketball: ["Handles", "Finishing", "Shooting", "Defense", "Komplett"],
+  Basketball: ["Handles", "Finishing", "Shooting", "Conditioning", "Komplett"],
   Gym: ["Push", "Pull", "Legs", "Core"],
   Home: ["Mobility", "Conditioning", "Recovery"],
 };
 
 export const exerciseSubcategoriesByCategory: Record<Category, string[]> = {
-  Basketball: ["Handles", "Finishing", "Shooting", "Defense"],
+  Basketball: ["Handles", "Finishing", "Shooting", "Conditioning"],
   Gym: ["Push", "Pull", "Legs", "Core"],
   Home: ["Mobility", "Conditioning", "Recovery"],
 };

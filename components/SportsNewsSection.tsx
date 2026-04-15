@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 type SportsNewsItem = {
   title: string;
@@ -101,14 +102,20 @@ export default function SportsNewsSection() {
         className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
         disabled={loading}
       >
-        {loading ? "News werden geladen..." : "Sport-News anschließen"}
+        {loading ? "News werden geladen..." : "Sport-News laden"}
       </button>
+      <Link
+        href="/sports-news"
+        className="ml-3 inline-block rounded-xl border border-zinc-600 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
+      >
+        Vollständige News-Seite
+      </Link>
 
       {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
       {warning ? <p className="mt-3 text-sm text-amber-300">{warning}</p> : null}
 
       {!error && news.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">Noch keine News geladen.</p>
+        <p className="mt-3 text-sm text-zinc-500">Noch keine Live-News verfügbar.</p>
       ) : null}
 
       {news.length > 0 ? (

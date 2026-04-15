@@ -25,21 +25,6 @@ type NewsItem = {
   url: string;
 };
 
-const FALLBACK_ITEMS: NewsItem[] = [
-  {
-    title: "Demo: Lakers vs Warriors",
-    source: "Fallback - API-Key pruefen",
-    date: new Date().toISOString(),
-    url: "https://www.api-sports.io/",
-  },
-  {
-    title: "Demo: Celtics vs Bucks",
-    source: "Fallback - API-Key pruefen",
-    date: new Date().toISOString(),
-    url: "https://www.api-sports.io/",
-  },
-];
-
 function mapGamesToItems(games: BasketballApiGame[]): NewsItem[] {
   return games.slice(0, 10).map((game) => {
     const home = game.teams?.home?.name ?? "Home";
@@ -52,7 +37,7 @@ function mapGamesToItems(games: BasketballApiGame[]): NewsItem[] {
       title: `${home} vs ${away}`,
       source: `${leagueName} • ${country} • ${status}`,
       date: game.date ?? new Date().toISOString(),
-      url: "https://www.api-sports.io/",
+      url: `https://www.google.com/search?q=${encodeURIComponent(`${home} vs ${away} basketball`)}`,
     };
   });
 }
@@ -63,9 +48,9 @@ export async function GET() {
 
     if (!apiKey) {
       return NextResponse.json({
-        items: FALLBACK_ITEMS,
+        items: [],
         warning:
-          "API_SPORTS_KEY fehlt. Es werden Demo-News angezeigt. Füge API_SPORTS_KEY in .env.local ein.",
+          "API_SPORTS_KEY fehlt. Bitte in .env.local setzen, damit Live-Daten geladen werden.",
       });
     }
 
@@ -96,8 +81,8 @@ export async function GET() {
 
     if (!response) {
       return NextResponse.json({
-        items: FALLBACK_ITEMS,
-        warning: "API-Aufruf konnte nicht gestartet werden. Es werden Demo-News angezeigt.",
+        items: [],
+        warning: "API-Aufruf konnte nicht gestartet werden.",
       });
     }
 
@@ -105,9 +90,8 @@ export async function GET() {
 
     if (!contentType.includes("application/json")) {
       return NextResponse.json({
-        items: FALLBACK_ITEMS,
-        warning:
-          "API hat kein JSON geliefert. Prüfe Key/Plan. Es werden Demo-News angezeigt.",
+        items: [],
+        warning: "API hat kein JSON geliefert. Prüfe Key/Plan.",
       });
     }
 
@@ -117,9 +101,8 @@ export async function GET() {
       payload = (await response.json()) as BasketballApiPayload;
     } catch {
       return NextResponse.json({
-        items: FALLBACK_ITEMS,
-        warning:
-          "API JSON konnte nicht gelesen werden. Es werden Demo-News angezeigt.",
+        items: [],
+        warning: "API JSON konnte nicht gelesen werden.",
       });
     }
 
@@ -132,27 +115,27 @@ export async function GET() {
         : `HTTP ${response.status} (${endpointUsed || "unknown endpoint"})`;
 
       return NextResponse.json({
-        items: FALLBACK_ITEMS,
-        warning: `API-Sports Fehler: ${apiErrorMessage}. Es werden Demo-News angezeigt.`,
+        items: [],
+        warning: `API-Sports Fehler: ${apiErrorMessage}.`,
       });
     }
 
     const mappedItems = mapGamesToItems(payload.response ?? []);
 
     return NextResponse.json({
-      items: mappedItems.length > 0 ? mappedItems : FALLBACK_ITEMS,
+      items: mappedItems,
       warning:
         mappedItems.length > 0
           ? null
-          : "Keine Spiele gefunden. Daher werden Demo-News angezeigt.",
+          : "Keine Spiele gefunden.",
     });
   } catch (error) {
     return NextResponse.json({
-      items: FALLBACK_ITEMS,
+      items: [],
       warning:
         error instanceof Error
-          ? `Interner Fehler abgefangen: ${error.message}. Es werden Demo-News angezeigt.`
-          : "Unbekannter interner Fehler. Es werden Demo-News angezeigt.",
+          ? `Interner Fehler abgefangen: ${error.message}.`
+          : "Unbekannter interner Fehler.",
     });
   }
 }

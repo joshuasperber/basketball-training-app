@@ -49,29 +49,29 @@ function normalizeExerciseFamily(name: string) {
 }
 
 const DEFAULT_FOCUS: FocusProfile = {
-  basketball: ["Handles", "Finishing", "Shooting", "Defense", "Komplett"],
+  basketball: ["Handles", "Finishing", "Shooting", "Conditioning", "Komplett"],
   gym: ["Legs", "Core", "Pull", "Push"],
 };
 
 const ARCHETYPE_MAP: Record<string, FocusProfile> = {
   "pg:athletisch": {
-    basketball: ["Handles", "Finishing", "Shooting", "Defense"],
+    basketball: ["Handles", "Finishing", "Shooting", "Conditioning"],
     gym: ["Legs", "Core", "Pull", "Push"],
   },
   "sg:shooter": {
-    basketball: ["Shooting", "Handles", "Finishing", "Defense"],
+    basketball: ["Shooting", "Handles", "Finishing", "Conditioning"],
     gym: ["Pull", "Core", "Push", "Legs"],
   },
   "sf:slasher": {
-    basketball: ["Finishing", "Defense", "Handles", "Shooting"],
+    basketball: ["Finishing", "Conditioning", "Handles", "Shooting"],
     gym: ["Legs", "Pull", "Core", "Push"],
   },
   "pf:post": {
-    basketball: ["Finishing", "Defense", "Komplett", "Shooting"],
+    basketball: ["Finishing", "Conditioning", "Komplett", "Shooting"],
     gym: ["Legs", "Push", "Pull", "Core"],
   },
   "c:rim-protector": {
-    basketball: ["Defense", "Finishing", "Komplett", "Shooting"],
+    basketball: ["Conditioning", "Finishing", "Komplett", "Shooting"],
     gym: ["Legs", "Pull", "Push", "Core"],
   },
 };

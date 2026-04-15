@@ -32,7 +32,7 @@ type ExercisePointEntry = {
   points: number;
 };
 
-const ALLOWED_BASKETBALL = ["Handles", "Shooting", "Finishing", "Defense"] as const;
+const ALLOWED_BASKETBALL = ["Handles", "Shooting", "Finishing", "Conditioning"] as const;
 const ALLOWED_GYM = ["Push", "Pull", "Legs", "Core"] as const;
 
 function normalizeSubcategory(category: Category, subcategory: string | null | undefined): string | null {
@@ -43,7 +43,7 @@ function normalizeSubcategory(category: Category, subcategory: string | null | u
     if (raw === "handles" || raw === "handling") return "Handles";
     if (raw === "shooting") return "Shooting";
     if (raw === "finishing") return "Finishing";
-    if (raw === "defense") return "Defense";
+    if (raw === "defense" || raw === "conditioning") return "Conditioning";
     return null;
   }
 
@@ -111,7 +111,10 @@ function buildExercisePointEntries(): ExercisePointEntry[] {
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
 
-  return sessions.flatMap((session) => {
+  const sortedSessions = [...sessions].sort((a, b) => (a.dateISO < b.dateISO ? -1 : 1));
+  const lastBySubcategory = new Map<string, string>();
+
+  return sortedSessions.flatMap((session) => {
     const date = session.dateISO.slice(0, 10);
 
     return session.logs.flatMap((log) => {
@@ -127,7 +130,12 @@ function buildExercisePointEntries(): ExercisePointEntry[] {
       const weight = log.weightKg ?? 0;
 
       const rawPoints = Math.max(0, completedValue) + Math.max(0, made) + Math.max(0, attempts * 0.2) + Math.max(0, weight * 0.05);
-      const points = Math.max(1, Math.round(rawPoints));
+      const lastDate = lastBySubcategory.get(normalizedSubcategory);
+      const gapDays = lastDate ? getDayDiff(lastDate, date) : 0;
+      const consistencyMultiplier =
+        !lastDate ? 1 : gapDays <= 2 ? 1.25 : gapDays <= 5 ? 1.1 : gapDays > 20 ? 0.6 : gapDays > 10 ? 0.75 : 1;
+      const points = Math.max(1, Math.round(rawPoints * consistencyMultiplier));
+      lastBySubcategory.set(normalizedSubcategory, date);
 
       return [{
         date,
@@ -232,6 +240,8 @@ export default function LevelPage() {
   const xpUntilNextLevel = Math.max(0, levelData.xpForCurrentLevel - levelData.xpIntoLevel);
   const nextLevelXpRequirement = getXpForNextLevel(levelData.level);
   const levelProgressPercent = Math.min(100, Math.round((levelData.xpIntoLevel / Math.max(1, nextLevelXpRequirement)) * 100));
+  const skillScoreLevel = Math.floor(Math.max(0, overallScore) / 100) + 1;
+  const skillScorePoints = Math.max(0, overallScore) % 100;
 
   return (
     <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
@@ -251,6 +261,9 @@ export default function LevelPage() {
 
       <section className="mt-6 rounded-2xl border border-indigo-700/50 bg-gradient-to-br from-zinc-900 via-zinc-900 to-indigo-950/40 p-4">
         <h2 className="text-xl font-semibold">Globales Level</h2>
+        <p className="mt-1 text-xs text-zinc-400">
+          Globales Level = alle XP aus Workouts zusammen. Skill Score Level = Durchschnitt deiner Unterkategorien (Handles, Shooting, usw.).
+        </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
             <p className="text-xs text-zinc-500">Aktuelles Level</p>
@@ -276,7 +289,7 @@ export default function LevelPage() {
         </div>
 
         <p className="mt-3 text-sm text-zinc-400">Belastung letzte 7 Tage: <span className="font-semibold text-white">{thisWeekXp} XP</span> | davor: <span className="font-semibold text-white">{lastWeekXp} XP</span> (Ratio: {overloadRatio.toFixed(2)})</p>
-        <p className="mt-2 text-2xl font-bold">{overallScore}/100 Skill Score</p>
+        <p className="mt-2 text-2xl font-bold">Skill Score Level {skillScoreLevel}: {skillScorePoints}/100</p>
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -303,7 +316,7 @@ export default function LevelPage() {
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-lg font-semibold">Kategorie-Indizes (Unterkategorien)</h2>
-        <p className="mt-1 text-sm text-zinc-400">Keine Werte wie „Beinkraft“, „Basketball“ oder „Komplett“ – nur Handles/Shooting/Finishing/Defense und Push/Pull/Legs/Core.</p>
+        <p className="mt-1 text-sm text-zinc-400">Keine Werte wie „Beinkraft“, „Basketball“ oder „Komplett“ – nur Handles/Shooting/Finishing/Conditioning und Push/Pull/Legs/Core.</p>
         <div className="mt-3 space-y-3">
           {categoryBreakdown.map((group) => (
             <div key={group.category} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">

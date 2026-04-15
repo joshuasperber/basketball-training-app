@@ -208,19 +208,35 @@ export default function ProfilePage() {
     persistCurrentCache();
   }, [loading, persistCurrentCache]);
 
+  useEffect(() => {
+    const refresh = () => {
+      setCompletedDates(getCompletedWorkoutDateSet());
+      setDailyPlanMap(readDailyPlanMap());
+    };
+    const interval = window.setInterval(refresh, 4000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
   const orderedDays = useMemo(() => getDaysStartingToday(), []);
   const planPreview = useMemo(() => buildWeeklyPlan({ position: profile.favorite_position ?? "sg", playStyle, weekConfig, weeklyGoalSessions }), [playStyle, profile.favorite_position, weekConfig, weeklyGoalSessions]);
   const monthCells = useMemo(() => getMonthMatrix(currentMonth), [currentMonth]);
   const todayKey = toLocalDateKey(new Date());
   const selectedTags = dailyPlanMap[selectedDateKey] ?? [];
-  const selectedSessions = useMemo(
-    () => getWorkoutSessions().filter((entry) => toLocalDateKey(new Date(entry.dateISO)) === selectedDateKey),
-    [selectedDateKey],
+  const selectedSessions = getWorkoutSessions().filter(
+    (entry) => toLocalDateKey(new Date(entry.dateISO)) === selectedDateKey,
   );
-  const exerciseNameById = useMemo(
-    () => new Map(loadExercises().map((exercise) => [exercise.id, exercise.name])),
+  const exerciseById = useMemo(
+    () => new Map(loadExercises().map((exercise) => [exercise.id, exercise])),
     [],
   );
+  const exerciseNameById = useMemo(() => new Map(Array.from(exerciseById.values()).map((exercise) => [exercise.id, exercise.name])), [exerciseById]);
+  const isSelectedCompleted = completedDates.has(selectedDateKey);
 
   const updateSelectedDatePlan = (nextTags: PlannedWorkoutTag[]) => {
     if (selectedDateKey < todayKey) return;
@@ -373,7 +389,6 @@ export default function ProfilePage() {
               {monthCells.map((cell, index) => {
                 if (!cell) return <div key={`empty-${index}`} className="h-12 rounded-lg bg-zinc-900/50" />;
                 const key = toLocalDateKey(cell);
-                const isPast = key < todayKey;
                 const isToday = key === todayKey;
                 const isSelected = key === selectedDateKey;
                 const trained = completedDates.has(key);
@@ -387,7 +402,7 @@ export default function ProfilePage() {
                     className={`relative h-12 rounded-lg border ${isSelected ? "border-fuchsia-400 ring-2 ring-fuchsia-500/60" : isToday ? "border-cyan-400" : "border-zinc-700"} ${base}`}
                   >
                     <span className="text-sm font-semibold">{cell.getDate()}</span>
-                    {isPast && trained ? <span className="block text-[10px]">✓</span> : null}
+                    {trained ? <span className="block text-[10px]">✓</span> : null}
                     {hasPlannedTags ? (
                       <span className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-fuchsia-400" />
                     ) : null}
@@ -398,7 +413,7 @@ export default function ProfilePage() {
 
             <div className="mt-4 rounded-lg border border-zinc-700 bg-zinc-900 p-3">
               <p className="text-sm font-semibold">{selectedDateKey}</p>
-              {selectedDateKey < todayKey ? (
+              {selectedDateKey < todayKey || (selectedDateKey === todayKey && isSelectedCompleted) ? (
                 <div className="mt-2 space-y-2 text-sm">
                   {selectedSessions.length === 0 ? <p className="text-zinc-500">Kein Training an diesem Tag.</p> : selectedSessions.map((session) => (
                     <div key={session.id} className="rounded border border-zinc-700 bg-zinc-950 p-2">
@@ -408,8 +423,17 @@ export default function ProfilePage() {
                         {session.logs.map((log, idx) => (
                           <div key={`${session.id}-${idx}`} className="rounded border border-zinc-800 bg-zinc-900 p-2">
                             <p className="font-medium">{exerciseNameById.get(log.exerciseId) ?? log.exerciseId}</p>
-                            <p>Makes: {log.made ?? "-"} • Misses: {log.misses ?? "-"} • Tries: {log.attempts ?? "-"}</p>
-                            <p>Reps/Wert: {log.completedValue ?? "-"} • Gewicht: {log.weightKg ?? "-"} kg</p>
+                            <p className="text-zinc-400">Kategorie: {exerciseById.get(log.exerciseId)?.category ?? "-"}</p>
+                            <p className="text-zinc-400">Unterkategorie: {exerciseById.get(log.exerciseId)?.subcategory ?? "-"}</p>
+                            {log.made != null || log.misses != null || log.attempts != null ? (
+                              <p>Makes: {log.made ?? "-"} • Misses: {log.misses ?? "-"} • Tries: {log.attempts ?? "-"}</p>
+                            ) : null}
+                            {log.completedValue != null ? (
+                              <p>Reps/Wert: {log.completedValue}</p>
+                            ) : null}
+                            {log.weightKg != null && log.weightKg > 0 ? (
+                              <p>Gewicht: {log.weightKg} kg</p>
+                            ) : null}
                           </div>
                         ))}
                       </div>

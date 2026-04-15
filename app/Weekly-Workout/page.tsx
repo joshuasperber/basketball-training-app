@@ -210,6 +210,7 @@ function selectBestWorkout(
   avoidSubcategories: Partial<Record<Category, string[]>>,
   position: string,
   playStyle: string,
+  lastAssignedSubcategoryByCategory: Partial<Record<Category, string>>,
 ): SuggestedWorkout {
   const targetWithExtra = targetMinutes;
   const modeLabel = mode === "game-training" ? "Spieltraining (15 Min vorab + 30 Min danach)" : "Direktes Training";
@@ -282,8 +283,12 @@ function selectBestWorkout(
       : unusedPool.length > 0
         ? unusedPool
         : [];
+  const nonConsecutivePool = pool.filter(
+    (entry) => entry.workout.subcategory !== lastAssignedSubcategoryByCategory[desiredCategory],
+  );
+  const dayPool = nonConsecutivePool.length > 0 ? nonConsecutivePool : pool;
 
-  if (pool.length === 0) {
+  if (dayPool.length === 0) {
     const generated = buildGeneratedWorkout({
       day,
       category: desiredCategory,
@@ -308,12 +313,12 @@ function selectBestWorkout(
     };
   }
 
-  const compliantPool = pool.filter(
+  const compliantPool = dayPool.filter(
     (entry) =>
       (weeklySubcategoryUsage[desiredCategory]?.[entry.workout.subcategory] ?? 0) <
       (desiredCategory === "Gym" ? 2 : 2),
   );
-  const effectivePool = compliantPool.length > 0 ? compliantPool : pool;
+  const effectivePool = compliantPool.length > 0 ? compliantPool : dayPool;
 
   const sortedPool = [...effectivePool].sort((a, b) => {
     const weeklyDiff = subcategoryWeeklyCount(a.workout.subcategory) - subcategoryWeeklyCount(b.workout.subcategory);
@@ -393,6 +398,7 @@ export default function WeeklyWorkoutPage() {
   const [manualVersion, setManualVersion] = useState(0);
   const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
   const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
+  const completedDateSet = new Set(getWorkoutSessions().map((session) => toLocalDateKey(new Date(session.dateISO))));
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -436,6 +442,7 @@ export default function WeeklyWorkoutPage() {
           Gym: {},
           Home: {},
         };
+        const lastAssignedSubcategoryByCategory: Partial<Record<Category, string>> = {};
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
         const manualByDate = rawManual ? (JSON.parse(rawManual) as Record<string, ManualDayWorkout[]>) : {};
         const disabledMap = readManualDayDisabledMap();
@@ -454,6 +461,7 @@ export default function WeeklyWorkoutPage() {
               ...weeklySubcategoryUsage[cat],
               [entry.subcategory]: (weeklySubcategoryUsage[cat]?.[entry.subcategory] ?? 0) + 1,
             };
+            lastAssignedSubcategoryByCategory[cat] = entry.subcategory;
           });
         });
         const dateKey = getTodayDateKey();
@@ -466,38 +474,41 @@ export default function WeeklyWorkoutPage() {
           usedWorkoutIds.add(overrideWorkout.id);
           avoidSubcategories[overrideWorkout.category] = [overrideWorkout.subcategory];
         }
-        const suggested = Object.fromEntries(
-          computed.map((entry) => [
-            entry.day,
-            manualByDay[entry.day]?.[0]
-              ? {
-                  title: manualByDay[entry.day]?.[0]?.title ?? "Manuelles Workout",
-                  durationMin: entry.minutes,
-                  notes: manualByDay[entry.day]?.[0]?.notes || "Manuell geplant.",
-                  sport: manualByDay[entry.day]?.[0]?.sport ?? "Basketball",
-                  subcategory: manualByDay[entry.day]?.[0]?.subcategory ?? "-",
-                  exerciseIds: manualByDay[entry.day]?.[0]?.exerciseIds ?? [],
-                  exercises: (manualByDay[entry.day]?.[0]?.exerciseIds ?? [])
-                    .map((exerciseId) => exercisesById[exerciseId]?.name)
-                    .filter((name): name is string => Boolean(name)),
-                }
-              :
-            selectBestWorkout(
-              entry.sessionType,
-              entry.day,
-              entry.minutes,
-              workouts,
-              exercises,
-              exercisesById,
-              freshnessMapByCategory,
-              usedWorkoutIds,
-              weeklySubcategoryUsage,
-              avoidSubcategories,
-              parsed.profile.favorite_position ?? "sg",
-              parsed.playStyle,
-            ),
-          ]),
-        ) as Record<DayKey, SuggestedWorkout>;
+        const suggested = {} as Record<DayKey, SuggestedWorkout>;
+        computed.forEach((entry) => {
+          const nextSuggestion = manualByDay[entry.day]?.[0]
+            ? {
+                title: manualByDay[entry.day]?.[0]?.title ?? "Manuelles Workout",
+                durationMin: entry.minutes,
+                notes: manualByDay[entry.day]?.[0]?.notes || "Manuell geplant.",
+                sport: manualByDay[entry.day]?.[0]?.sport ?? "Basketball",
+                subcategory: manualByDay[entry.day]?.[0]?.subcategory ?? "-",
+                exerciseIds: manualByDay[entry.day]?.[0]?.exerciseIds ?? [],
+                exercises: (manualByDay[entry.day]?.[0]?.exerciseIds ?? [])
+                  .map((exerciseId) => exercisesById[exerciseId]?.name)
+                  .filter((name): name is string => Boolean(name)),
+              }
+            : selectBestWorkout(
+                entry.sessionType,
+                entry.day,
+                entry.minutes,
+                workouts,
+                exercises,
+                exercisesById,
+                freshnessMapByCategory,
+                usedWorkoutIds,
+                weeklySubcategoryUsage,
+                avoidSubcategories,
+                parsed.profile.favorite_position ?? "sg",
+                parsed.playStyle,
+                lastAssignedSubcategoryByCategory,
+              );
+
+          suggested[entry.day] = nextSuggestion;
+          const category = nextSuggestion.sport as Category | undefined;
+          if (!category || (category !== "Basketball" && category !== "Gym" && category !== "Home")) return;
+          lastAssignedSubcategoryByCategory[category] = nextSuggestion.subcategory;
+        });
 
         if (overrideWorkout) {
           const todayKey = dayByIndex[todayIndex];
@@ -657,6 +668,11 @@ export default function WeeklyWorkoutPage() {
               key={day}
               className={`rounded-2xl border p-4 ${day === todayIndex ? "border-green-700 bg-green-950/20" : "border-zinc-800 bg-zinc-900"}`}
             >
+              {completedDateSet.has(toLocalDateKey(getDateForWeekday(day))) ? (
+                <p className="mb-2 inline-flex rounded-full border border-emerald-500 bg-emerald-500/20 px-2 py-1 text-xs font-semibold text-emerald-200">
+                  Workout vollständig erledigt ✅
+                </p>
+              ) : null}
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">
                   {weekdayNames[day]}{" "}
@@ -706,7 +722,7 @@ export default function WeeklyWorkoutPage() {
                     href={startHref}
                     className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
                   >
-                    Workout starten
+                    {completedDateSet.has(toLocalDateKey(getDateForWeekday(day))) ? "Workout ansehen" : "Workout starten"}
                   </Link>
                   <Link
                     href={editHref}
