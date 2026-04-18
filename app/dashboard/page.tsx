@@ -28,6 +28,9 @@ export default function DashboardPage() {
   const [todayLabel, setTodayLabel] = useState<string | null>(null);
   const [plannedTags, setPlannedTags] = useState<string[]>([]);
   const [username, setUsername] = useState<string>("Player");
+  const [weeklyCompleted, setWeeklyCompleted] = useState(0);
+  const [streakDays, setStreakDays] = useState(0);
+  const [weeklyPlannedCount, setWeeklyPlannedCount] = useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -57,35 +60,41 @@ export default function DashboardPage() {
     return () => window.clearTimeout(timer);
   }, [dateKey, fallbackProgress]);
 
-  const weeklyCompleted = useMemo(() => {
-    const start = new Date();
-    start.setDate(start.getDate() - 6);
-    return getWorkoutSessions().filter((session) => new Date(session.dateISO) >= start).length;
-  }, []);
-  const streakDays = useMemo(() => {
-    const dateSet = new Set(getWorkoutSessions().map((entry) => entry.dateISO.slice(0, 10)));
-    let streak = 0;
-    const cursor = new Date();
-    while (true) {
-      const key = cursor.toISOString().slice(0, 10);
-      if (!dateSet.has(key)) break;
-      streak += 1;
-      cursor.setDate(cursor.getDate() - 1);
-    }
-    return streak;
-  }, []);
-  const weeklyPlannedCount = useMemo(() => {
-    const plans = readDailyPlanMap();
-    const now = new Date();
-    const start = new Date(now);
-    start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    return Object.keys(plans).filter((key) => {
-      const d = new Date(`${key}T00:00:00`);
-      return d >= start && d <= end;
-    }).length;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const sessions = getWorkoutSessions();
+
+      const start = new Date();
+      start.setDate(start.getDate() - 6);
+      setWeeklyCompleted(sessions.filter((session) => new Date(session.dateISO) >= start).length);
+
+      const dateSet = new Set(sessions.map((entry) => entry.dateISO.slice(0, 10)));
+      let streak = 0;
+      const cursor = new Date();
+      while (true) {
+        const key = cursor.toISOString().slice(0, 10);
+        if (!dateSet.has(key)) break;
+        streak += 1;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      setStreakDays(streak);
+
+      const plans = readDailyPlanMap();
+      const now = new Date();
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+
+      const plannedCount = Object.keys(plans).filter((key) => {
+        const d = new Date(`${key}T00:00:00`);
+        return d >= weekStart && d <= weekEnd;
+      }).length;
+      setWeeklyPlannedCount(plannedCount);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
   const completionRate = useMemo(() => {
     if (weeklyPlannedCount === 0) return 0;

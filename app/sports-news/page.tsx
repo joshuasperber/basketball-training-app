@@ -1,19 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+type SportType = "basketball" | "football";
+
+type LeagueOption = {
+  id: string;
+  name: string;
+};
 
 type SportsNewsItem = {
   title: string;
   source: string;
   date: string;
   url: string;
+  leagueId: string;
+  league: string;
 };
 
 type SportsNewsPayload = {
+  sport?: SportType;
+  leagues?: LeagueOption[];
   items?: SportsNewsItem[];
   warning?: string | null;
   error?: string;
 };
+
+const SPORT_TABS: Array<{ id: SportType; label: string }> = [
+  { id: "basketball", label: "Basketball" },
+  { id: "football", label: "Fußball" },
+];
 
 function formatDate(value: string) {
   const parsed = new Date(value);
@@ -22,58 +38,117 @@ function formatDate(value: string) {
 }
 
 export default function SportsNewsPage() {
+  const [sport, setSport] = useState<SportType>("basketball");
+  const [selectedLeague, setSelectedLeague] = useState("all");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [news, setNews] = useState<SportsNewsItem[]>([]);
+  const [leagues, setLeagues] = useState<LeagueOption[]>([{ id: "all", name: "Alle Ligen" }]);
 
-  const loadNews = async () => {
+  const loadNews = async (nextSport: SportType, nextLeague: string) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch("/api/sports-news", { cache: "no-store" });
+
+      const params = new URLSearchParams({ sport: nextSport });
+      if (nextLeague !== "all") params.set("league", nextLeague);
+
+      const response = await fetch(`/api/sports-news?${params.toString()}`, { cache: "no-store" });
       const payload = (await response.json()) as SportsNewsPayload;
+
       if (!response.ok) {
         throw new Error(payload.error ?? "Fehler beim Laden der Sport-News.");
       }
+
       setNews(payload.items ?? []);
+      setLeagues(payload.leagues ?? [{ id: "all", name: "Alle Ligen" }]);
       setWarning(payload.warning ?? null);
     } catch (newsError) {
       setError(newsError instanceof Error ? newsError.message : "Unbekannter Fehler beim Laden.");
+      setNews([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void loadNews();
-  }, []);
+    void loadNews(sport, selectedLeague);
+  }, [sport, selectedLeague]);
+
+  const headerText = useMemo(() => {
+    return sport === "basketball"
+      ? "Live-Spiele und Updates für Basketball-Ligen"
+      : "Live-Spiele und Updates für Fußball-Ligen";
+  }, [sport]);
 
   return (
-    <main className="min-h-screen bg-black p-6 pb-24 text-white">
-      <h1 className="text-2xl font-bold">Sports News</h1>
-      <p className="mt-2 text-zinc-400">Live-Basketballspiele & Updates aus API-Sports.</p>
+    <main className="min-h-screen bg-gradient-to-b from-zinc-950 via-zinc-900 to-black p-6 pb-24 text-white">
+      <h1 className="text-3xl font-bold tracking-tight">Sports Hub</h1>
+      <p className="mt-2 text-zinc-400">{headerText}</p>
 
-      <button
-        type="button"
-        onClick={loadNews}
-        className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-        disabled={loading}
-      >
-        {loading ? "Aktualisiere…" : "Neu laden"}
-      </button>
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 shadow-lg shadow-black/20">
+        <div className="flex flex-wrap gap-2">
+          {SPORT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                setSport(tab.id);
+                setSelectedLeague("all");
+              }}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                sport === tab.id
+                  ? "bg-blue-600 text-white"
+                  : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
+              }`}
+              disabled={loading}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-      {warning ? <p className="mt-4 rounded-lg border border-amber-700 bg-amber-950/40 p-3 text-sm text-amber-200">{warning}</p> : null}
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="grid gap-1 text-sm text-zinc-300">
+            Liga auswählen
+            <select
+              className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none ring-blue-400 transition focus:ring-2"
+              value={selectedLeague}
+              onChange={(event) => setSelectedLeague(event.target.value)}
+              disabled={loading}
+            >
+              {leagues.map((league) => (
+                <option key={league.id} value={league.id}>
+                  {league.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={() => loadNews(sport, selectedLeague)}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={loading}
+          >
+            {loading ? "Aktualisiere…" : "Neu laden"}
+          </button>
+        </div>
+      </section>
+
+      {warning ? (
+        <p className="mt-4 rounded-lg border border-amber-700 bg-amber-950/40 p-3 text-sm text-amber-200">{warning}</p>
+      ) : null}
       {error ? <p className="mt-4 rounded-lg border border-red-700 bg-red-950/40 p-3 text-sm text-red-200">{error}</p> : null}
 
-      {news.length === 0 && !loading ? (
-        <p className="mt-4 text-sm text-zinc-500">Keine aktuellen Spiele gefunden.</p>
-      ) : null}
+      {news.length === 0 && !loading ? <p className="mt-4 text-sm text-zinc-500">Keine aktuellen Spiele gefunden.</p> : null}
 
       {news.length > 0 ? (
         <section className="mt-6 grid gap-3">
           {news.map((item) => (
-            <article key={`${item.title}-${item.date}`} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+            <article key={`${item.title}-${item.date}`} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 hover:border-zinc-700">
               <a href={item.url} target="_blank" rel="noreferrer" className="text-lg font-semibold text-blue-300 hover:text-blue-200">
                 {item.title}
               </a>
