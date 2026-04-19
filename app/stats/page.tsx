@@ -7,9 +7,7 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 
 type CategorySlice = { label: string; value: number; color: string };
-type SportCategory = "Basketball" | "Gym" | "Home";
-const GYM_SUBCATEGORIES = ["Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"] as const;
-const BASKETBALL_SUBCATEGORIES = ["Shooting", "Finishing", "Conditioning", "Handles"] as const;
+type SportCategory = "Basketball" | "Gym" | "Home" | "Regeneration";
 
 type BasketballExerciseStat = {
   exerciseId: string;
@@ -48,7 +46,7 @@ type SessionDetail = {
 };
 type StatsRange = "all" | "monthly" | "weekly";
 
-type HistorySportBucket = "Basketball" | "Gym" | "Home";
+type HistorySportBucket = "Basketball" | "Gym" | "Home" | "Regeneration";
 
 type HistoryItem = {
   id: string;
@@ -61,18 +59,17 @@ type HistoryItem = {
 
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
-function normalizeGymSubcategory(subcategory: string): (typeof GYM_SUBCATEGORIES)[number] | null {
+function normalizeGymSubcategory(subcategory: string): string | null {
   const s = subcategory.trim().toLowerCase();
   if (s === "oberkörper" || s === "push") return "Oberkörper";
   if (s === "arme" || s === "pull") return "Arme";
   if (s === "beine" || s === "legs" || s === "beinkraft") return "Beine";
   if (s === "cardio") return "Cardio";
-  if (s === "komplett") return "Komplett";
   if (s === "core" || s === "kraftaufbau" || s === "power") return "Core";
   return null;
 }
 
-function normalizeBasketballSubcategory(subcategory: string): (typeof BASKETBALL_SUBCATEGORIES)[number] | null {
+function normalizeBasketballSubcategory(subcategory: string): string | null {
   const s = subcategory.trim().toLowerCase();
   if (s === "shooting") return "Shooting";
   if (s === "finishing") return "Finishing";
@@ -167,53 +164,6 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   const unique = new Map<string, CompletedWorkoutHistoryEntry>();
   [...sessionHistory, ...baseHistory].forEach((entry) => unique.set(entry.id, entry));
   return Array.from(unique.values());
-}
-
-function buildSlices(entries: CompletedWorkoutHistoryEntry[], by: "sport" | "subcategory") {
-  const map = new Map<string, number>();
-  entries.forEach((entry) => map.set(by === "sport" ? entry.sport : entry.subcategory, (map.get(by === "sport" ? entry.sport : entry.subcategory) ?? 0) + 1));
-  return Array.from(map.entries())
-    .map(([label, value], index) => ({ label, value, color: PIE_COLORS[index % PIE_COLORS.length] }))
-    .sort((a, b) => b.value - a.value);
-}
-
-function buildCategorySubcategorySlices(entries: CompletedWorkoutHistoryEntry[]) {
-  const sports: SportCategory[] = ["Basketball", "Gym", "Home"];
-  return sports.reduce(
-    (acc, sport) => {
-      const filtered = entries.filter((entry) => entry.sport === sport);
-
-      if (sport === "Gym") {
-        const counts = filtered.reduce<Record<(typeof GYM_SUBCATEGORIES)[number], number>>(
-          (c, entry) => {
-            const key = normalizeGymSubcategory(entry.subcategory);
-            if (key) c[key] += 1;
-            return c;
-          },
-          { Push: 0, Pull: 0, Legs: 0, Core: 0 },
-        );
-        acc.Gym = GYM_SUBCATEGORIES.filter((k) => counts[k] > 0).map((k, i) => ({ label: k, value: counts[k], color: PIE_COLORS[i % PIE_COLORS.length] }));
-        return acc;
-      }
-
-      if (sport === "Basketball") {
-        const counts = filtered.reduce<Record<(typeof BASKETBALL_SUBCATEGORIES)[number], number>>(
-          (c, entry) => {
-            const key = normalizeBasketballSubcategory(entry.subcategory);
-            if (key) c[key] += 1;
-            return c;
-          },
-          { Shooting: 0, Finishing: 0, Conditioning: 0, Handles: 0 },
-        );
-        acc.Basketball = BASKETBALL_SUBCATEGORIES.filter((k) => counts[k] > 0).map((k, i) => ({ label: k, value: counts[k], color: PIE_COLORS[i % PIE_COLORS.length] }));
-        return acc;
-      }
-
-      acc[sport] = buildSlices(filtered, "subcategory");
-      return acc;
-    },
-    {} as Record<SportCategory, CategorySlice[]>,
-  );
 }
 
 function filterSessionsByRange(sessions: ReturnType<typeof getWorkoutSessions>, range: StatsRange) {
@@ -423,13 +373,14 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
 function resolveHistorySport(session: SessionDetail): HistorySportBucket {
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
-  const scores: Record<Category, number> = { Basketball: 0, Gym: 0, Home: 0 };
+  const scores: Record<Category, number> = { Basketball: 0, Gym: 0, Home: 0, Regeneration: 0 };
   session.logs.forEach((log) => {
     const ex = exerciseLookup.get(log.exerciseId);
     if (!ex) return;
     const intensity = Math.max(1, (log.completedValue ?? 0) + (log.attempts ?? 0) + (log.weightKg ?? 0) * 0.1);
     scores[ex.category] += intensity;
   });
+  if (scores.Regeneration >= scores.Basketball && scores.Regeneration >= scores.Gym && scores.Regeneration >= scores.Home) return "Regeneration";
   if (scores.Gym >= scores.Basketball && scores.Gym >= scores.Home) return "Gym";
   if (scores.Home >= scores.Basketball && scores.Home >= scores.Gym) return "Home";
   return "Basketball";
@@ -488,9 +439,47 @@ export default function StatsPage() {
 
   const totalSets = filteredHistory.reduce((sum, entry) => sum + entry.totalSets, 0);
   const totalReps = filteredHistory.reduce((sum, entry) => sum + entry.totalReps, 0);
+  const totalCompletedExercises = filteredSessions.reduce((sum, session) => sum + session.logs.length, 0);
   const totalVolume = filteredHistory.filter((entry) => entry.sport === "Gym").reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
-  const sportSlices = useMemo(() => buildSlices(filteredHistory, "sport"), [filteredHistory]);
-  const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(filteredHistory), [filteredHistory]);
+  const exerciseLookupForSplit = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise])), []);
+  const sportSlices = useMemo(() => {
+    const counts: Record<SportCategory, number> = { Basketball: 0, Gym: 0, Home: 0, Regeneration: 0 };
+    filteredSessions.forEach((session) => {
+      session.logs.forEach((log) => {
+        const ex = exerciseLookupForSplit.get(log.exerciseId);
+        if (!ex) return;
+        counts[ex.category as SportCategory] += 1;
+      });
+    });
+    return (Object.keys(counts) as SportCategory[]).map((sport, index) => ({
+      label: sport,
+      value: counts[sport],
+      color: PIE_COLORS[index % PIE_COLORS.length],
+    }));
+  }, [exerciseLookupForSplit, filteredSessions]);
+  const subcategoryBySport = useMemo(() => {
+    const bySport: Record<SportCategory, Record<string, number>> = {
+      Basketball: {},
+      Gym: {},
+      Home: {},
+      Regeneration: {},
+    };
+    filteredSessions.forEach((session) => {
+      session.logs.forEach((log) => {
+        const ex = exerciseLookupForSplit.get(log.exerciseId);
+        if (!ex) return;
+        bySport[ex.category as SportCategory][ex.subcategory] = (bySport[ex.category as SportCategory][ex.subcategory] ?? 0) + 1;
+      });
+    });
+    return (Object.keys(bySport) as SportCategory[]).reduce((acc, sport) => {
+      acc[sport] = Object.entries(bySport[sport]).map(([label, value], index) => ({
+        label,
+        value,
+        color: PIE_COLORS[index % PIE_COLORS.length],
+      })).sort((a, b) => b.value - a.value);
+      return acc;
+    }, {} as Record<SportCategory, CategorySlice[]>);
+  }, [exerciseLookupForSplit, filteredSessions]);
 
   const exerciseLookup = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise.name])), []);
 
@@ -513,6 +502,7 @@ export default function StatsPage() {
       Basketball: mapped.filter((item) => item.sportBucket === "Basketball"),
       Gym: mapped.filter((item) => item.sportBucket === "Gym"),
       Home: mapped.filter((item) => item.sportBucket === "Home"),
+      Regeneration: mapped.filter((item) => item.sportBucket === "Regeneration"),
     };
   }, [filteredSessions]);
 
@@ -578,11 +568,11 @@ export default function StatsPage() {
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Workouts</p><p className="mt-2 text-3xl font-bold">{filteredHistory.length}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Zeitraum</p><p className="mt-2 text-3xl font-bold">{range === "all" ? "All Time" : range === "weekly" ? "7 Tage" : "30 Tage"}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Exercises</p><p className="mt-2 text-3xl font-bold">{totalCompletedExercises}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Sätze gesamt</p><p className="mt-2 text-3xl font-bold">{totalSets}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Reps gesamt</p><p className="mt-2 text-3xl font-bold">{totalReps}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Trainierte Minuten</p><p className="mt-2 text-3xl font-bold">{totalMinutesTrained}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:col-span-2"><p className="text-xs uppercase tracking-wide text-zinc-500">Volumen gesamt (kg)</p><p className="mt-2 text-3xl font-bold">{totalVolume}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 "><p className="text-xs uppercase tracking-wide text-zinc-500">Volumen gesamt (kg)</p><p className="mt-2 text-3xl font-bold">{totalVolume}</p></div>
       </div>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -609,22 +599,44 @@ export default function StatsPage() {
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <h2 className="text-xl font-semibold">Kategorien Vergleich</h2>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
-            {(["Basketball", "Gym", "Home"] as const).map((sport) => {
-              const value = sportSlices.find((slice) => slice.label === sport)?.value ?? 0;
-              return (
-                <div key={`compare-${sport}`} className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
-                  <p className="text-sm text-zinc-400">{sport}</p>
-                  <p className="mt-1 text-3xl font-bold">{value}</p>
-                  <p className="text-xs text-zinc-500">Workouts im Zeitraum</p>
-                </div>
-              );
-            })}
+            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
+              <p className="text-sm text-zinc-400">Basketball</p>
+              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Basketball")?.value ?? 0}</p>
+              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            </div>
+            <div className="row-span-2 rounded-xl border border-zinc-700 bg-zinc-950 p-4">
+              <h3 className="text-sm font-semibold text-center">Gesamtverteilung</h3>
+              <div className="mt-3 flex justify-center">
+                <div className="h-36 w-36 rounded-full border border-zinc-700" style={{ background: pieGradient(sportSlices) }} />
+              </div>
+              <div className="mt-3 space-y-1 text-xs text-zinc-300">
+                {sportSlices.map((slice) => (
+                  <p key={`center-${slice.label}`}>{slice.label}: <span className="font-semibold text-white">{slice.value}</span></p>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
+              <p className="text-sm text-zinc-400">Gym</p>
+              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Gym")?.value ?? 0}</p>
+              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            </div>
+            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
+              <p className="text-sm text-zinc-400">Home</p>
+              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Home")?.value ?? 0}</p>
+              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            </div>
+            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
+              <p className="text-sm text-zinc-400">Regeneration</p>
+              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Regeneration")?.value ?? 0}</p>
+              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            </div>
           </div>
         </section>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2">
         <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball ?? []} />
         <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym ?? []} />
         <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home ?? []} />
+        <PieCard title="Regeneration Unterkategorien" slices={subcategoryBySport.Regeneration ?? []} />
         </div>
       </div>
 
@@ -689,6 +701,7 @@ export default function StatsPage() {
               ["Basketball-Historie", historyBuckets.Basketball],
               ["Gym-Historie", historyBuckets.Gym],
               ["Home-workout-Historie", historyBuckets.Home],
+              ["Regeneration-Historie", historyBuckets.Regeneration],
             ] as const).map(([title, bucket]) => (
               <div key={title} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
                 <p className="font-semibold">{title}</p>

@@ -25,6 +25,7 @@ function buildInitialSubcategoryMap(): SubcategoryMap {
     Basketball: [...new Set([...workoutSubcategoriesByCategory.Basketball, ...exerciseSubcategoriesByCategory.Basketball])],
     Gym: [...new Set([...workoutSubcategoriesByCategory.Gym, ...exerciseSubcategoriesByCategory.Gym])],
     Home: [...new Set([...workoutSubcategoriesByCategory.Home, ...exerciseSubcategoriesByCategory.Home])],
+    Regeneration: [...new Set([...workoutSubcategoriesByCategory.Regeneration, ...exerciseSubcategoriesByCategory.Regeneration])],
   };
 }
 
@@ -123,6 +124,7 @@ export default function TrainingPage() {
       Basketball: [...new Set([...(custom.Basketball ?? []), ...base.Basketball])],
       Gym: [...new Set([...(custom.Gym ?? []), ...base.Gym])],
       Home: [...new Set([...(custom.Home ?? []), ...base.Home])],
+      Regeneration: [...new Set([...(custom.Regeneration ?? []), ...base.Regeneration])],
     };
   });
 
@@ -175,16 +177,17 @@ export default function TrainingPage() {
   const exercisesForSelection = useMemo(
     () =>
       exercises.filter(
-        (exercise) => exercise.category === exerciseCategory && exercise.subcategory === exerciseSubcategory,
+        (exercise) => exercise.category === exerciseCategory && exercise.subcategory === exerciseSubcategory && exercise.subcategory !== "Komplett",
       ),
     [exercises, exerciseCategory, exerciseSubcategory],
   );
 
   const allExercisesBySearch = useMemo(() => {
     const searchTerm = exerciseSearch.trim().toLowerCase();
-    if (!searchTerm) return exercises;
+    if (!searchTerm) return exercises.filter((exercise) => exercise.subcategory !== "Komplett");
 
     return exercises.filter((exercise) => {
+      if (exercise.subcategory === "Komplett") return false;
       return (
         exercise.name.toLowerCase().includes(searchTerm) ||
         exercise.category.toLowerCase().includes(searchTerm) ||
@@ -484,6 +487,8 @@ export default function TrainingPage() {
   }
 
   async function handleDeleteSubcategory(category: Category, subcategory: string) {
+    const confirmed = window.confirm(`Soll die Unterkategorie "${subcategory}" mit ihren Übungen wirklich gelöscht werden?`);
+    if (!confirmed) return;
     const nextExercises = exercises.filter((exercise) => !(exercise.category === category && exercise.subcategory === subcategory));
     const deletedExerciseIds = new Set(
       exercises.filter((exercise) => exercise.category === category && exercise.subcategory === subcategory).map((exercise) => exercise.id),

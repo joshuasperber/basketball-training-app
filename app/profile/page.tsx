@@ -19,16 +19,19 @@ import {
 } from "@/lib/activity-calendar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadExercises } from "@/lib/training-storage";
+import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
 const PRIMARY_DAY_TABS = ["Gym", "Basketball", "HomeWorkout", "Regeneration", "Keine Zeit"] as const;
 type PrimaryDayTab = (typeof PRIMARY_DAY_TABS)[number];
 const BASKETBALL_TAGS: PlannedWorkoutTag[] = ["Spieltag", "Trainingstag", "Spieltraining"];
-const GYM_TAGS = ["Conditioning", "Push", "Pull", "Legs", "Core"] as const;
-const HOME_TAGS = ["Mobility", "Conditioning", "Recovery", "Komplett"] as const;
-type GymTag = (typeof GYM_TAGS)[number];
-type HomeTag = (typeof HOME_TAGS)[number];
+const GYM_TAGS = exerciseSubcategoriesByCategory.Gym;
+const HOME_TAGS = exerciseSubcategoriesByCategory.Home;
+const RECOVERY_TAGS = exerciseSubcategoriesByCategory.Regeneration;
+type GymTag = string;
+type HomeTag = string;
+type RecoveryTag = string;
 
 const DAY_LABELS: Record<DayKey, string> = {
   monday: "Montag",
@@ -144,6 +147,13 @@ function getHomeSubtagFromTags(tags: PlannedWorkoutTag[]): HomeTag | null {
   if (!homeSubtag) return null;
   const value = homeSubtag.replace("Home:", "") as HomeTag;
   return HOME_TAGS.includes(value) ? value : null;
+}
+
+function getRecoverySubtagFromTags(tags: PlannedWorkoutTag[]): RecoveryTag | null {
+  const recoverySubtag = tags.find((tag) => tag.startsWith("Recovery:"));
+  if (!recoverySubtag) return null;
+  const value = recoverySubtag.replace("Recovery:", "");
+  return RECOVERY_TAGS.includes(value) ? value : null;
 }
 
 export default function ProfilePage() {
@@ -267,6 +277,7 @@ export default function ProfilePage() {
   const activePrimaryTab = getPrimaryTabByTags(selectedTags);
   const activeGymSubtag = getGymSubtagFromTags(selectedTags);
   const activeHomeSubtag = getHomeSubtagFromTags(selectedTags);
+  const activeRecoverySubtag = getRecoverySubtagFromTags(selectedTags);
 
   const applyPrimaryTab = (tab: PrimaryDayTab) => {
     if (tab === "Basketball") {
@@ -282,7 +293,7 @@ export default function ProfilePage() {
       return;
     }
     if (tab === "Regeneration") {
-      updateSelectedDatePlan(["Regeneration"]);
+      updateSelectedDatePlan(["Regeneration", `Recovery:${RECOVERY_TAGS[0]}` as PlannedWorkoutTag]);
       return;
     }
     updateSelectedDatePlan([]);
@@ -300,11 +311,26 @@ export default function ProfilePage() {
     updateSelectedDatePlan(["Home-Workout", `Home:${tag}` as PlannedWorkoutTag]);
   };
 
+  const applyRecoverySubtag = (tag: RecoveryTag) => {
+    updateSelectedDatePlan(["Regeneration", `Recovery:${tag}` as PlannedWorkoutTag]);
+  };
+
   const persistProfileToSupabase = useCallback(async () => {
     const username = (profile.username ?? "").trim().toLowerCase();
     if (!username) {
       setMessage("Bitte einen Username eingeben.");
       return;
+    }
+
+    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: unknown } }> } }).auth;
+    if (authApi?.getUser) {
+      const { data: authData } = await authApi.getUser();
+      if (!authData?.user) {
+        window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
+        saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        setMessage("Nur lokal gespeichert (kein Supabase-Login).");
+        return;
+      }
     }
 
     const { error } = await supabase.from("profiles").upsert({
@@ -315,6 +341,13 @@ export default function ProfilePage() {
       weight_kg: profile.weight_kg,
     });
     if (error) {
+      const isRlsError = error.message.toLowerCase().includes("row-level security") || error.message.toLowerCase().includes("rls");
+      if (isRlsError) {
+        window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
+        saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        setMessage("Supabase-RLS aktiv: Profil lokal gespeichert.");
+        return;
+      }
       setMessage(`Speichern fehlgeschlagen: ${error.message}`);
       return;
     }
@@ -489,6 +522,15 @@ export default function ProfilePage() {
                     <div className="mt-3 flex flex-wrap gap-2">
                       {HOME_TAGS.map((tag) => (
                         <button key={tag} type="button" onClick={() => applyHomeSubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeHomeSubtag === tag ? "border-amber-400 bg-amber-500/20 text-amber-100" : "border-zinc-600 text-zinc-300"}`}>
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {activePrimaryTab === "Regeneration" ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {RECOVERY_TAGS.map((tag) => (
+                        <button key={tag} type="button" onClick={() => applyRecoverySubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeRecoverySubtag === tag ? "border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-600 text-zinc-300"}`}>
                           {tag}
                         </button>
                       ))}

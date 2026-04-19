@@ -34,11 +34,21 @@ import {
 type ManualDayWorkout = {
   id: string;
   title: string;
-  sport: "Basketball" | "Gym" | "Home" | "Rest";
+  sport: "Basketball" | "Gym" | "Home" | "Regeneration" | "Rest";
   subcategory: string;
   notes: string;
   exerciseIds: string[];
 };
+
+function loadHistory(): CompletedWorkoutHistoryEntry[] {
+  const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
+  if (!rawHistory) return [];
+  try {
+    return JSON.parse(rawHistory) as CompletedWorkoutHistoryEntry[];
+  } catch {
+    return [];
+  }
+}
 
 function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
   const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
@@ -63,7 +73,7 @@ function normalizeExerciseFamily(name: string) {
 
 function buildGroupedExercisesByFamily(params: {
   exerciseIds: string[];
-  category: "Basketball" | "Gym" | "Home";
+  category: "Basketball" | "Gym" | "Home" | "Regeneration";
   subcategory: string;
   exercises: ReturnType<typeof loadExercises>;
 }) {
@@ -86,7 +96,7 @@ function buildGroupedExercisesByFamily(params: {
 
 function expandExercisesWithFamily(params: {
   selectedExerciseIds: string[];
-  category: "Basketball" | "Gym" | "Home";
+  category: "Basketball" | "Gym" | "Home" | "Regeneration";
   subcategory?: string;
   exercises: ReturnType<typeof loadExercises>;
 }) {
@@ -146,7 +156,7 @@ function WorkoutsPageContent() {
   const trainingExercises = useMemo(() => loadExercises(), []);
   const [manualWorkout, setManualWorkout] = useState<WorkoutPlan | null>(null);
   const [manualTitle, setManualTitle] = useState("Manuelles Workout");
-  const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home">("Basketball");
+  const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home" | "Regeneration">("Basketball");
   const [manualSubcategory, setManualSubcategory] = useState("");
   const [manualSearch, setManualSearch] = useState("");
   const [manualTemplateWorkoutId, setManualTemplateWorkoutId] = useState("");
@@ -272,8 +282,7 @@ function WorkoutsPageContent() {
     () => getDefaultWorkoutProgress(dateKey, workoutForExecution),
     [dateKey, workoutForExecution],
   );
-
-  const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
+    const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
   const [selectedMetricByExercise, setSelectedMetricByExercise] = useState<Record<number, MetricKey>>({});
 
   const recommendations = useMemo(() => {
@@ -507,8 +516,7 @@ function WorkoutsPageContent() {
     setSelectedManualExerciseIds(workout.exerciseIds);
     setManualTemplateWorkoutId(workout.id);
   };
-
-  const buildManualWorkoutPlan = (entry: ManualDayWorkout): WorkoutPlan | null => {
+    const buildManualWorkoutPlan = (entry: ManualDayWorkout): WorkoutPlan | null => {
     if (entry.sport === "Rest") {
       return {
         id: entry.id,
@@ -635,7 +643,7 @@ function WorkoutsPageContent() {
 
   const syncProfileDayConfig = (
     dayIndex: number,
-    category: "Basketball" | "Gym" | "Home" | "Rest",
+    category: "Basketball" | "Gym" | "Home" | "Regeneration" | "Rest",
     minutes: number,
   ) => {
     const dayMap: Record<number, "sunday" | "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday"> = {
@@ -660,9 +668,11 @@ function WorkoutsPageContent() {
           ? "gym"
           : category === "Rest"
             ? "unavailable"
-            : category === "Basketball"
+             : category === "Basketball"
               ? "basketball_training"
-              : "custom";
+              : category === "Regeneration"
+                ? "recovery"
+                : "custom";
       parsed.weekConfig = {
         ...currentWeek,
         [dayKey]: {
@@ -769,8 +779,7 @@ function WorkoutsPageContent() {
         logs: sessionLogs,
       });
     }
-
-    let achievedSets = 0;
+        let achievedSets = 0;
     let totalSets = 0;
     workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {
       exercise.sets.forEach((set, setIndex) => {
@@ -791,7 +800,10 @@ function WorkoutsPageContent() {
     const qualityScore = totalSets > 0 ? achievedSets / totalSets : 0;
     const exerciseXp = achievedSets * 12;
     const workoutXp = 40 + Math.round(qualityScore * 60);
-    const totalXp = exerciseXp + workoutXp;
+    const regenerationEntries = loadHistory().filter((entry) => entry.sport === "Regeneration").slice(-7);
+    const regenerationLoad = regenerationEntries.reduce((sum, entry) => sum + Math.max(1, entry.totalSets || 1), 0);
+    const recoveryMultiplier = Math.min(1.25, 1 + regenerationLoad / 50);
+    const totalXp = Math.round((exerciseXp + workoutXp) * recoveryMultiplier);
 
     const xpResult = appendWorkoutXpEntry({
       id: `${completedProgress.date}-${completedProgress.workoutId}`,
@@ -811,7 +823,22 @@ function WorkoutsPageContent() {
     } else if (xpResult.levelDelta < 0) {
       window.alert(`⬇️ Level-Down: ${Math.abs(xpResult.levelDelta)} Level verloren`);
     }
-    window.alert("Good Job, workout completed ✅");
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowKey = toLocalDateKey(tomorrow);
+    const todayKey = toLocalDateKey(new Date());
+    const dailyRaw = window.localStorage.getItem("bt.daily-plan.v1");
+    const daily = dailyRaw ? JSON.parse(dailyRaw) as Record<string, string[]> : {};
+    const tomorrowHasRecovery = (daily[tomorrowKey] ?? []).some((tag) => tag === "Regeneration");
+    const todayIsRecoveryOnly = completedProgress.sport === "Regeneration";
+    if (!todayIsRecoveryOnly && !tomorrowHasRecovery) {
+      const todayTags = new Set([...(daily[todayKey] ?? []), "Regeneration", "Recovery:Mobilität & Dehnung"]);
+      daily[todayKey] = Array.from(todayTags);
+      window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(daily));
+      window.alert("Good Job ✅ + kurze Regeneration wurde für heute vorgeschlagen.");
+    } else {
+      window.alert("Good Job, workout completed ✅");
+    }
     router.push("/stats");
   };
 
@@ -862,6 +889,7 @@ function WorkoutsPageContent() {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Workouts</h1>
       <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
+      <p className="mt-1 text-xs text-emerald-300">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-xl font-semibold">{workoutForExecution.title}</h2>
@@ -916,7 +944,7 @@ function WorkoutsPageContent() {
             <select
               value={manualCategory}
               onChange={(event) => {
-                const nextCategory = event.target.value as "Basketball" | "Gym" | "Home";
+                const nextCategory = event.target.value as "Basketball" | "Gym" | "Home" | "Regeneration";
                 setManualCategory(nextCategory);
                 setManualSubcategory("");
                 setManualTemplateWorkoutId("");
@@ -927,6 +955,7 @@ function WorkoutsPageContent() {
               <option value="Basketball">Basketball</option>
               <option value="Gym">Gym</option>
               <option value="Home">Home</option>
+              <option value="Regeneration">Regeneration</option>
             </select>
             <select
               value={manualSubcategory}

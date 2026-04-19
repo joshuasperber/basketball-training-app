@@ -1,4 +1,4 @@
-export type Category = "Basketball" | "Gym" | "Home";
+export type Category = "Basketball" | "Gym" | "Home" | "Regeneration";
 
 export type Exercise = {
   id: string;
@@ -43,18 +43,20 @@ export type WeekdayKey =
   | "saturday"
   | "sunday";
 
-export const categories: Category[] = ["Basketball", "Gym", "Home"];
+export const categories: Category[] = ["Basketball", "Gym", "Home", "Regeneration"];
 
 export const workoutSubcategoriesByCategory: Record<Category, string[]> = {
   Basketball: ["Handles", "Finishing", "Shooting", "Conditioning", "Komplett"],
   Gym: ["Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"],
   Home: ["Mobility", "Conditioning", "Recovery"],
+  Regeneration: ["Meditation", "Mobilität & Dehnung", "Leichte Ausdauer"],
 };
 
 export const exerciseSubcategoriesByCategory: Record<Category, string[]> = {
   Basketball: ["Handles", "Finishing", "Shooting", "Conditioning"],
-  Gym: ["Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"],
+  Gym: ["Oberkörper", "Arme", "Core", "Beine", "Cardio"],
   Home: ["Mobility", "Conditioning", "Recovery"],
+  Regeneration: ["Meditation", "Mobilität & Dehnung", "Leichte Ausdauer"],
 };
 
 export const defaultExercises: Exercise[] = [
@@ -69,6 +71,9 @@ export const defaultExercises: Exercise[] = [
   { id: "ex-7", name: "Back Squat", durationMin: 18, category: "Gym", subcategory: "Beine", notes: "Tiefe sauber halten", metricKeys: ["weight", "reps"], targetByMetric: { weight: 90, reps: 6 }, trackingType: "weight", targetValue: 90 },
   { id: "ex-8", name: "Cable Crunch", durationMin: 10, category: "Gym", subcategory: "Core", notes: "Rumpfspannung", metricKeys: ["weight", "reps"], targetByMetric: { weight: 35, reps: 15 }, trackingType: "weight", targetValue: 35 },
   { id: "ex-9", name: "Dead Bug", durationMin: 10, category: "Home", subcategory: "Recovery", notes: "Langsam und kontrolliert", metricKeys: ["reps", "time"], targetByMetric: { reps: 20, time: 45 }, trackingType: "reps", targetValue: 20 },
+  { id: "ex-regen-1", name: "Box Breathing", durationMin: 8, category: "Regeneration", subcategory: "Meditation", notes: "4-4-4-4 Atmung", metricKeys: ["time", "intensity"], targetByMetric: { time: 8, intensity: 5 }, trackingType: "reps", targetValue: 8 },
+  { id: "ex-regen-2", name: "Hip Mobility Flow", durationMin: 12, category: "Regeneration", subcategory: "Mobilität & Dehnung", notes: "Ruhig und kontrolliert", metricKeys: ["time", "intensity"], targetByMetric: { time: 12, intensity: 6 }, trackingType: "reps", targetValue: 12 },
+  { id: "ex-regen-3", name: "Zone-2 Walk", durationMin: 20, category: "Regeneration", subcategory: "Leichte Ausdauer", notes: "Niedrige Belastung", metricKeys: ["time", "distance"], targetByMetric: { time: 20, distance: 2 }, trackingType: "reps", targetValue: 20 },
 ];
 
 export const defaultWorkouts: Workout[] = [
@@ -80,6 +85,9 @@ export const defaultWorkouts: Workout[] = [
   { id: "wo-5", name: "Gym Arme 1", category: "Gym", subcategory: "Arme", notes: "Rücken aktiv", level: 1, exerciseIds: ["ex-6"] },
   { id: "wo-6", name: "Gym Beine 1", category: "Gym", subcategory: "Beine", notes: "Tiefe priorisieren", level: 1, exerciseIds: ["ex-7"] },
   { id: "wo-7", name: "Gym Core 1", category: "Gym", subcategory: "Core", notes: "Rumpfspannung", level: 1, exerciseIds: ["ex-8"] },
+  { id: "wo-regen-1", name: "Regeneration Atemfokus", category: "Regeneration", subcategory: "Meditation", notes: "Nach intensiven Tagen", level: 1, exerciseIds: ["ex-regen-1"] },
+  { id: "wo-regen-2", name: "Regeneration Mobility", category: "Regeneration", subcategory: "Mobilität & Dehnung", notes: "Beweglichkeit", level: 1, exerciseIds: ["ex-regen-2"] },
+  { id: "wo-regen-3", name: "Regeneration Cardio Light", category: "Regeneration", subcategory: "Leichte Ausdauer", notes: "Lockere Durchblutung", level: 1, exerciseIds: ["ex-regen-3"] },
 ];
 
 export const weeklyWorkoutPlan: { day: WeekdayKey; label: string; workoutId: string }[] = [

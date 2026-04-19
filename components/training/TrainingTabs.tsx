@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { type Category, type Exercise, type MetricKey, type Workout } from "@/lib/training-data";
 
 export type TrainingTab = "Workouts" | "Exercises";
@@ -802,24 +802,25 @@ function FilterSection<T extends string>({
   onDeleteOption,
 }: FilterSectionProps<T>) {
   const canEdit = Boolean(category && onCreateOption && onDeleteOption && title.toLowerCase().includes("unterkategorie"));
+  const [draft, setDraft] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
   const handleAdd = () => {
     if (!canEdit || !category || !onCreateOption) return;
-    const value = window.prompt("Neue Unterkategorie hinzufügen:");
-    if (!value) return;
-    onCreateOption(category, value);
+    if (!showAdd) { setShowAdd(true); return; }
+    if (!draft.trim())return;
+    onCreateOption(category,draft.trim());
+    setShowAdd(false);
   };
 
   const handleDelete = () => {
     if (!canEdit || !category || !onDeleteOption) return;
-    const value = window.prompt("Unterkategorie exakt eingeben, die gelöscht werden soll:");
-    if (!value) return;
-    onDeleteOption(category, value);
+    onDeleteOption(category, selectedValue);
   };
 
   return (
     <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
       <div className="flex items-center justify-between gap-2"><h2 className="text-xl font-semibold">{title}</h2>{canEdit ? <div className="flex gap-2"><button type="button" onClick={handleAdd} className="rounded-lg border border-zinc-600 px-2 py-1 text-xs">✏️</button><button type="button" onClick={handleDelete} className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300">🗑</button></div> : null}</div>
-      <div className="mt-3 flex flex-wrap gap-2">
+      {showAdd ? <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3"><p className="text-xs text-zinc-400">Neue Unterkategorie</p><div className="mt-2 flex gap-2"><input value={draft} onChange={(e) => setDraft(e.target.value)} className="flex-1 rounded-lg border border-zinc-700 bg-black px-2 py-1 text-sm" placeholder="Name"/><button type="button" onClick={handleAdd} className="rounded-lg border border-emerald-600 px-2 py-1 text-xs text-emerald-200">Speichern</button><button type="button" onClick={() => { setShowAdd(false); setDraft(""); }} className="rounded-lg border border-zinc-600 px-2 py-1 text-xs">Abbrechen</button></div></div> : null}<div className="mt-3 flex flex-wrap gap-2">
         {options.map((option) => (
           <button
             key={option}
