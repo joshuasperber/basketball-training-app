@@ -146,7 +146,7 @@ function WorkoutsPageContent() {
   const trainingExercises = useMemo(() => loadExercises(), []);
   const [manualWorkout, setManualWorkout] = useState<WorkoutPlan | null>(null);
   const [manualTitle, setManualTitle] = useState("Manuelles Workout");
-  const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home" | "Rest">("Basketball");
+  const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home">("Basketball");
   const [manualSubcategory, setManualSubcategory] = useState("");
   const [manualSearch, setManualSearch] = useState("");
   const [manualTemplateWorkoutId, setManualTemplateWorkoutId] = useState("");
@@ -298,7 +298,7 @@ function WorkoutsPageContent() {
       weeklySessions.map((session) => session.workoutSubcategory).filter(Boolean),
     );
 
-    const targetSubcategories = ["Handles", "Shooting", "Finishing", "Conditioning", "Push", "Pull", "Legs", "Core"];
+    const targetSubcategories = ["Handles", "Shooting", "Finishing", "Conditioning", "Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"];
     const missingSubcategories = targetSubcategories.filter((subcategory) => !completedSubcategories.has(subcategory));
 
     const suggestedExercises = trainingExercises.filter(
@@ -333,7 +333,6 @@ function WorkoutsPageContent() {
   );
 
   const manualExercisePool = useMemo(() => {
-    if (manualCategory === "Rest") return [];
     const query = manualSearch.trim().toLowerCase();
     return trainingExercises.filter((exercise) => {
       if (exercise.category !== manualCategory) return false;
@@ -539,16 +538,13 @@ function WorkoutsPageContent() {
   };
 
   const saveManualWorkoutForDay = (startImmediately: boolean) => {
-    if (manualCategory !== "Rest" && selectedManualExerciseIds.length <= 0) return;
-    const selectedExercises =
-      manualCategory === "Rest"
-        ? []
-        : expandExercisesWithFamily({
-            selectedExerciseIds: selectedManualExerciseIds,
-            category: manualCategory,
-            subcategory: manualSubcategory || undefined,
-            exercises: trainingExercises,
-          });
+    if (selectedManualExerciseIds.length <= 0) return;
+    const selectedExercises = expandExercisesWithFamily({
+      selectedExerciseIds: selectedManualExerciseIds,
+      category: manualCategory,
+      subcategory: manualSubcategory || undefined,
+      exercises: trainingExercises,
+    });
 
     const selectedOrder = new Map(selectedManualExerciseIds.map((id, index) => [id, index]));
     const orderedExerciseIds = selectedExercises
@@ -564,7 +560,7 @@ function WorkoutsPageContent() {
       id: `manual-day-${Date.now()}`,
       title: manualTitle.trim() || "Manuelles Workout",
       sport: manualCategory,
-      subcategory: manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Ruhetag",
+      subcategory: manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Keine Zeit",
       notes: manualNotes.trim(),
       exerciseIds: orderedExerciseIds,
     };
@@ -589,13 +585,10 @@ function WorkoutsPageContent() {
       writeManualDayDisabledMap(nextDisabled);
     }
 
-    const selectedMinutes =
-      manualCategory === "Rest"
-        ? 0
-        : orderedExerciseIds.reduce((sum, exerciseId) => {
-            const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
-            return sum + (exercise?.durationMin ?? 10);
-          }, 0);
+    const selectedMinutes = orderedExerciseIds.reduce((sum, exerciseId) => {
+      const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
+      return sum + (exercise?.durationMin ?? 10);
+    }, 0);
 
     syncProfileDayConfig(effectiveDay, manualCategory, Math.ceil(selectedMinutes * 1.1 / 5) * 5);
     setManualStorageVersion((previous) => previous + 1);
@@ -704,8 +697,7 @@ function WorkoutsPageContent() {
   const startWorkout = () => {
     persistProgress({ ...progress, status: "in_progress" });
   };
-
-  const completeWorkout = () => {
+    const completeWorkout = () => {
     const completedProgress: WorkoutProgress = { ...progress, status: "completed" };
     persistProgress(completedProgress);
 
@@ -924,7 +916,7 @@ function WorkoutsPageContent() {
             <select
               value={manualCategory}
               onChange={(event) => {
-                const nextCategory = event.target.value as "Basketball" | "Gym" | "Home" | "Rest";
+                const nextCategory = event.target.value as "Basketball" | "Gym" | "Home";
                 setManualCategory(nextCategory);
                 setManualSubcategory("");
                 setManualTemplateWorkoutId("");
@@ -935,7 +927,6 @@ function WorkoutsPageContent() {
               <option value="Basketball">Basketball</option>
               <option value="Gym">Gym</option>
               <option value="Home">Home</option>
-              <option value="Rest">Ruhetag</option>
             </select>
             <select
               value={manualSubcategory}
@@ -975,48 +966,44 @@ function WorkoutsPageContent() {
             placeholder="Notizen"
             rows={2}
           />
-          {manualCategory !== "Rest" ? (
-            <>
-              <input
-                value={manualSearch}
-                onChange={(event) => setManualSearch(event.target.value)}
-                className="mt-3 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
-                placeholder="Exercise suchen..."
-              />
-              <div className="mt-3 max-h-48 space-y-2 overflow-auto rounded-lg border border-zinc-700 p-2">
-                {manualExercisePool.map((exercise) => (
-                  <label key={exercise.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedManualExerciseIds.includes(exercise.id)}
-                      onChange={() => toggleManualExercise(exercise.id)}
-                    />
-                    <span>{exercise.name} <span className="text-zinc-500">({exercise.subcategory})</span></span>
-                  </label>
-                ))}
-              </div>
-              {selectedManualExerciseIds.length > 0 ? (
-                <div className="mt-2 space-y-2 rounded-lg border border-zinc-700 p-2">
-                  <p className="text-xs text-zinc-400">Reihenfolge festlegen</p>
-                  {selectedManualExerciseIds.map((exerciseId, index) => {
-                    const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
-                    if (!exercise) return null;
-                    return (
-                      <div key={`order-${exerciseId}`} className="flex items-center justify-between text-sm">
-                        <span>{index + 1}. {exercise.name}</span>
-                        <div className="flex gap-1">
-                          <button type="button" onClick={() => moveManualExercise(exerciseId, "up")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↑</button>
-                          <button type="button" onClick={() => moveManualExercise(exerciseId, "down")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↓</button>
-                        </div>
+          <>
+            <input
+              value={manualSearch}
+              onChange={(event) => setManualSearch(event.target.value)}
+              className="mt-3 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+              placeholder="Exercise suchen..."
+            />
+            <div className="mt-3 max-h-48 space-y-2 overflow-auto rounded-lg border border-zinc-700 p-2">
+              {manualExercisePool.map((exercise) => (
+                <label key={exercise.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedManualExerciseIds.includes(exercise.id)}
+                    onChange={() => toggleManualExercise(exercise.id)}
+                  />
+                  <span>{exercise.name} <span className="text-zinc-500">({exercise.subcategory})</span></span>
+                </label>
+              ))}
+            </div>
+            {selectedManualExerciseIds.length > 0 ? (
+              <div className="mt-2 space-y-2 rounded-lg border border-zinc-700 p-2">
+                <p className="text-xs text-zinc-400">Reihenfolge festlegen</p>
+                {selectedManualExerciseIds.map((exerciseId, index) => {
+                  const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
+                  if (!exercise) return null;
+                  return (
+                    <div key={`order-${exerciseId}`} className="flex items-center justify-between text-sm">
+                      <span>{index + 1}. {exercise.name}</span>
+                      <div className="flex gap-1">
+                        <button type="button" onClick={() => moveManualExercise(exerciseId, "up")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↑</button>
+                        <button type="button" onClick={() => moveManualExercise(exerciseId, "down")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↓</button>
                       </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <p className="mt-3 text-sm text-zinc-300">Ruhetag gewählt: es werden keine Exercises geladen.</p>
-          )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </>
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -1199,7 +1186,7 @@ function WorkoutsPageContent() {
             </article>
           ) : (
             <p className="text-sm text-zinc-500">
-              {isRestDay ? "Ruhetag aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
+              {isRestDay ? "Keine Zeit aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
             </p>
           )}
         </section>

@@ -50,6 +50,8 @@ function calculateWorkoutMinutes(exercises: Exercise[]) {
 type WorkoutsTabProps = {
   categories: Category[];
   subcategories: Record<Category, string[]>;
+  onCreateSubcategory: (category: Category, name: string) => void;
+  onDeleteSubcategory: (category: Category, subcategory: string) => void;
   selectedCategory: Category;
   selectedSubcategory: string;
   onCategoryChange: (category: Category) => void;
@@ -88,6 +90,8 @@ type WorkoutsTabProps = {
 export function WorkoutsTab({
   categories,
   subcategories,
+  onCreateSubcategory,
+  onDeleteSubcategory,
   selectedCategory,
   selectedSubcategory,
   onCategoryChange,
@@ -155,6 +159,9 @@ export function WorkoutsTab({
           options={subcategories[selectedCategory]}
           selectedValue={selectedSubcategory}
           onSelect={onSubcategoryChange}
+          category={selectedCategory}
+          onCreateOption={onCreateSubcategory}
+          onDeleteOption={onDeleteSubcategory}
         />
 
         <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
@@ -180,7 +187,7 @@ export function WorkoutsTab({
                     )}{" "}
                     Min
                   </p>
-                  <div className="mt-1 flex items-center justify-between gap-3">
+                  <div className="mt-2 flex flex-wrap items-center justify-start gap-2">
                     <Link
                       href={`/workouts/${workout.id}`}
                       className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
@@ -361,6 +368,8 @@ export function WorkoutsTab({
 type ExercisesTabProps = {
   categories: Category[];
   subcategories: Record<Category, string[]>;
+  onCreateSubcategory: (category: Category, name: string) => void;
+  onDeleteSubcategory: (category: Category, subcategory: string) => void;
   selectedCategory: Category;
   selectedSubcategory: string;
   onCategoryChange: (category: Category) => void;
@@ -410,6 +419,8 @@ type ExercisesTabProps = {
 export function ExercisesTab({
   categories,
   subcategories,
+  onCreateSubcategory,
+  onDeleteSubcategory,
   selectedCategory,
   selectedSubcategory,
   onCategoryChange,
@@ -470,6 +481,9 @@ export function ExercisesTab({
           options={subcategories[selectedCategory]}
           selectedValue={selectedSubcategory}
           onSelect={onSubcategoryChange}
+          category={selectedCategory}
+          onCreateOption={onCreateSubcategory}
+          onDeleteOption={onDeleteSubcategory}
         />
 
         <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
@@ -773,12 +787,38 @@ type FilterSectionProps<T extends string> = {
   options: T[];
   selectedValue: T;
   onSelect: (value: T) => void;
+  category?: Category;
+  onCreateOption?: (category: Category, value: string) => void;
+  onDeleteOption?: (category: Category, value: string) => void;
 };
 
-function FilterSection<T extends string>({ title, options, selectedValue, onSelect }: FilterSectionProps<T>) {
+function FilterSection<T extends string>({
+  title,
+  options,
+  selectedValue,
+  onSelect,
+  category,
+  onCreateOption,
+  onDeleteOption,
+}: FilterSectionProps<T>) {
+  const canEdit = Boolean(category && onCreateOption && onDeleteOption && title.toLowerCase().includes("unterkategorie"));
+  const handleAdd = () => {
+    if (!canEdit || !category || !onCreateOption) return;
+    const value = window.prompt("Neue Unterkategorie hinzufügen:");
+    if (!value) return;
+    onCreateOption(category, value);
+  };
+
+  const handleDelete = () => {
+    if (!canEdit || !category || !onDeleteOption) return;
+    const value = window.prompt("Unterkategorie exakt eingeben, die gelöscht werden soll:");
+    if (!value) return;
+    onDeleteOption(category, value);
+  };
+
   return (
     <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-      <h2 className="text-xl font-semibold">{title}</h2>
+      <div className="flex items-center justify-between gap-2"><h2 className="text-xl font-semibold">{title}</h2>{canEdit ? <div className="flex gap-2"><button type="button" onClick={handleAdd} className="rounded-lg border border-zinc-600 px-2 py-1 text-xs">✏️</button><button type="button" onClick={handleDelete} className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300">🗑</button></div> : null}</div>
       <div className="mt-3 flex flex-wrap gap-2">
         {options.map((option) => (
           <button

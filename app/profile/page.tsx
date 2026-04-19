@@ -26,7 +26,9 @@ const PRIMARY_DAY_TABS = ["Gym", "Basketball", "HomeWorkout", "Regeneration", "K
 type PrimaryDayTab = (typeof PRIMARY_DAY_TABS)[number];
 const BASKETBALL_TAGS: PlannedWorkoutTag[] = ["Spieltag", "Trainingstag", "Spieltraining"];
 const GYM_TAGS = ["Conditioning", "Push", "Pull", "Legs", "Core"] as const;
+const HOME_TAGS = ["Mobility", "Conditioning", "Recovery", "Komplett"] as const;
 type GymTag = (typeof GYM_TAGS)[number];
+type HomeTag = (typeof HOME_TAGS)[number];
 
 const DAY_LABELS: Record<DayKey, string> = {
   monday: "Montag",
@@ -135,6 +137,13 @@ function getGymSubtagFromTags(tags: PlannedWorkoutTag[]): GymTag | null {
   if (!gymSubtag) return null;
   const value = gymSubtag.replace("Gym:", "") as GymTag;
   return GYM_TAGS.includes(value) ? value : null;
+}
+
+function getHomeSubtagFromTags(tags: PlannedWorkoutTag[]): HomeTag | null {
+  const homeSubtag = tags.find((tag) => tag.startsWith("Home:"));
+  if (!homeSubtag) return null;
+  const value = homeSubtag.replace("Home:", "") as HomeTag;
+  return HOME_TAGS.includes(value) ? value : null;
 }
 
 export default function ProfilePage() {
@@ -257,6 +266,7 @@ export default function ProfilePage() {
 
   const activePrimaryTab = getPrimaryTabByTags(selectedTags);
   const activeGymSubtag = getGymSubtagFromTags(selectedTags);
+  const activeHomeSubtag = getHomeSubtagFromTags(selectedTags);
 
   const applyPrimaryTab = (tab: PrimaryDayTab) => {
     if (tab === "Basketball") {
@@ -268,7 +278,7 @@ export default function ProfilePage() {
       return;
     }
     if (tab === "HomeWorkout") {
-      updateSelectedDatePlan(["Home-Workout"]);
+      updateSelectedDatePlan(["Home-Workout", "Home:Mobility" as PlannedWorkoutTag]);
       return;
     }
     if (tab === "Regeneration") {
@@ -284,6 +294,10 @@ export default function ProfilePage() {
 
   const applyGymSubtag = (tag: GymTag) => {
     updateSelectedDatePlan(["Gym", `Gym:${tag}` as PlannedWorkoutTag]);
+  };
+
+  const applyHomeSubtag = (tag: HomeTag) => {
+    updateSelectedDatePlan(["Home-Workout", `Home:${tag}` as PlannedWorkoutTag]);
   };
 
   const persistProfileToSupabase = useCallback(async () => {
@@ -307,7 +321,7 @@ export default function ProfilePage() {
 
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
     saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
-    setMessage("Profil wurde automatisch gespeichert ✅");
+    setMessage(null);
   }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
 
   useEffect(() => {
@@ -471,14 +485,19 @@ export default function ProfilePage() {
                       ))}
                     </div>
                   ) : null}
+                  {activePrimaryTab === "HomeWorkout" ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {HOME_TAGS.map((tag) => (
+                        <button key={tag} type="button" onClick={() => applyHomeSubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeHomeSubtag === tag ? "border-amber-400 bg-amber-500/20 text-amber-100" : "border-zinc-600 text-zinc-300"}`}>
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
           </section>
-
-          <p className="rounded-lg border border-indigo-700 bg-indigo-950/40 px-4 py-2 text-xs text-indigo-100">
-            Änderungen werden automatisch gespeichert.
-          </p>
         </div>
 
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">

@@ -75,18 +75,18 @@ export function buildWeeklyPlan(input: PlannerInput): PlannedDay[] {
       case "unavailable":
         return { day, minutes: 0, intensity: "rest", sessionType: "none", reason: "Keine Zeit" };
       case "rest":
-        return { day, minutes: 0, intensity: "recovery", sessionType: "recovery", reason: "Ruhetag: nur lockeres Auslaufen/Dehnung" };
+        return { day, minutes: 0, intensity: "recovery", sessionType: "recovery", reason: "Keine Zeit: nur lockeres Auslaufen/Dehnung" };
       case "recovery":
         return { day, minutes, intensity: "recovery", sessionType: "recovery", reason: "Aktive Regeneration" };
       case "game_day":
         return { day, minutes, intensity: "light", sessionType: "game", reason: "Spieltag: leichtes Warm-up" };
       case "game_training":
-         return { day, minutes, intensity: "light", sessionType: "game-training", reason: "Spieltraining: 15 Min vorab + 30 Min Nachgang" };
+         return { day, minutes, intensity: "medium", sessionType: "game-training", reason: "Spieltraining: 15 Min vorab + 30 Min Nachgang" };
       case "basketball_training":
         return {
           day,
           minutes,
-          intensity: minutes >= 60 ? "high" : "medium",
+          intensity: "high",
           sessionType: "basketball",
           reason: `${input.position.toUpperCase()} • ${input.playStyle}`,
         };

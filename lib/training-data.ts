@@ -47,13 +47,13 @@ export const categories: Category[] = ["Basketball", "Gym", "Home"];
 
 export const workoutSubcategoriesByCategory: Record<Category, string[]> = {
   Basketball: ["Handles", "Finishing", "Shooting", "Conditioning", "Komplett"],
-  Gym: ["Push", "Pull", "Legs", "Core"],
+  Gym: ["Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"],
   Home: ["Mobility", "Conditioning", "Recovery"],
 };
 
 export const exerciseSubcategoriesByCategory: Record<Category, string[]> = {
   Basketball: ["Handles", "Finishing", "Shooting", "Conditioning"],
-  Gym: ["Push", "Pull", "Legs", "Core"],
+  Gym: ["Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"],
   Home: ["Mobility", "Conditioning", "Recovery"],
 };
 
@@ -64,9 +64,9 @@ export const defaultExercises: Exercise[] = [
   { id: "ex-2", name: "Mikan Finishes", durationMin: 12, category: "Basketball", subcategory: "Finishing", notes: "Beidseitig abschließen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 80, makes: 60 }, trackingType: "reps", targetValue: 60 },
   { id: "ex-3", name: "Shooting 1", durationMin: 18, category: "Basketball", subcategory: "Shooting", notes: "Nur swishes zhlen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 100, makes: 80 }, trackingType: "reps", targetValue: 80 },
   { id: "ex-4", name: "Shooting 2", durationMin: 20, category: "Basketball", subcategory: "Shooting", notes: "Spot-up 5 Spots", metricKeys: ["tries", "makes"], targetByMetric: { tries: 120, makes: 90 }, trackingType: "reps", targetValue: 90 },
-  { id: "ex-5", name: "Bench Press", durationMin: 15, category: "Gym", subcategory: "Push", notes: "Kontrollierte Exzentrik", metricKeys: ["weight", "reps"], targetByMetric: { weight: 70, reps: 8 }, trackingType: "weight", targetValue: 70 },
-  { id: "ex-6", name: "Barbell Row", durationMin: 15, category: "Gym", subcategory: "Pull", notes: "Schulterblätter aktiv", metricKeys: ["weight", "reps"], targetByMetric: { weight: 60, reps: 10 }, trackingType: "weight", targetValue: 60 },
-  { id: "ex-7", name: "Back Squat", durationMin: 18, category: "Gym", subcategory: "Legs", notes: "Tiefe sauber halten", metricKeys: ["weight", "reps"], targetByMetric: { weight: 90, reps: 6 }, trackingType: "weight", targetValue: 90 },
+  { id: "ex-5", name: "Bench Press", durationMin: 15, category: "Gym", subcategory: "Oberkörper", notes: "Kontrollierte Exzentrik", metricKeys: ["weight", "reps"], targetByMetric: { weight: 70, reps: 8 }, trackingType: "weight", targetValue: 70 },
+  { id: "ex-6", name: "Barbell Row", durationMin: 15, category: "Gym", subcategory: "Arme", notes: "Schulterblätter aktiv", metricKeys: ["weight", "reps"], targetByMetric: { weight: 60, reps: 10 }, trackingType: "weight", targetValue: 60 },
+  { id: "ex-7", name: "Back Squat", durationMin: 18, category: "Gym", subcategory: "Beine", notes: "Tiefe sauber halten", metricKeys: ["weight", "reps"], targetByMetric: { weight: 90, reps: 6 }, trackingType: "weight", targetValue: 90 },
   { id: "ex-8", name: "Cable Crunch", durationMin: 10, category: "Gym", subcategory: "Core", notes: "Rumpfspannung", metricKeys: ["weight", "reps"], targetByMetric: { weight: 35, reps: 15 }, trackingType: "weight", targetValue: 35 },
   { id: "ex-9", name: "Dead Bug", durationMin: 10, category: "Home", subcategory: "Recovery", notes: "Langsam und kontrolliert", metricKeys: ["reps", "time"], targetByMetric: { reps: 20, time: 45 }, trackingType: "reps", targetValue: 20 },
 ];
@@ -76,9 +76,9 @@ export const defaultWorkouts: Workout[] = [
   { id: "wo-1", name: "Shooting 1", category: "Basketball", subcategory: "Shooting", notes: "Fokus Catch&Shoot", level: 1, exerciseIds: ["ex-3"] },
   { id: "wo-2", name: "Shooting 2", category: "Basketball", subcategory: "Shooting", notes: "Mehr Volumen", level: 2, exerciseIds: ["ex-3", "ex-4"] },
   { id: "wo-3", name: "Shooting 3", category: "Basketball", subcategory: "Shooting", notes: "Game-Speed", level: 3, exerciseIds: ["ex-4"] },
-  { id: "wo-4", name: "Gym Push 1", category: "Gym", subcategory: "Push", notes: "Saubere Technik", level: 1, exerciseIds: ["ex-5"] },
-  { id: "wo-5", name: "Gym Pull 1", category: "Gym", subcategory: "Pull", notes: "Rücken aktiv", level: 1, exerciseIds: ["ex-6"] },
-  { id: "wo-6", name: "Gym Legs 1", category: "Gym", subcategory: "Legs", notes: "Tiefe priorisieren", level: 1, exerciseIds: ["ex-7"] },
+  { id: "wo-4", name: "Gym Oberkörper 1", category: "Gym", subcategory: "Oberkörper", notes: "Saubere Technik", level: 1, exerciseIds: ["ex-5"] },
+  { id: "wo-5", name: "Gym Arme 1", category: "Gym", subcategory: "Arme", notes: "Rücken aktiv", level: 1, exerciseIds: ["ex-6"] },
+  { id: "wo-6", name: "Gym Beine 1", category: "Gym", subcategory: "Beine", notes: "Tiefe priorisieren", level: 1, exerciseIds: ["ex-7"] },
   { id: "wo-7", name: "Gym Core 1", category: "Gym", subcategory: "Core", notes: "Rumpfspannung", level: 1, exerciseIds: ["ex-8"] },
 ];
 

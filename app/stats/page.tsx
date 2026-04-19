@@ -8,7 +8,7 @@ import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home";
-const GYM_SUBCATEGORIES = ["Push", "Pull", "Legs", "Core"] as const;
+const GYM_SUBCATEGORIES = ["Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"] as const;
 const BASKETBALL_SUBCATEGORIES = ["Shooting", "Finishing", "Conditioning", "Handles"] as const;
 
 type BasketballExerciseStat = {
@@ -63,9 +63,11 @@ const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b
 
 function normalizeGymSubcategory(subcategory: string): (typeof GYM_SUBCATEGORIES)[number] | null {
   const s = subcategory.trim().toLowerCase();
-  if (s === "push") return "Push";
-  if (s === "pull") return "Pull";
-  if (s === "legs" || s === "beinkraft") return "Legs";
+  if (s === "oberkörper" || s === "push") return "Oberkörper";
+  if (s === "arme" || s === "pull") return "Arme";
+  if (s === "beine" || s === "legs" || s === "beinkraft") return "Beine";
+  if (s === "cardio") return "Cardio";
+  if (s === "komplett") return "Komplett";
   if (s === "core" || s === "kraftaufbau" || s === "power") return "Core";
   return null;
 }
@@ -650,6 +652,9 @@ export default function StatsPage() {
               {timedTrends.map((trend) => (
                 <div key={trend.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
                   <p className="text-sm font-semibold">{trend.exerciseName} <span className="text-zinc-400">({trend.subcategory})</span></p>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Letzt: {trend.points[trend.points.length - 1]} s • Best: {Math.max(...trend.points)} s • Ø: {Math.round(trend.points.reduce((sum, point) => sum + point, 0) / trend.points.length)} s
+                  </p>
                   <div className="mt-2"><TrendChart points={trend.points} /></div>
                 </div>
               ))}

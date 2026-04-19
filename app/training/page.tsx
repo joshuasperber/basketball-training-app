@@ -16,6 +16,29 @@ import {
 import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
 import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab } from "@/components/training/TrainingTabs";
 
+const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
+
+type SubcategoryMap = Record<Category, string[]>;
+
+function buildInitialSubcategoryMap(): SubcategoryMap {
+  return {
+    Basketball: [...new Set([...workoutSubcategoriesByCategory.Basketball, ...exerciseSubcategoriesByCategory.Basketball])],
+    Gym: [...new Set([...workoutSubcategoriesByCategory.Gym, ...exerciseSubcategoriesByCategory.Gym])],
+    Home: [...new Set([...workoutSubcategoriesByCategory.Home, ...exerciseSubcategoriesByCategory.Home])],
+  };
+}
+
+function loadCustomSubcategories(): Partial<SubcategoryMap> | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(CUSTOM_SUBCATEGORY_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Partial<SubcategoryMap>;
+  } catch {
+    return null;
+  }
+}
+
 function parseMetricInput(value?: string) {
   if (!value) return null;
   const normalized = value.trim();
@@ -92,6 +115,16 @@ export default function TrainingPage() {
   const [newExerciseMetrics, setNewExerciseMetrics] = useState<MetricKey[]>(["reps"]);
   const [newExerciseTargets, setNewExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
   const [newExerciseError, setNewExerciseError] = useState<string | null>(null);
+  const [subcategoriesByCategory, setSubcategoriesByCategory] = useState<SubcategoryMap>(() => {
+    const base = buildInitialSubcategoryMap();
+    const custom = loadCustomSubcategories();
+    if (!custom) return base;
+    return {
+      Basketball: [...new Set([...(custom.Basketball ?? []), ...base.Basketball])],
+      Gym: [...new Set([...(custom.Gym ?? []), ...base.Gym])],
+      Home: [...new Set([...(custom.Home ?? []), ...base.Home])],
+    };
+  });
 
   const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
   const [editWorkoutName, setEditWorkoutName] = useState("");
@@ -160,25 +193,30 @@ export default function TrainingPage() {
     });
   }, [exerciseSearch, exercises]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CUSTOM_SUBCATEGORY_KEY, JSON.stringify(subcategoriesByCategory));
+  }, [subcategoriesByCategory]);
+
   function handleWorkoutCategoryChange(category: Category) {
     setWorkoutCategory(category);
-    setWorkoutSubcategory(workoutSubcategoriesByCategory[category][0]);
+    setWorkoutSubcategory(subcategoriesByCategory[category][0]);
   }
 
   function handleExerciseCategoryChange(category: Category) {
     setExerciseCategory(category);
-    setExerciseSubcategory(exerciseSubcategoriesByCategory[category][0]);
+    setExerciseSubcategory(subcategoriesByCategory[category][0]);
   }
 
   function handleNewWorkoutCategoryChange(category: Category) {
     setNewWorkoutCategory(category);
-    setNewWorkoutSubcategory(workoutSubcategoriesByCategory[category][0]);
+    setNewWorkoutSubcategory(subcategoriesByCategory[category][0]);
     setNewWorkoutExerciseIds([]);
   }
 
   function handleNewExerciseCategoryChange(category: Category) {
     setNewExerciseCategory(category);
-    setNewExerciseSubcategory(exerciseSubcategoriesByCategory[category][0]);
+    setNewExerciseSubcategory(subcategoriesByCategory[category][0]);
   }
 
   function toggleNewExerciseMetric(metric: MetricKey) {
@@ -283,7 +321,7 @@ export default function TrainingPage() {
 
   function handleEditWorkoutCategoryChange(category: Category) {
     setEditWorkoutCategory(category);
-    setEditWorkoutSubcategory(workoutSubcategoriesByCategory[category][0]);
+    setEditWorkoutSubcategory(subcategoriesByCategory[category][0]);
     setEditWorkoutExerciseIds([]);
   }
 
@@ -350,7 +388,7 @@ export default function TrainingPage() {
 
   function handleEditExerciseCategoryChange(category: Category) {
     setEditExerciseCategory(category);
-    setEditExerciseSubcategory(exerciseSubcategoriesByCategory[category][0]);
+    setEditExerciseSubcategory(subcategoriesByCategory[category][0]);
   }
 
   function toggleEditExerciseMetric(metric: MetricKey) {
@@ -435,6 +473,38 @@ export default function TrainingPage() {
     }
   }
 
+  function handleCreateSubcategory(category: Category, name: string) {
+    const normalized = name.trim();
+    if (!normalized) return;
+    setSubcategoriesByCategory((current) => {
+      const existing = current[category];
+      if (existing.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) return current;
+      return { ...current, [category]: [...existing, normalized] };
+    });
+  }
+
+  async function handleDeleteSubcategory(category: Category, subcategory: string) {
+    const nextExercises = exercises.filter((exercise) => !(exercise.category === category && exercise.subcategory === subcategory));
+    const deletedExerciseIds = new Set(
+      exercises.filter((exercise) => exercise.category === category && exercise.subcategory === subcategory).map((exercise) => exercise.id),
+    );
+    const nextWorkouts = workouts
+      .filter((workout) => !(workout.category === category && workout.subcategory === subcategory))
+      .map((workout) => ({
+        ...workout,
+        exerciseIds: workout.exerciseIds.filter((id) => !deletedExerciseIds.has(id)),
+      }));
+
+    setExercises(nextExercises);
+    setWorkouts(nextWorkouts);
+    setSubcategoriesByCategory((current) => ({
+      ...current,
+      [category]: current[category].filter((entry) => entry !== subcategory),
+    }));
+
+    await persistTrainingData(nextExercises, nextWorkouts);
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
@@ -460,7 +530,9 @@ export default function TrainingPage() {
         {activeTab === "Workouts" ? (
           <WorkoutsTab
                       categories={categories}
-            subcategories={workoutSubcategoriesByCategory}
+            subcategories={subcategoriesByCategory}
+            onCreateSubcategory={handleCreateSubcategory}
+            onDeleteSubcategory={handleDeleteSubcategory}
             selectedCategory={workoutCategory}
             selectedSubcategory={workoutSubcategory}
             onCategoryChange={handleWorkoutCategoryChange}
@@ -498,7 +570,9 @@ export default function TrainingPage() {
         ) : (
           <ExercisesTab
             categories={categories}
-            subcategories={exerciseSubcategoriesByCategory}
+            subcategories={subcategoriesByCategory}
+            onCreateSubcategory={handleCreateSubcategory}
+            onDeleteSubcategory={handleDeleteSubcategory}
             selectedCategory={exerciseCategory}
             selectedSubcategory={exerciseSubcategory}
             onCategoryChange={handleExerciseCategoryChange}
