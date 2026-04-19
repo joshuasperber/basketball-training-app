@@ -37,6 +37,7 @@ type GymExerciseGoalStat = {
   maxRepsAtMaxWeight: number;
   suggestedWeightKg: number;
   suggestedReps: number;
+  progressionHint: string;
 };
 
 type SessionDetail = {
@@ -328,14 +329,22 @@ function buildGymExerciseGoals(range: StatsRange): GymExerciseGoalStat[] {
     });
   });
 
-  const now = Date.now();
   return Array.from(map.entries())
     .map(([exerciseId, data]) => {
       const avgWeightKg = data.weights.length ? data.weights.reduce((a, b) => a + b, 0) / data.weights.length : 0;
       const avgReps = data.reps.length ? data.reps.reduce((a, b) => a + b, 0) / data.reps.length : 0;
-      const daysSince = data.latestISO ? Math.floor((now - new Date(data.latestISO).getTime()) / (1000 * 60 * 60 * 24)) : 999;
-      const growthFactor = daysSince <= 14 ? 1.03 : 1;
-      const decayFactor = daysSince > 14 ? Math.max(0.9, 1 - (daysSince - 14) * 0.005) : 1;
+      const maxWeight = Math.max(0, Math.round(data.maxWeight * 10) / 10);
+      const smallWeightStep = maxWeight > 0 && maxWeight <= 20 ? 2.5 : 0;
+      const normalWeightStep = maxWeight > 20 ? 5 : 0;
+      const suggestedWeightKg = Math.max(maxWeight, maxWeight + smallWeightStep + normalWeightStep);
+      const baseReps = Math.max(3, Math.round(avgReps || data.maxRepsAtMaxWeight || 8));
+      const suggestedReps = normalWeightStep > 0 || smallWeightStep > 0 ? baseReps : Math.min(20, baseReps + 1);
+      const progressionHint =
+        normalWeightStep > 0
+          ? `+5 kg Ziel. Falls Satz 1 nicht klappt: Steigerung erst in Satz 2 oder 5 anwenden.`
+          : smallWeightStep > 0
+            ? `+2.5 kg Ziel (leichtere Last). Alternativ Reps in Satz 2 oder 5 steigern.`
+            : "Gewicht beibehalten und Wiederholungen steigern (zur Not erst im Satz 2/5).";
       return {
         exerciseId,
         exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
@@ -343,8 +352,9 @@ function buildGymExerciseGoals(range: StatsRange): GymExerciseGoalStat[] {
         avgReps: Math.round(avgReps * 10) / 10,
         maxWeightKg: data.maxWeight,
         maxRepsAtMaxWeight: data.maxRepsAtMaxWeight,
-        suggestedWeightKg: Math.max(0, Math.round(avgWeightKg * growthFactor * decayFactor)),
-        suggestedReps: Math.min(20, Math.max(3, Math.round(avgReps * (daysSince <= 14 ? 1.02 : 1)))),
+        suggestedWeightKg: Math.round(suggestedWeightKg * 10) / 10,
+        suggestedReps,
+        progressionHint,
       };
     })
     .sort((a, b) => b.maxWeightKg - a.maxWeightKg);
@@ -375,12 +385,12 @@ function TrendChart({ points }: { points: number[] }) {
     .join(" ");
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-24 w-full rounded bg-zinc-900">
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-28 w-full rounded bg-zinc-900">
       <line x1="0" y1={height - 2} x2={width} y2={height - 2} stroke="#52525b" strokeWidth="1" />
       <line x1="2" y1="0" x2="2" y2={height} stroke="#52525b" strokeWidth="1" />
       <polyline fill="none" stroke="#38bdf8" strokeWidth="3" points={linePoints} />
-      <text x="8" y="12" fill="#a1a1aa" fontSize="9">Zeit (Sek.)</text>
-      <text x={width - 52} y={height - 6} fill="#a1a1aa" fontSize="9">Session</text>
+      <text x="8" y="10" fill="#d4d4d8" fontSize="9">Y-Achse: Zeit in Sekunden</text>
+      <text x={width - 100} y={height - 6} fill="#d4d4d8" fontSize="9">X-Achse: Session Nummer</text>
     </svg>
   );
 }
@@ -432,8 +442,19 @@ export default function StatsPage() {
     basketballQuotes: false,
     timeExercises: false,
     history: false,
+    gymGoals: false,
   });
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [username] = useState(() => {
+    if (typeof window === "undefined") return "Champion";
+    try {
+      const cached = window.localStorage.getItem("profile_cache_v4");
+      if (!cached) return "Champion";
+      const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
+      return parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
+    } catch {
+      return "Champion";
+    }
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -470,7 +491,6 @@ export default function StatsPage() {
   const subcategoryBySport = useMemo(() => buildCategorySubcategorySlices(filteredHistory), [filteredHistory]);
 
   const exerciseLookup = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise.name])), []);
-  const exerciseDataLookup = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise])), []);
 
   const selectedSession = useMemo(
     () => sessionDetails.find((session) => session.id === selectedSessionId) ?? null,
@@ -494,37 +514,7 @@ export default function StatsPage() {
     };
   }, [filteredSessions]);
 
-  const subcategoryOptions = useMemo(
-    () => [
-      ...new Set(filteredHistory.map((entry) => entry.subcategory).filter(Boolean)),
-    ].sort((a, b) => a.localeCompare(b)),
-    [filteredHistory],
-  );
-
-  const subcategoryDetails = useMemo(() => {
-    if (!selectedSubcategory) return [];
-    return filteredSessions
-      .map((session) => {
-        const logs = session.logs.filter((log) => {
-          const ex = exerciseDataLookup.get(log.exerciseId);
-          if (!ex) return false;
-          const normalized = ex.category === "Basketball"
-            ? normalizeBasketballSubcategory(ex.subcategory)
-            : ex.category === "Gym"
-              ? normalizeGymSubcategory(ex.subcategory)
-              : ex.subcategory;
-          return normalized === selectedSubcategory || ex.subcategory === selectedSubcategory;
-        });
-        if (logs.length === 0) return null;
-        return {
-          sessionId: session.id,
-          workoutName: session.workoutName,
-          dateISO: session.dateISO,
-          exercises: logs.map((log) => exerciseLookup.get(log.exerciseId) ?? log.exerciseId),
-        };
-      })
-      .filter((value): value is { sessionId: string; workoutName: string; dateISO: string; exercises: string[] } => Boolean(value));
-  }, [exerciseDataLookup, exerciseLookup, filteredSessions, selectedSubcategory]);
+  const totalMinutesTrained = filteredSessions.reduce((sum, session) => sum + session.logs.length * 4, 0);
 
   const basketballShotSummary = useMemo(() => {
     const exercises = loadExercises();
@@ -558,7 +548,7 @@ export default function StatsPage() {
     return summary;
   }, [filteredSessions]);
 
-  const toggleSection = (key: "basketballQuotes" | "timeExercises" | "history") => {
+  const toggleSection = (key: "basketballQuotes" | "timeExercises" | "history" | "gymGoals") => {
     setOpenSections((current) => ({ ...current, [key]: !current[key] }));
   };
 
@@ -566,6 +556,7 @@ export default function StatsPage() {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Statistiken</h1>
       <p className="mt-2 text-zinc-400">Langfristige Auswertung deiner abgeschlossenen Workouts</p>
+      <p className="mt-1 text-sm text-cyan-300">{username}, deine Daten zeigen klaren Fortschritt – bleib im Rhythmus.</p>
       <div className="mt-4 inline-flex rounded-lg border border-zinc-700 bg-zinc-900 p-1 text-sm">
         {[
           { id: "all", label: "All Time" },
@@ -588,6 +579,7 @@ export default function StatsPage() {
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Zeitraum</p><p className="mt-2 text-3xl font-bold">{range === "all" ? "All Time" : range === "weekly" ? "7 Tage" : "30 Tage"}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Sätze gesamt</p><p className="mt-2 text-3xl font-bold">{totalSets}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Reps gesamt</p><p className="mt-2 text-3xl font-bold">{totalReps}</p></div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Trainierte Minuten</p><p className="mt-2 text-3xl font-bold">{totalMinutesTrained}</p></div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:col-span-2"><p className="text-xs uppercase tracking-wide text-zinc-500">Volumen gesamt (kg)</p><p className="mt-2 text-3xl font-bold">{totalVolume}</p></div>
       </div>
 
@@ -611,40 +603,28 @@ export default function StatsPage() {
         </div>
       </section>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <PieCard title="Kategorien Vergleich (Basketball / Gym / Home)" slices={sportSlices} />
+      <div className="mt-6 space-y-4">
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <h2 className="text-xl font-semibold">Kategorien Vergleich</h2>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {(["Basketball", "Gym", "Home"] as const).map((sport) => {
+              const value = sportSlices.find((slice) => slice.label === sport)?.value ?? 0;
+              return (
+                <div key={`compare-${sport}`} className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
+                  <p className="text-sm text-zinc-400">{sport}</p>
+                  <p className="mt-1 text-3xl font-bold">{value}</p>
+                  <p className="text-xs text-zinc-500">Workouts im Zeitraum</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+        <div className="grid gap-4 lg:grid-cols-3">
         <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball ?? []} />
         <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym ?? []} />
         <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home ?? []} />
-      </div>
-
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-lg font-semibold">Unterkategorie Explorer</h2>
-        <p className="mt-1 text-sm text-zinc-400">Klicke eine Unterkategorie und du siehst alle Workouts + Exercises dazu.</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {subcategoryOptions.map((subcategory) => (
-            <button
-              key={subcategory}
-              type="button"
-              onClick={() => setSelectedSubcategory(subcategory)}
-              className={`rounded-full border px-3 py-1 text-xs ${selectedSubcategory === subcategory ? "border-cyan-400 bg-cyan-500/20 text-cyan-100" : "border-zinc-600 text-zinc-300"}`}
-            >
-              {subcategory}
-            </button>
-          ))}
         </div>
-        {selectedSubcategory ? (
-          <div className="mt-3 space-y-2">
-            {subcategoryDetails.length === 0 ? <p className="text-sm text-zinc-500">Keine Workouts in diesem Zeitraum.</p> : subcategoryDetails.map((entry) => (
-              <div key={entry.sessionId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
-                <p className="font-semibold">{entry.workoutName}</p>
-                <p className="text-zinc-400">{new Date(entry.dateISO).toLocaleString("de-DE")}</p>
-                <p className="text-zinc-300">Exercises: {entry.exercises.join(", ")}</p>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </section>
+      </div>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <button type="button" onClick={() => toggleSection("basketballQuotes")} className="w-full text-left text-lg font-semibold">Basketball-Quoten je Übung</button>
@@ -679,18 +659,21 @@ export default function StatsPage() {
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-lg font-semibold">Gym Ziele je Exercise</h2>
-        {gymGoals.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine Gym-Daten vorhanden.</p> : (
-          <div className="mt-3 space-y-2">
-            {gymGoals.map((entry) => (
-              <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
-                <p className="font-medium">{entry.exerciseName}</p>
-                <p className="text-zinc-300">Ø Gewicht {entry.avgWeightKg} kg • Ø Reps {entry.avgReps} • Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
-                <p className="text-emerald-300">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
-              </div>
-            ))}
-          </div>
-        )}
+        <button type="button" onClick={() => toggleSection("gymGoals")} className="w-full text-left text-lg font-semibold">Gym Ziele je Exercise</button>
+        {openSections.gymGoals ? (
+          gymGoals.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine Gym-Daten vorhanden.</p> : (
+            <div className="mt-3 space-y-2">
+              {gymGoals.map((entry) => (
+                <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
+                  <p className="font-medium">{entry.exerciseName}</p>
+                  <p className="text-zinc-300">Ø Gewicht {entry.avgWeightKg} kg • Ø Reps {entry.avgReps} • Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
+                  <p className="text-emerald-300">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
+                  <p className="mt-1 text-xs text-zinc-400">{entry.progressionHint}</p>
+                </div>
+              ))}
+            </div>
+          )
+        ) : null}
       </section>
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">

@@ -139,7 +139,6 @@ function getGymSubtagFromTags(tags: PlannedWorkoutTag[]): GymTag | null {
 
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const [profile, setProfile] = useState<ProfileRow>({ username: "joshua", full_name: "Joshua Sperber", favorite_position: "pf", height_cm: 198, weight_kg: 98 });
@@ -287,11 +286,9 @@ export default function ProfilePage() {
     updateSelectedDatePlan(["Gym", `Gym:${tag}` as PlannedWorkoutTag]);
   };
 
-  const onSave = async () => {
-    setSaving(true);
+  const persistProfileToSupabase = useCallback(async () => {
     const username = (profile.username ?? "").trim().toLowerCase();
     if (!username) {
-      setSaving(false);
       setMessage("Bitte einen Username eingeben.");
       return;
     }
@@ -304,16 +301,22 @@ export default function ProfilePage() {
       weight_kg: profile.weight_kg,
     });
     if (error) {
-      setSaving(false);
       setMessage(`Speichern fehlgeschlagen: ${error.message}`);
       return;
     }
 
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
     saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
-    setSaving(false);
-    setMessage("Profil gespeichert ✅");
-  };
+    setMessage("Profil wurde automatisch gespeichert ✅");
+  }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
+
+  useEffect(() => {
+    if (loading) return;
+    const timer = window.setTimeout(() => {
+      void persistProfileToSupabase();
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [loading, persistProfileToSupabase]);
 
   return (
     <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
@@ -473,9 +476,9 @@ export default function ProfilePage() {
             </div>
           </section>
 
-          <button type="button" onClick={onSave} disabled={saving || loading} className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">
-            {saving ? "Speichern..." : "Profil speichern"}
-          </button>
+          <p className="rounded-lg border border-indigo-700 bg-indigo-950/40 px-4 py-2 text-xs text-indigo-100">
+            Änderungen werden automatisch gespeichert.
+          </p>
         </div>
 
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">

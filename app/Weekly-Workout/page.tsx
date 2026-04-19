@@ -176,11 +176,11 @@ function computeWorkoutDuration(workout: Workout, exercisesById: Record<string, 
 function buildFallbackSuggestion(mode: string, minutes: number): SuggestedWorkout | null {
   if (mode === "none" || mode === "recovery" || minutes <= 0) {
     return {
-      title: "Kein Workout geplant",
+      title: "Freier Tag",
       durationMin: 0,
-      notes: "0 Minuten angesetzt.",
+      notes: "Heute ist ein freier Tag. Versuche trotzdem eine kleine aktive Gewohnheit zu schaffen 💪",
       sport: "-",
-      subcategory: "-",
+      subcategory: "Frei",
     };
   }
 
@@ -580,7 +580,9 @@ export default function WeeklyWorkoutPage() {
   };
   const moveManualWorkoutToTomorrow = (dayIndex: (typeof weekdayOrder)[number], manualWorkoutId: string) => {
     const sourceDateKey = toLocalDateKey(getDateForWeekday(dayIndex));
-    const targetDateKey = toLocalDateKey(getDateForWeekday((dayIndex + 1) % 7));
+    const sourceDate = new Date(`${sourceDateKey}T00:00:00`);
+    sourceDate.setDate(sourceDate.getDate() + 1);
+    const targetDateKey = toLocalDateKey(sourceDate);
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
     if (!raw) return;
     try {
@@ -613,6 +615,7 @@ export default function WeeklyWorkoutPage() {
           const dayManualEntries = manualWorkoutsByDate[manualDateKey] ?? [];
           const isDayDisabled = disabledManualDays[manualDateKey] === true;
           const plannedTags = dailyPlanMap[manualDateKey] ?? [];
+          const isRestDisplay = isDayDisabled || (suggestedWorkout?.durationMin ?? 0) <= 0 || suggestedWorkout?.sport === "-";
           const primaryManual = dayManualEntries[0];
           const workoutCards: WorkoutCardItem[] = [];
           if (primaryManual) {
@@ -683,14 +686,14 @@ export default function WeeklyWorkoutPage() {
 
               </div>
 
-              <p className="mt-2 text-lg font-medium">{isDayDisabled ? "Kein Workout geplant" : suggestedWorkout?.title ?? workout.title}</p>
+              <p className="mt-2 text-lg font-medium">{isRestDisplay ? "Frei / Kein Workout geplant" : suggestedWorkout?.title ?? workout.title}</p>
               {profilePlan ? (
                 <p className="mt-2 text-sm text-emerald-300">
                   Profil-Plan: {profilePlan.sessionType} • {profilePlan.intensity} • {profilePlan.minutes} Min
                 </p>
               ) : null}
               <div className="mt-3 grid gap-2 md:grid-cols-2">
-                {workoutCards.length > 0 ? workoutCards.map((card) => (
+                {workoutCards.length > 0 && !isRestDisplay ? workoutCards.map((card) => (
                   <button
                     key={card.id}
                     type="button"
@@ -712,11 +715,11 @@ export default function WeeklyWorkoutPage() {
                   </button>
                 )) : (
                   <p className="rounded-lg border border-zinc-700 bg-zinc-950/40 p-3 text-xs text-zinc-400">
-                    Kein Workout hinterlegt.
+                    {isRestDisplay ? "Tag ist als Frei markiert. Versuche heute trotzdem eine kleine Aktivität 🙌" : "Kein Workout hinterlegt."}
                   </p>
                 )}
               </div>
-              {selectedCard ? (
+              {selectedCard && !isRestDisplay ? (
                 <div className="mt-3 flex flex-wrap gap-2 rounded-lg border border-zinc-700 bg-zinc-950/50 p-2">
                   <Link
                     href={startHref}
@@ -767,7 +770,7 @@ export default function WeeklyWorkoutPage() {
                   </button>
                 </div>
               ) : null}
-              {!selectedCard ? (
+              {!selectedCard || isRestDisplay ? (
                 <div className="mt-3">
                   <Link
                     href={`/workouts?day=${day}&manual=1`}
@@ -778,8 +781,10 @@ export default function WeeklyWorkoutPage() {
                 </div>
               ) : null}
 
-              {selectedCard ? (
+              {selectedCard && !isRestDisplay ? (
                 <p className="mt-2 text-xs text-zinc-500">{selectedCard.notes}</p>
+              ) : isRestDisplay ? (
+                <p className="mt-2 text-xs text-emerald-300">Erholung ist Teil vom Plan. Versuche trotzdem jeden Tag eine Kleinigkeit zu schaffen.</p>
               ) : (
                 <ul className="mt-3 list-inside list-disc text-sm text-zinc-300">
                   {workout.exercises.map((exercise) => (

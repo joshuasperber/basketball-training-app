@@ -248,22 +248,26 @@ function WorkoutsPageContent() {
       exercises,
     };
   }, [trainingExercises, trainingWorkouts, workoutIdParam]);
-    const defaultWorkout = useMemo(
+
+  const defaultWorkout = useMemo(
     () => (selectedDay !== null && Number.isInteger(selectedDay) ? getWorkoutPlanForDay(selectedDay) : getTodayWorkoutPlan()),
     [selectedDay],
   );
+
   const selectedOverrideWorkout = useMemo(() => {
     if (!overrideWorkoutId) return null;
     return workoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
   }, [overrideWorkoutId, workoutOptions]);
+
   const activeWorkoutBase = manualWorkout ?? selectedOverrideWorkout ?? customWorkoutFromCatalog ?? autoWorkoutFromWeekly ?? defaultWorkout;
   const [sessionWorkout, setSessionWorkout] = useState<WorkoutPlan>(activeWorkoutBase);
-    useEffect(() => {
+
+  useEffect(() => {
     setSessionWorkout(activeWorkoutBase);
   }, [activeWorkoutBase]);
-  const workoutForExecution = useMemo<WorkoutPlan>(() => {
-    return sessionWorkout;
-  }, [sessionWorkout]);
+
+  const workoutForExecution = useMemo<WorkoutPlan>(() => sessionWorkout, [sessionWorkout]);
+
   const fallbackProgress = useMemo(
     () => getDefaultWorkoutProgress(dateKey, workoutForExecution),
     [dateKey, workoutForExecution],
@@ -271,6 +275,7 @@ function WorkoutsPageContent() {
 
   const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
   const [selectedMetricByExercise, setSelectedMetricByExercise] = useState<Record<number, MetricKey>>({});
+
   const recommendations = useMemo(() => {
     const sessions = getWorkoutSessions();
     const now = new Date();
@@ -304,6 +309,7 @@ function WorkoutsPageContent() {
 
     return { missingSubcategories, suggestedExercises };
   }, [trainingExercises]);
+
   const manualSubcategoryOptions = useMemo(
     () =>
       Array.from(
@@ -315,6 +321,7 @@ function WorkoutsPageContent() {
       ).sort((left, right) => left.localeCompare(right)),
     [manualCategory, trainingExercises],
   );
+
   const manualTemplateOptions = useMemo(
     () =>
       trainingWorkouts.filter(
@@ -324,6 +331,7 @@ function WorkoutsPageContent() {
       ),
     [manualCategory, manualSubcategory, trainingWorkouts],
   );
+
   const manualExercisePool = useMemo(() => {
     if (manualCategory === "Rest") return [];
     const query = manualSearch.trim().toLowerCase();
@@ -334,6 +342,7 @@ function WorkoutsPageContent() {
       return `${exercise.name} ${exercise.subcategory}`.toLowerCase().includes(query);
     });
   }, [manualCategory, manualSearch, manualSubcategory, trainingExercises]);
+
   useEffect(() => {
     const rawOverride = window.localStorage.getItem(overrideStorageKey);
     const timer = window.setTimeout(() => {
@@ -400,14 +409,17 @@ function WorkoutsPageContent() {
   const currentSet = currentExercise?.sets[safeSetIndex] ?? { targetKg: 0, targetReps: 0 };
   const currentLogKey = buildSetLogKey(safeExerciseIndex, safeSetIndex);
   const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "", misses: "" };
+
   const exerciseMeta = useMemo(() => {
     const lookup = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
     return workoutForExecution.exercises.map((exercise) => lookup.get(exercise.name) ?? null);
   }, [trainingExercises, workoutForExecution.exercises]);
+
   const currentExerciseMeta = exerciseMeta[safeExerciseIndex];
   const currentMetricOptions = (currentExerciseMeta?.metricKeys?.length ? currentExerciseMeta.metricKeys : ["reps"]) as MetricKey[];
   const activeMetric = selectedMetricByExercise[safeExerciseIndex] ?? currentMetricOptions[0];
   const tracksTriesAndMakes = !isGymWorkout && currentMetricOptions.includes("tries") && currentMetricOptions.includes("makes");
+
   const workoutNotes = useMemo(() => {
     const fromCatalog = customWorkoutFromCatalog ? trainingWorkouts.find((workout) => workout.id === customWorkoutFromCatalog.id)?.notes : null;
     return fromCatalog ?? null;
@@ -457,6 +469,7 @@ function WorkoutsPageContent() {
       },
     });
   };
+
   const parseNonNegative = (value?: string) => {
     const parsed = Number(value ?? "");
     if (!Number.isFinite(parsed) || parsed < 0) return 0;
@@ -466,11 +479,13 @@ function WorkoutsPageContent() {
   const selectMetric = (metric: MetricKey) => {
     setSelectedMetricByExercise((previous) => ({ ...previous, [safeExerciseIndex]: metric }));
   };
-    const toggleManualExercise = (exerciseId: string) => {
+
+  const toggleManualExercise = (exerciseId: string) => {
     setSelectedManualExerciseIds((previous) =>
       previous.includes(exerciseId) ? previous.filter((id) => id !== exerciseId) : [...previous, exerciseId],
     );
   };
+
   const moveManualExercise = (exerciseId: string, direction: "up" | "down") => {
     setSelectedManualExerciseIds((previous) => {
       const index = previous.indexOf(exerciseId);
@@ -483,6 +498,7 @@ function WorkoutsPageContent() {
       return next;
     });
   };
+
   const applyTemplateWorkout = (workoutId: string) => {
     const workout = trainingWorkouts.find((entry) => entry.id === workoutId);
     if (!workout) return;
@@ -492,130 +508,22 @@ function WorkoutsPageContent() {
     setSelectedManualExerciseIds(workout.exerciseIds);
     setManualTemplateWorkoutId(workout.id);
   };
-  const applyManualWorkout = () => {
-    if (manualCategory === "Rest") {
-      setManualWorkout({
-        id: `manual-rest-${Date.now()}`,
-        title: manualTitle.trim() || "Ruhetag",
-        sport: "Rest",
-        subcategory: manualSubcategory.trim() || "Ruhetag",
-        exercises: [],
-      });
-      setOverrideWorkoutId(null);
-      window.localStorage.removeItem(overrideStorageKey);
-      router.push("/Weekly-Workout");
-      return;
-    }
-    const sameCategoryExercises = expandExercisesWithFamily({
-      selectedExerciseIds: selectedManualExerciseIds,
-      category: manualCategory,
-      subcategory: manualSubcategory || undefined,
-      exercises: trainingExercises,
-    });
-    if (!sameCategoryExercises.length) return;
-    const selectedOrder = new Map(selectedManualExerciseIds.map((id, index) => [id, index]));
-    const orderedIds = sameCategoryExercises.sort((left, right) => {
-      const leftIndex = selectedOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
-      const rightIndex = selectedOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
-      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
-      return left.name.localeCompare(right.name);
-    });
-    setManualWorkout({
-      id: `manual-${Date.now()}`,
-      title: manualTitle.trim() || "Manuelles Workout",
-      sport: manualCategory,
-      subcategory: manualSubcategory.trim() || sameCategoryExercises[0].subcategory,
-      exercises: orderedIds.map((exercise) => ({
-        name: exercise.name,
-        sets: [{
-          targetKg: exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0,
-          targetReps: getExercisePrimaryTargetValue(exercise),
-        }],
-      })),
-    });
-    setOverrideWorkoutId(null);
-    window.localStorage.removeItem(overrideStorageKey);
-    router.push("/Weekly-Workout");
-  };
-    const saveManualWorkoutForDay = () => {
-    if (manualCategory !== "Rest" && selectedManualExerciseIds.length <= 0) return;
-    const selectedExercises =
-      manualCategory === "Rest"
-        ? []
-        : expandExercisesWithFamily({
-            selectedExerciseIds: selectedManualExerciseIds,
-            category: manualCategory,
-            subcategory: manualSubcategory || undefined,
-            exercises: trainingExercises,
-          });
-    const selectedOrder = new Map(selectedManualExerciseIds.map((id, index) => [id, index]));
-    const orderedExerciseIds = selectedExercises
-      .sort((left, right) => {
-        const leftIndex = selectedOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
-        const rightIndex = selectedOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
-        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
-        return left.name.localeCompare(right.name);
-      })
-      .map((exercise) => exercise.id);
-    const nextEntry: ManualDayWorkout = {
-      id: `manual-day-${Date.now()}`,
-      title: manualTitle.trim() || "Manuelles Workout",
-      sport: manualCategory,
-      subcategory: manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Ruhetag",
-      notes: manualNotes.trim(),
-      exerciseIds: orderedExerciseIds,
-    };
-    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
-    let store: Record<string, ManualDayWorkout[]> = {};
-    if (raw) {
-      try {
-        store = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
-      } catch {
-        store = {};
-      }
-    }
-    store[dateKey] = [nextEntry, ...(store[dateKey] ?? [])];
-    window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
-    const disabledMap = readManualDayDisabledMap();
-    if (disabledMap[dateKey]) {
-      const nextDisabled = { ...disabledMap };
-      delete nextDisabled[dateKey];
-      writeManualDayDisabledMap(nextDisabled);
-    }
-    const selectedMinutes =
-      manualCategory === "Rest"
-        ? 0
-        : orderedExerciseIds.reduce((sum, exerciseId) => {
-            const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
-            return sum + (exercise?.durationMin ?? 10);
-          }, 0);
-    syncProfileDayConfig(effectiveDay, manualCategory, Math.ceil(selectedMinutes * 1.1 / 5) * 5);
-    setManualStorageVersion((previous) => previous + 1);
-    loadSavedManualWorkout(nextEntry, false);
-    router.push("/Weekly-Workout");
-  };
-  function loadSavedManualWorkout(entry: ManualDayWorkout, shouldRoute = true) {
-    setManualCategory(entry.sport);
-    setManualSubcategory(entry.subcategory);
-    setManualTitle(entry.title);
-    setSelectedManualExerciseIds(entry.exerciseIds);
-    setOverrideWorkoutId(null);
-    window.localStorage.removeItem(overrideStorageKey);
+
+  const buildManualWorkoutPlan = (entry: ManualDayWorkout): WorkoutPlan | null => {
     if (entry.sport === "Rest") {
-      setManualWorkout({
+      return {
         id: entry.id,
         title: entry.title,
         sport: "Rest",
         subcategory: entry.subcategory,
         exercises: [],
-      });
-      return;
+      };
     }
     const selectedExercises = entry.exerciseIds
       .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
       .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise));
-    if (!selectedExercises.length) return;
-    setManualWorkout({
+    if (!selectedExercises.length) return null;
+    return {
       id: entry.id,
       title: entry.title,
       sport: entry.sport,
@@ -627,7 +535,106 @@ function WorkoutsPageContent() {
           targetReps: getExercisePrimaryTargetValue(exercise),
         }],
       })),
-    });
+    };
+  };
+
+  const saveManualWorkoutForDay = (startImmediately: boolean) => {
+    if (manualCategory !== "Rest" && selectedManualExerciseIds.length <= 0) return;
+    const selectedExercises =
+      manualCategory === "Rest"
+        ? []
+        : expandExercisesWithFamily({
+            selectedExerciseIds: selectedManualExerciseIds,
+            category: manualCategory,
+            subcategory: manualSubcategory || undefined,
+            exercises: trainingExercises,
+          });
+
+    const selectedOrder = new Map(selectedManualExerciseIds.map((id, index) => [id, index]));
+    const orderedExerciseIds = selectedExercises
+      .sort((left, right) => {
+        const leftIndex = selectedOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = selectedOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+        return left.name.localeCompare(right.name);
+      })
+      .map((exercise) => exercise.id);
+
+    const nextEntry: ManualDayWorkout = {
+      id: `manual-day-${Date.now()}`,
+      title: manualTitle.trim() || "Manuelles Workout",
+      sport: manualCategory,
+      subcategory: manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Ruhetag",
+      notes: manualNotes.trim(),
+      exerciseIds: orderedExerciseIds,
+    };
+
+    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+    let store: Record<string, ManualDayWorkout[]> = {};
+    if (raw) {
+      try {
+        store = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
+      } catch {
+        store = {};
+      }
+    }
+
+    store[dateKey] = [nextEntry, ...(store[dateKey] ?? []).filter((entry) => entry.id !== manualWorkoutIdParam)];
+    window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
+
+    const disabledMap = readManualDayDisabledMap();
+    if (disabledMap[dateKey]) {
+      const nextDisabled = { ...disabledMap };
+      delete nextDisabled[dateKey];
+      writeManualDayDisabledMap(nextDisabled);
+    }
+
+    const selectedMinutes =
+      manualCategory === "Rest"
+        ? 0
+        : orderedExerciseIds.reduce((sum, exerciseId) => {
+            const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
+            return sum + (exercise?.durationMin ?? 10);
+          }, 0);
+
+    syncProfileDayConfig(effectiveDay, manualCategory, Math.ceil(selectedMinutes * 1.1 / 5) * 5);
+    setManualStorageVersion((previous) => previous + 1);
+    loadSavedManualWorkout(nextEntry, false);
+
+    if (startImmediately) {
+      const plan = buildManualWorkoutPlan(nextEntry);
+      if (plan) {
+        setManualWorkout(plan);
+      }
+      router.replace(`/workouts?day=${effectiveDay}`);
+      return;
+    }
+
+    router.push("/Weekly-Workout");
+  };
+
+  function loadSavedManualWorkout(entry: ManualDayWorkout, shouldRoute = true) {
+    setManualCategory(entry.sport);
+    setManualSubcategory(entry.subcategory);
+    setManualTitle(entry.title);
+    setSelectedManualExerciseIds(entry.exerciseIds);
+    setOverrideWorkoutId(null);
+    window.localStorage.removeItem(overrideStorageKey);
+
+    if (entry.sport === "Rest") {
+      setManualWorkout({
+        id: entry.id,
+        title: entry.title,
+        sport: "Rest",
+        subcategory: entry.subcategory,
+        exercises: [],
+      });
+      return;
+    }
+
+    const plannedWorkout = buildManualWorkoutPlan(entry);
+    if (!plannedWorkout) return;
+    setManualWorkout(plannedWorkout);
     if (shouldRoute) {
       router.push("/Weekly-Workout");
     }
@@ -721,7 +728,8 @@ function WorkoutsPageContent() {
       },
       { totalSets: 0, totalReps: 0, totalVolumeKg: 0 },
     );
-        const historyEntry: CompletedWorkoutHistoryEntry = {
+
+    const historyEntry: CompletedWorkoutHistoryEntry = {
       id: `${completedProgress.date}-${completedProgress.workoutId}`,
       date: completedProgress.date,
       workoutId: completedProgress.workoutId,
@@ -769,6 +777,7 @@ function WorkoutsPageContent() {
         logs: sessionLogs,
       });
     }
+
     let achievedSets = 0;
     let totalSets = 0;
     workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {
@@ -849,8 +858,8 @@ function WorkoutsPageContent() {
     persistProgress({
       ...progress,
       setIndex: safeSetIndex + 1,
-        status: "in_progress",
-      });
+      status: "in_progress",
+    });
   };
 
   if (!isClientReady) {
@@ -906,12 +915,13 @@ function WorkoutsPageContent() {
           </p>
         ) : null}
       </section>
+
       {manualParam === "1" ? (
         <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/20 p-4">
           <h2 className="text-lg font-semibold text-emerald-200">Workout manuell erstellen</h2>
           <p className="mt-1 text-xs text-emerald-100">Fehlende Unterkategorien diese Woche: {recommendations.missingSubcategories.join(", ") || "keine"}</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        <select
+            <select
               value={manualCategory}
               onChange={(event) => {
                 const nextCategory = event.target.value as "Basketball" | "Gym" | "Home" | "Rest";
@@ -1010,17 +1020,17 @@ function WorkoutsPageContent() {
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              onClick={applyManualWorkout}
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold"
+              onClick={() => saveManualWorkoutForDay(false)}
+              className="w-full rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-200"
             >
-              Manuelles Workout laden
+              Workout für diesen Tag speichern
             </button>
             <button
               type="button"
-              onClick={saveManualWorkoutForDay}
-              className="rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-200"
+              onClick={() => saveManualWorkoutForDay(true)}
+              className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold"
             >
-              Für diesen Tag speichern
+              Speichern & direkt starten
             </button>
           </div>
         </section>
@@ -1033,165 +1043,166 @@ function WorkoutsPageContent() {
       ) : null}
 
       {manualParam !== "1" ? (
-      <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <div className="mb-3">
-          <p className="text-xs uppercase tracking-wide text-zinc-400">Workout-Fortschritt</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {workoutForExecution.exercises.map((exercise, index) => {
-              const status = getExerciseStatus(index);
-              const isActive = index === safeExerciseIndex;
-              const badgeClass =
-                status === "completed"
-                  ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
-                  : status === "in_progress"
-                    ? "border-amber-500 bg-amber-500/20 text-amber-200"
-                    : "border-zinc-700 bg-zinc-950 text-zinc-300";
+        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <div className="mb-3">
+            <p className="text-xs uppercase tracking-wide text-zinc-400">Workout-Fortschritt</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {workoutForExecution.exercises.map((exercise, index) => {
+                const status = getExerciseStatus(index);
+                const isActive = index === safeExerciseIndex;
+                const badgeClass =
+                  status === "completed"
+                    ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                    : status === "in_progress"
+                      ? "border-amber-500 bg-amber-500/20 text-amber-200"
+                      : "border-zinc-700 bg-zinc-950 text-zinc-300";
 
-              return (
-                <button
-                  type="button"
-                  key={`${workoutForExecution.id}-progress-${exercise.name}`}
-                  onClick={() => jumpToExercise(index)}
-                  className={`rounded-lg border px-3 py-2 text-left text-xs ${badgeClass} ${
-                    isActive ? "ring-2 ring-indigo-500" : ""
-                  }`}
-                >
-                  <p className="font-semibold">{exercise.name}</p>
-                  <p>
-                    {status === "completed"
-                      ? "Abgeschlossen"
-                      : status === "in_progress"
-                        ? "In Arbeit"
-                        : "Nicht gestartet"}
-                  </p>
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    type="button"
+                    key={`${workoutForExecution.id}-progress-${exercise.name}`}
+                    onClick={() => jumpToExercise(index)}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs ${badgeClass} ${
+                      isActive ? "ring-2 ring-indigo-500" : ""
+                    }`}
+                  >
+                    <p className="font-semibold">{exercise.name}</p>
+                    <p>
+                      {status === "completed"
+                        ? "Abgeschlossen"
+                        : status === "in_progress"
+                          ? "In Arbeit"
+                          : "Nicht gestartet"}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {currentExercise ? (
-          <article className="rounded-xl border border-zinc-700 bg-zinc-950 p-4">
-            <p className="text-xs uppercase tracking-wide text-zinc-400">
-              Exercise {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
-            </p>
-            <h3 className="mt-1 text-xl font-semibold">{currentExercise.name}</h3>
-            {currentExerciseMeta?.notes ? <p className="mt-1 text-xs text-zinc-500">{currentExerciseMeta.notes}</p> : null}
-            <p className="text-sm text-zinc-400">
-              Satz {safeSetIndex + 1}/{currentExercise.sets.length}
-            </p>
+          {currentExercise ? (
+            <article className="rounded-xl border border-zinc-700 bg-zinc-950 p-4">
+              <p className="text-xs uppercase tracking-wide text-zinc-400">
+                Exercise {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
+              </p>
+              <h3 className="mt-1 text-xl font-semibold">{currentExercise.name}</h3>
+              {currentExerciseMeta?.notes ? <p className="mt-1 text-xs text-zinc-500">{currentExerciseMeta.notes}</p> : null}
+              <p className="text-sm text-zinc-400">
+                Satz {safeSetIndex + 1}/{currentExercise.sets.length}
+              </p>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {isGymWorkout ? (
-                <label className="text-sm text-zinc-300">
-                  Gewicht (kg)
-                  <input
-                    value={currentLog.weight}
-                    onChange={(event) => updateCurrentLog("weight", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
-                    inputMode="decimal"
-                  />
-                </label>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {isGymWorkout ? (
+                  <label className="text-sm text-zinc-300">
+                    Gewicht (kg)
+                    <input
+                      value={currentLog.weight}
+                      onChange={(event) => updateCurrentLog("weight", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      inputMode="decimal"
+                    />
+                  </label>
+                ) : null}
+
+                {tracksTriesAndMakes ? (
+                  <>
+                    <label className="text-sm text-zinc-300">
+                      Tries
+                      <input
+                        value={currentLog.tries ?? ""}
+                        onChange={(event) => updateCurrentLog("tries", event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        inputMode="numeric"
+                      />
+                    </label>
+                    <label className="text-sm text-zinc-300">
+                      Makes
+                      <input
+                        value={currentLog.makes ?? ""}
+                        onChange={(event) => updateCurrentLog("makes", event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        inputMode="numeric"
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <label className="text-sm text-zinc-300">
+                    {isGymWorkout ? "Reps" : `Wert (${activeMetric})`}
+                    <input
+                      value={currentLog.reps}
+                      onChange={(event) => updateCurrentLog("reps", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      inputMode="numeric"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {!isGymWorkout && currentMetricOptions.length > 0 && !tracksTriesAndMakes ? (
+                <div className="mt-3">
+                  <p className="text-xs uppercase tracking-wide text-zinc-400">Attribute auswählen</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {currentMetricOptions.map((metric) => {
+                      const isActive = activeMetric === metric;
+                      return (
+                        <button
+                          key={`${safeExerciseIndex}-${metric}`}
+                          type="button"
+                          onClick={() => selectMetric(metric)}
+                          className={`rounded-full border px-3 py-1 text-xs ${
+                            isActive
+                              ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
+                              : "border-zinc-600 bg-zinc-900 text-zinc-300"
+                          }`}
+                        >
+                          {metric}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               ) : null}
 
-              {tracksTriesAndMakes ? (
-                <>
-                  <label className="text-sm text-zinc-300">
-                    Tries
-                    <input
-                      value={currentLog.tries ?? ""}
-                      onChange={(event) => updateCurrentLog("tries", event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
-                      inputMode="numeric"
-                    />
-                  </label>
-                  <label className="text-sm text-zinc-300">
-                    Makes
-                    <input
-                      value={currentLog.makes ?? ""}
-                      onChange={(event) => updateCurrentLog("makes", event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
-                      inputMode="numeric"
-                    />
-                  </label>
-                </>
-              ) : (
-                <label className="text-sm text-zinc-300">
-                  {isGymWorkout ? "Reps" : `Wert (${activeMetric})`}
-                  <input
-                    value={currentLog.reps}
-                    onChange={(event) => updateCurrentLog("reps", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
-                    inputMode="numeric"
-                  />
-                </label>
-              )}
-            </div>
-            {!isGymWorkout && currentMetricOptions.length > 0 && !tracksTriesAndMakes ? (
-              <div className="mt-3">
-                <p className="text-xs uppercase tracking-wide text-zinc-400">Attribute auswählen</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {currentMetricOptions.map((metric) => {
-                    const isActive = activeMetric === metric;
-                    return (
-                      <button
-                        key={`${safeExerciseIndex}-${metric}`}
-                        type="button"
-                        onClick={() => selectMetric(metric)}
-                        className={`rounded-full border px-3 py-1 text-xs ${
-                          isActive
-                            ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
-                            : "border-zinc-600 bg-zinc-900 text-zinc-300"
-                        }`}
-                      >
-                        {metric}
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="mt-3 text-sm text-zinc-400">
+                <p>
+                  Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksTriesAndMakes ? `${currentExerciseMeta?.targetByMetric?.tries ?? "-"} Tries • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} Treffer/Reps`}
+                </p>
+                <p className="mt-1">
+                  Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.tries)} Tries • ${currentLog.makes || 0} Makes • ${Math.max(0, parseNonNegative(currentLog.tries) - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0}`}
+                </p>
               </div>
-            ) : null}
+              {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
 
-            <div className="mt-3 text-sm text-zinc-400">
-              <p>
-                Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksTriesAndMakes ? `${currentExerciseMeta?.targetByMetric?.tries ?? "-"} Tries • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} Treffer/Reps`}
-              </p>
-              <p className="mt-1">
-                Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.tries)} Tries • ${currentLog.makes || 0} Makes • ${Math.max(0, parseNonNegative(currentLog.tries) - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0}`}
-              </p>
-            </div>
-            {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
-
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={progress.status === "in_progress" ? completeWorkout : startWorkout}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-              >
-                {progress.status === "in_progress" ? "Workout beenden" : "Workout starten"}
-              </button>
-              <button
-                type="button"
-                onClick={finishSet}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-              >
-                Satz abschließen
-              </button>
-              <button
-                type="button"
-                onClick={addSetToCurrentExercise}
-                className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-950"
-              >
-                Satz hinzufügen
-              </button>
-            </div>
-          </article>
-        ) : (
-          <p className="text-sm text-zinc-500">
-            {isRestDay ? "Ruhetag aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
-          </p>
-        )}
-      </section>
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={progress.status === "in_progress" ? completeWorkout : startWorkout}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+                >
+                  {progress.status === "in_progress" ? "Workout beenden" : "Workout starten"}
+                </button>
+                <button
+                  type="button"
+                  onClick={finishSet}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                >
+                  Satz abschließen
+                </button>
+                <button
+                  type="button"
+                  onClick={addSetToCurrentExercise}
+                  className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-950"
+                >
+                  Satz hinzufügen
+                </button>
+              </div>
+            </article>
+          ) : (
+            <p className="text-sm text-zinc-500">
+              {isRestDay ? "Ruhetag aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
+            </p>
+          )}
+        </section>
       ) : null}
 
       <div className="mt-4">
