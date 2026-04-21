@@ -159,10 +159,12 @@ export default function WorkoutExecutionPage() {
 
     const reachedRatio = workoutExercises.length > 0 ? reachedTargets / workoutExercises.length : 0;
     if (reachedRatio >= 0.8) {
+      const previousLevel = workout.level;
       const updatedWorkouts = workouts.map((entry) =>
         entry.id === workout.id ? { ...entry, level: entry.level + 1 } : entry,
       );
       saveWorkouts(updatedWorkouts);
+      window.alert(`🎉 Workout-Level-Up! ${workout.name} ist jetzt Level ${previousLevel + 1}.`);
     }
 
     setSaved(true);

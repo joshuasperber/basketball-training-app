@@ -143,6 +143,37 @@ export function buildGeneratedWorkout(params: {
   targetMinutes: number;
   exercisePool: Exercise[];
 }): GeneratedWorkout {
+  if (params.subcategory === "Komplett") {
+    const fullCategoryPool = params.exercisePool
+      .filter((exercise) => exercise.category === params.category)
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    if (fullCategoryPool.length === 0) {
+      return {
+        id: `auto-${params.day}-${params.category.toLowerCase()}`,
+        name: `Auto ${params.subcategory}`,
+        category: params.category,
+        subcategory: params.subcategory,
+        exerciseIds: [],
+        exerciseNames: ["Keine passende Exercise gefunden"],
+        durationMin: Math.max(20, params.targetMinutes),
+        notes: "Keine Übungen in der Datenbank gefunden. Bitte Exercise-Pool erweitern.",
+      };
+    }
+
+    const totalDuration = fullCategoryPool.reduce((sum, exercise) => sum + exercise.durationMin, 0);
+    return {
+      id: `auto-${params.day}-${params.category.toLowerCase()}-${params.subcategory.toLowerCase()}`,
+      name: `Auto ${params.subcategory} (${params.day})`,
+      category: params.category,
+      subcategory: params.subcategory,
+      exerciseIds: fullCategoryPool.map((exercise) => exercise.id),
+      exerciseNames: fullCategoryPool.map((exercise) => exercise.name),
+      durationMin: Math.max(totalDuration, Math.max(20, params.targetMinutes)),
+      notes: "Komplett gewählt: enthält alle Exercises der Kategorie.",
+    };
+  }
+
   const relevantExercises = params.exercisePool
     .filter((exercise) => exercise.category === params.category && exercise.subcategory === params.subcategory)
     .sort((left, right) => left.durationMin - right.durationMin);

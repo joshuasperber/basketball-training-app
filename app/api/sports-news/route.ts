@@ -2,16 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 type SportsType = "basketball" | "football";
 
-type SupportedLeague = {
+type LeagueOption = {
   id: string;
   name: string;
-};
-
-type SportConfig = {
-  endpointBase: string;
-  searchQuery: (home: string, away: string) => string;
-  fallbackLeagueName: string;
-  leagues: SupportedLeague[];
 };
 
 type SportsNewsItem = {
@@ -27,134 +20,35 @@ type SportsNewsItem = {
   url: string;
 };
 
-type SportsNewsApiPayload = {
-  errors?: Record<string, string>;
-  response?: Record<string, unknown>[];
+type BallDontLieGame = {
+  id?: number;
+  date?: string;
+  status?: string;
+  home_team_score?: number;
+  visitor_team_score?: number;
+  home_team?: { full_name?: string };
+  visitor_team?: { full_name?: string };
+  postseason?: boolean;
+  season?: number;
 };
 
-const SPORT_CONFIG: Record<SportsType, SportConfig> = {
-  basketball: {
-    endpointBase: "https://v1.basketball.api-sports.io/games",
-    fallbackLeagueName: "Basketball",
-    searchQuery: (home, away) => `${home} vs ${away} basketball`,
-    leagues: [
-      { id: "12", name: "NBA" },
-      { id: "11", name: "NCAA" },
-      { id: "120", name: "EuroLeague" },
-    ],
-  },
-  football: {
-    endpointBase: "https://v3.football.api-sports.io/fixtures",
-    fallbackLeagueName: "Football",
-    searchQuery: (home, away) => `${home} vs ${away} football`,
-    leagues: [
-      { id: "39", name: "Premier League" },
-      { id: "140", name: "La Liga" },
-      { id: "78", name: "Bundesliga" },
-      { id: "135", name: "Serie A" },
-      { id: "61", name: "Ligue 1" },
-    ],
-  },
+type BallDontLieResponse = {
+  data?: BallDontLieGame[];
 };
 
-function getSafeString(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
-}
+const BASKETBALL_LEAGUES: LeagueOption[] = [{ id: "all", name: "NBA" }];
 
-function mapFixturesToItems(
-  fixtures: Record<string, unknown>[],
-  sport: SportsType,
-): SportsNewsItem[] {
-  const config = SPORT_CONFIG[sport];
-
-  return fixtures.slice(0, 15).map((fixture) => {
-    const teams = (fixture.teams as Record<string, unknown> | undefined) ?? {};
-    const homeTeam = (teams.home as Record<string, unknown> | undefined) ?? {};
-    const awayTeam = (teams.away as Record<string, unknown> | undefined) ?? {};
-
-    const leagueObj = (fixture.league as Record<string, unknown> | undefined) ?? {};
-    const countryObj = (leagueObj.country as Record<string, unknown> | undefined) ?? {};
-    const statusObj =
-      (fixture.status as Record<string, unknown> | undefined) ??
-      ((fixture.fixture as Record<string, unknown> | undefined)?.status as Record<string, unknown> | undefined) ??
-      {};
-
-    const home = getSafeString(homeTeam.name, "Home");
-    const away = getSafeString(awayTeam.name, "Away");
-    const league = getSafeString(leagueObj.name, config.fallbackLeagueName);
-    const country = getSafeString(countryObj.name, "International");
-    const status = getSafeString(statusObj.long, "Geplant");
-    const date = getSafeString(
-      (fixture.fixture as Record<string, unknown> | undefined)?.date ?? fixture.date,
-      new Date().toISOString(),
-    );
-    const leagueId = String(leagueObj.id ?? "all");
-    const scoresObj = (fixture.scores as Record<string, unknown> | undefined) ?? {};
-    const homeScoreObj = (scoresObj.home as Record<string, unknown> | undefined) ?? {};
-    const awayScoreObj = (scoresObj.away as Record<string, unknown> | undefined) ?? {};
-    const homeScore = typeof homeScoreObj.total === "number" ? homeScoreObj.total : null;
-    const awayScore = typeof awayScoreObj.total === "number" ? awayScoreObj.total : null;
-    const hasResult = homeScore !== null && awayScore !== null;
-
-    return {
-      title: `${home} vs ${away}`,
-      source: `${league} • ${country} • ${status}`,
-      date,
-      leagueId,
-      league,
-      homeScore,
-      awayScore,
-      hasResult,
-      status,
-      url: `https://www.google.com/search?q=${encodeURIComponent(config.searchQuery(home, away))}`,
-    };
-  });
-}
+const FOOTBALL_LEAGUES: LeagueOption[] = [
+  { id: "all", name: "Alle Ligen" },
+  { id: "39", name: "Premier League" },
+  { id: "140", name: "La Liga" },
+  { id: "78", name: "Bundesliga" },
+  { id: "135", name: "Serie A" },
+  { id: "61", name: "Ligue 1" },
+];
 
 function parseSport(value: string | null): SportsType {
   return value === "football" ? "football" : "basketball";
-}
-
-function buildEndpoints(sport: SportsType, leagueId: string | null) {
-  const config = SPORT_CONFIG[sport];
-  const now = new Date();
-  const leagueParam = leagueId && leagueId !== "all" ? `&league=${leagueId}` : "";
-  const formatDate = (date: Date) => date.toISOString().slice(0, 10);
-  const today = formatDate(now);
-  const yesterdayDate = new Date(now);
-  yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
-  const tomorrowDate = new Date(now);
-  tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
-  const yesterday = formatDate(yesterdayDate);
-  const tomorrow = formatDate(tomorrowDate);
-
-  if (sport === "football") {
-    // API-Sports Free Plan erlaubt aktuell nur bestimmte Saisons (z. B. 2022–2024).
-    // Deshalb fixen wir die Season auf den höchsten frei verfügbaren Wert.
-    const freePlanSeason = "2024";
-    return [
-      `${config.endpointBase}?date=${today}${leagueParam}&season=${freePlanSeason}`,
-      `${config.endpointBase}?date=${yesterday}${leagueParam}&season=${freePlanSeason}`,
-      `${config.endpointBase}?date=${tomorrow}${leagueParam}&season=${freePlanSeason}`,
-    ];
-  }
-
-  if (leagueId && leagueId !== "all") {
-    // Für Free-Pläne liefern date-basierte Requests oft 0 Einträge.
-    // Mit `last` + fixer Saison zeigen wir die letzten verfügbaren Liga-Spiele (z. B. NBA).
-    const freePlanSeason = "2024";
-    return [
-      `${config.endpointBase}?league=${leagueId}&season=${freePlanSeason}&last=20`,
-      `${config.endpointBase}?league=${leagueId}&season=${freePlanSeason}&date=${today}`,
-      `${config.endpointBase}?league=${leagueId}&season=${freePlanSeason}&date=${yesterday}`,
-    ];
-  }
-
-  return [
-    `${config.endpointBase}?date=${today}${leagueParam}`,
-    `${config.endpointBase}?date=${yesterday}${leagueParam}`,
-    `${config.endpointBase}?date=${tomorrow}${leagueParam}`,
-  ];
 }
 
 function filterItemsByResult(
@@ -170,6 +64,47 @@ function filterItemsByResult(
   return items;
 }
 
+async function loadBasketballFromBallDontLie(apiKey: string): Promise<SportsNewsItem[]> {
+  const endpoint = "https://api.balldontlie.io/v1/games?per_page=25";
+  const response = await fetch(endpoint, {
+    headers: {
+      Authorization: apiKey,
+    },
+    next: { revalidate: 900 },
+  });
+
+  if (!response.ok) {
+    throw new Error(`BallDontLie API Fehler: HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as BallDontLieResponse;
+  const games = Array.isArray(payload.data) ? payload.data : [];
+
+  return games.slice(0, 20).map((game) => {
+    const home = game.home_team?.full_name ?? "Home";
+    const away = game.visitor_team?.full_name ?? "Away";
+    const date = game.date ?? new Date().toISOString();
+    const homeScore = typeof game.home_team_score === "number" ? game.home_team_score : null;
+    const awayScore = typeof game.visitor_team_score === "number" ? game.visitor_team_score : null;
+    const hasResult = homeScore !== null && awayScore !== null;
+    const status = game.status ?? "Geplant";
+    const season = typeof game.season === "number" ? `Season ${game.season}` : "NBA";
+
+    return {
+      title: `${home} vs ${away}`,
+      source: `${season} • ${game.postseason ? "Playoffs" : "Regular Season"} • ${status}`,
+      date,
+      leagueId: "all",
+      league: "NBA",
+      homeScore,
+      awayScore,
+      hasResult,
+      status,
+      url: `https://www.google.com/search?q=${encodeURIComponent(`${home} vs ${away} NBA`)}`,
+    };
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const apiKey = process.env.API_SPORTS_KEY;
@@ -183,81 +118,25 @@ export async function GET(request: NextRequest) {
 
     const params = request.nextUrl.searchParams;
     const sport = parseSport(params.get("sport"));
-    const league = params.get("league");
     const resultFilter = (params.get("result") ?? "all") as "all" | "with_result" | "without_result";
 
-    const endpointCandidates = buildEndpoints(sport, league);
-    let payloadToUse: SportsNewsApiPayload | null = null;
-    let lastApiErrorMessage = "Unbekannter API-Fehler";
-
-    for (const endpoint of endpointCandidates) {
-      const response = await fetch(endpoint, {
-        headers: {
-          "x-apisports-key": apiKey,
-        },
-        next: { revalidate: 900 },
-      });
-
-      const contentType = response.headers.get("content-type") ?? "";
-      if (!contentType.includes("application/json")) {
-        lastApiErrorMessage = "API hat kein JSON geliefert. Prüfe Key/Plan.";
-        continue;
-      }
-
-      let payload: SportsNewsApiPayload = {};
-      try {
-        payload = (await response.json()) as SportsNewsApiPayload;
-      } catch {
-        lastApiErrorMessage = "API JSON konnte nicht gelesen werden.";
-        continue;
-      }
-
-      const payloadErrors = payload.errors ?? {};
-      const hasPayloadErrors = Object.keys(payloadErrors).length > 0;
-
-      if (response.ok && !hasPayloadErrors) {
-        payloadToUse = payload;
-        break;
-      }
-
-      lastApiErrorMessage = hasPayloadErrors
-        ? Object.entries(payloadErrors)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join(" | ")
-        : `HTTP ${response.status}`;
-    }
-
-    if (!payloadToUse) {
+    if (sport === "football") {
       return NextResponse.json({
+        sport,
+        leagues: FOOTBALL_LEAGUES,
         items: [],
-        warning: `API-Sports Fehler: ${lastApiErrorMessage}.`,
+        warning: "Fußball-News sind aktuell deaktiviert. Basketball-News laufen jetzt über BallDontLie.",
       });
     }
 
-    const mappedItems = mapFixturesToItems(payloadToUse.response ?? [], sport);
-    const items = filterItemsByResult(mappedItems, resultFilter);
-    const leagues = [
-      { id: "all", name: "Alle Ligen" },
-      ...SPORT_CONFIG[sport].leagues,
-    ];
-
-    const freePlanInfoWarning =
-      sport === "football"
-        ? "Free-Plan Hinweis: Fußball-Daten werden über Season 2024 geladen."
-        : league && league !== "all"
-          ? "Free-Plan Hinweis: Liga-Ansicht nutzt Season 2024 mit den letzten verfügbaren Spielen."
-          : null;
+    const basketballItems = await loadBasketballFromBallDontLie(apiKey);
+    const items = filterItemsByResult(basketballItems, resultFilter);
 
     return NextResponse.json({
       sport,
-      leagues,
+      leagues: BASKETBALL_LEAGUES,
       items,
-      warning:
-        items.length > 0
-          ? freePlanInfoWarning
-          : freePlanInfoWarning
-            ? `${freePlanInfoWarning} Keine Spiele gefunden.`
-            : "Keine Spiele gefunden.",
+      warning: items.length === 0 ? "Keine aktuellen NBA-Spiele gefunden." : null,
     });
   } catch (error) {
     return NextResponse.json({
