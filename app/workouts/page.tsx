@@ -30,6 +30,7 @@ import {
   readManualDayDisabledMap,
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
+import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
@@ -583,7 +584,31 @@ function WorkoutsPageContent() {
     };
   };
 
-  const applyRecoverySuggestionChoice = (choice: "none" | "today" | "tomorrow") => {
+  const buildAutoRecoveryEntry = (targetDateKey: string): ManualDayWorkout | null => {
+    const generated = buildGeneratedWorkout({
+      day: "monday",
+      category: "Regeneration",
+      subcategory: "Mobilität & Dehnung",
+      targetMinutes: 15,
+      exercisePool: trainingExercises,
+    });
+
+    if (!generated.exerciseIds.length) return null;
+
+    return {
+      id: `auto-recovery-${targetDateKey}-${Date.now()}`,
+      title: generated.name,
+      sport: "Regeneration",
+      subcategory: generated.subcategory,
+      notes: `Auto erstellt: ${generated.notes}`,
+      exerciseIds: generated.exerciseIds,
+    };
+  };
+
+  const applyRecoverySuggestionChoice = (
+    choice: "none" | "today" | "tomorrow",
+    store: Record<string, ManualDayWorkout[]>,
+  ) => {
     const dailyRaw = window.localStorage.getItem("bt.daily-plan.v1");
     const daily = dailyRaw ? (JSON.parse(dailyRaw) as Record<string, string[]>) : {};
     const baseDate = new Date(`${dateKey}T00:00:00`);
@@ -594,14 +619,19 @@ function WorkoutsPageContent() {
       const targetDateKey = toLocalDateKey(baseDate);
       const nextTags = new Set([...(daily[targetDateKey] ?? []), "Regeneration", "Recovery:Mobilität & Dehnung"]);
       daily[targetDateKey] = Array.from(nextTags);
+      const existing = store[targetDateKey] ?? [];
+      const hasRecovery = existing.some((entry) => entry.sport === "Regeneration");
+      if (!hasRecovery) {
+        const recoveryEntry = buildAutoRecoveryEntry(targetDateKey);
+        if (recoveryEntry) {
+          store[targetDateKey] = [recoveryEntry, ...existing];
+        }
+      }
       window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(daily));
     }
   };
 
     const persistManualWorkoutForDay = (entry: ManualDayWorkout, startImmediately: boolean, recoveryChoice: "none" | "today" | "tomorrow") => {
-    if (entry.sport !== "Regeneration") {
-      applyRecoverySuggestionChoice(recoveryChoice);
-    }
 
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
     let store: Record<string, ManualDayWorkout[]> = {};
@@ -612,8 +642,11 @@ function WorkoutsPageContent() {
         store = {};
       }
     }
+    if (entry.sport !== "Regeneration") {
+      applyRecoverySuggestionChoice(recoveryChoice, store);
+    }
+    store[dateKey] = [entry, ...(store[dateKey] ?? []).filter((item) => item.id !== manualWorkoutIdParam)];
 
-   store[dateKey] = [entry, ...(store[dateKey] ?? []).filter((item) => item.id !== manualWorkoutIdParam)];
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
 
     const disabledMap = readManualDayDisabledMap();
@@ -961,6 +994,7 @@ function WorkoutsPageContent() {
       <h1 className="text-2xl font-bold">Workouts</h1>
       <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
       <p className="mt-1 text-xs text-emerald-300">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
+      {manualParam !== "1" ? (
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <h2 className="text-xl font-semibold">{workoutForExecution.title}</h2>
@@ -1006,6 +1040,7 @@ function WorkoutsPageContent() {
           </p>
         ) : null}
       </section>
+      ) : null}
 
       {manualParam === "1" ? (
         <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/20 p-4">

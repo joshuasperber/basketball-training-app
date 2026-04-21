@@ -72,24 +72,6 @@
       "targetValue": 35
     },
     {
-      "id": "ex-9",
-      "name": "Dead Bug",
-      "durationMin": 10,
-      "category": "Home",
-      "subcategory": "Recovery",
-      "notes": "Langsam und kontrolliert",
-      "metricKeys": [
-        "reps",
-        "time"
-      ],
-      "targetByMetric": {
-        "reps": 20,
-        "time": 45
-      },
-      "trackingType": "reps",
-      "targetValue": 20
-    },
-    {
       "id": "ex-1774955612317",
       "name": "Killer 150 - rechts",
       "durationMin": 3,
@@ -389,6 +371,200 @@
       },
       "trackingType": "reps",
       "targetValue": 30
+    },
+    {
+      "id": "ex-1776803417642",
+      "name": "Yoga Nidra - Atmung",
+      "durationMin": 30,
+      "category": "Regeneration",
+      "subcategory": "Meditation",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 30
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803450548",
+      "name": "Yoga Nidra - Körperkontrolle",
+      "durationMin": 10,
+      "category": "Regeneration",
+      "subcategory": "Meditation",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 10
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803476222",
+      "name": "Ruhezeit",
+      "durationMin": 15,
+      "category": "Regeneration",
+      "subcategory": "Meditation",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 15
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803501397",
+      "name": "Full Body Dehnung",
+      "durationMin": 20,
+      "category": "Regeneration",
+      "subcategory": "Mobilität & Dehnung",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 20
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803515089",
+      "name": "Joggen",
+      "durationMin": 30,
+      "category": "Regeneration",
+      "subcategory": "Leichte Ausdauer",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 30
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803532372",
+      "name": "lockeres Fahrradfahren",
+      "durationMin": 20,
+      "category": "Regeneration",
+      "subcategory": "Leichte Ausdauer",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 20
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803576495",
+      "name": "Fahrradfahren",
+      "durationMin": 30,
+      "category": "Home",
+      "subcategory": "Conditioning",
+      "notes": "90 Umdrehungen pro Minute",
+      "metricKeys": [
+        "intensity"
+      ],
+      "targetByMetric": {
+        "time": 30,
+        "intensity": 100
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803707334",
+      "name": "Calv raises",
+      "durationMin": 10,
+      "category": "Home",
+      "subcategory": "Basketball-spezifisch",
+      "notes": "50 pro Seite\n100 beide zusammen",
+      "metricKeys": [
+        "reps"
+      ],
+      "targetByMetric": {
+        "reps": 200
+      },
+      "trackingType": "reps",
+      "targetValue": 200
+    },
+    {
+      "id": "ex-1776803809086",
+      "name": "Push-Ups",
+      "durationMin": 10,
+      "category": "Home",
+      "subcategory": "Gym-spezifisch",
+      "notes": "100 Push Ups über 3 Sätze",
+      "metricKeys": [
+        "reps"
+      ],
+      "targetByMetric": {
+        "reps": 100
+      },
+      "trackingType": "reps",
+      "targetValue": 100
+    },
+    {
+      "id": "ex-1776803826957",
+      "name": "Pull-Ups",
+      "durationMin": 10,
+      "category": "Home",
+      "subcategory": "Gym-spezifisch",
+      "notes": "25 über 3 Sätze",
+      "metricKeys": [
+        "reps"
+      ],
+      "targetByMetric": {
+        "reps": 25
+      },
+      "trackingType": "reps",
+      "targetValue": 25
+    },
+    {
+      "id": "ex-1776803838118",
+      "name": "Plank",
+      "durationMin": 10,
+      "category": "Home",
+      "subcategory": "Gym-spezifisch",
+      "metricKeys": [
+        "time"
+      ],
+      "targetByMetric": {
+        "time": 120
+      },
+      "trackingType": "reps"
+    },
+    {
+      "id": "ex-1776803971104",
+      "name": "Suicide Runs",
+      "durationMin": 10,
+      "category": "Basketball",
+      "subcategory": "Conditioning",
+      "notes": "5 Suicide Runs in Verbindung mit Freiwürfen",
+      "metricKeys": [
+        "reps"
+      ],
+      "targetByMetric": {
+        "reps": 5
+      },
+      "trackingType": "reps",
+      "targetValue": 5
+    },
+    {
+      "id": "ex-1776803993388",
+      "name": "Intervall-Sprints",
+      "durationMin": 10,
+      "category": "Basketball",
+      "subcategory": "Conditioning",
+      "notes": "20 Sekunden ruhe, 10 Sekunden full Sprint",
+      "metricKeys": [
+        "reps"
+      ],
+      "targetByMetric": {
+        "reps": 20
+      },
+      "trackingType": "reps",
+      "targetValue": 20
     }
   ],
   "workouts": [

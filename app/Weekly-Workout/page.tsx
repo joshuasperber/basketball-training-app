@@ -659,6 +659,13 @@ export default function WeeklyWorkoutPage() {
         setDailyPlanMap(readDailyPlanMap());
       }
       parsed[targetDateKey] = [moving, ...(parsed[targetDateKey] ?? [])];
+      const disabledMap = readManualDayDisabledMap();
+      if (disabledMap[targetDateKey]) {
+        const nextDisabled = { ...disabledMap };
+        delete nextDisabled[targetDateKey];
+        writeManualDayDisabledMap(nextDisabled);
+        setDisabledManualDays(nextDisabled);
+      }
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
       setManualWorkoutsByDate(parsed);
       setManualVersion((current) => current + 1);
@@ -688,11 +695,14 @@ export default function WeeklyWorkoutPage() {
     const nextMap = { ...currentMap, [dateKey]: Array.from(hiddenForDate) };
     writeHiddenAutoWorkoutsMap(nextMap);
     setHiddenAutoWorkoutsByDate(nextMap);
-    const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
-    writeManualDayDisabledMap(disabledMap);
-    setDisabledManualDays(disabledMap);
-    syncNoTimeForDate(dateKey);
-    setDailyPlanMap(readDailyPlanMap());
+    const hasCompleted = completedDateSet.has(dateKey);
+    if (isTodayOrFutureDate(dateKey) && !hasCompleted) {
+      const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
+      writeManualDayDisabledMap(disabledMap);
+      setDisabledManualDays(disabledMap);
+      syncNoTimeForDate(dateKey);
+      setDailyPlanMap(readDailyPlanMap());
+    }
     setSelectedWorkoutByDay((current) => ({ ...current, [dayByIndex[dayIndex]]: undefined }));
     setManualVersion((current) => current + 1);
   };
