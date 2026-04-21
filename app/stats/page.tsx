@@ -397,17 +397,19 @@ export default function StatsPage() {
     history: false,
     gymGoals: false,
   });
-  const [username] = useState(() => {
-    if (typeof window === "undefined") return "Champion";
-    try {
-      const cached = window.localStorage.getItem("profile_cache_v4");
-      if (!cached) return "Champion";
-      const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
-      return parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
-    } catch {
-      return "Champion";
-    }
-  });
+  const [username, setUsername] = useState("Champion");
+
+useEffect(() => {
+  try {
+    const cached = window.localStorage.getItem("profile_cache_v4");
+    if (!cached) return;
+    const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
+    const nextName = parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
+    setUsername(nextName);
+  } catch {
+    // noop
+  }
+}, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

@@ -22,7 +22,6 @@ import {
   MANUAL_DAY_WORKOUTS_KEY,
   readDailyPlanMap,
   readManualDayDisabledMap,
-  type PlannedWorkoutTag,
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
 
@@ -55,14 +54,6 @@ type ManualDayWorkout = {
   subcategory: string;
   notes: string;
   exerciseIds: string[];
-};
-const TAG_TO_SPORT: Partial<Record<PlannedWorkoutTag, "Basketball" | "Gym" | "Home" | "-">> = {
-  Spieltag: "Basketball",
-  Trainingstag: "Basketball",
-  Spieltraining: "Basketball",
-  Gym: "Gym",
-  "Home-Workout": "Home",
-  Regeneration: "-",
 };
 
 type ProfileLocalCache = {
@@ -659,7 +650,14 @@ export default function WeeklyWorkoutPage() {
       const moving = currentEntries.find((entry) => entry.id === manualWorkoutId);
       if (!moving) return;
       parsed[sourceDateKey] = currentEntries.filter((entry) => entry.id !== manualWorkoutId);
-      if (parsed[sourceDateKey].length === 0) delete parsed[sourceDateKey];
+      if (parsed[sourceDateKey].length === 0) {
+        delete parsed[sourceDateKey];
+        const disabledMap = { ...readManualDayDisabledMap(), [sourceDateKey]: true };
+        writeManualDayDisabledMap(disabledMap);
+        setDisabledManualDays(disabledMap);
+        syncNoTimeForDate(sourceDateKey);
+        setDailyPlanMap(readDailyPlanMap());
+      }
       parsed[targetDateKey] = [moving, ...(parsed[targetDateKey] ?? [])];
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
       setManualWorkoutsByDate(parsed);
@@ -690,6 +688,11 @@ export default function WeeklyWorkoutPage() {
     const nextMap = { ...currentMap, [dateKey]: Array.from(hiddenForDate) };
     writeHiddenAutoWorkoutsMap(nextMap);
     setHiddenAutoWorkoutsByDate(nextMap);
+    const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
+    writeManualDayDisabledMap(disabledMap);
+    setDisabledManualDays(disabledMap);
+    syncNoTimeForDate(dateKey);
+    setDailyPlanMap(readDailyPlanMap());
     setSelectedWorkoutByDay((current) => ({ ...current, [dayByIndex[dayIndex]]: undefined }));
     setManualVersion((current) => current + 1);
   };
@@ -710,23 +713,24 @@ export default function WeeklyWorkoutPage() {
           const isDayDisabled = disabledManualDays[manualDateKey] === true;
           const plannedTags = dailyPlanMap[manualDateKey] ?? [];
           const isRestDisplay = isDayDisabled || (suggestedWorkout?.durationMin ?? 0) <= 0 || suggestedWorkout?.sport === "-";
-          const primaryManual = dayManualEntries[0];
           const workoutCards: WorkoutCardItem[] = [];
           const shouldAddRecoveryCard =
             !isRestDisplay &&
             suggestedWorkout?.sport !== "Regeneration" &&
             !plannedTags.includes("Regeneration") &&
-            primaryManual?.sport !== "Rest" &&
-            primaryManual?.sport !== "Regeneration";
-          if (primaryManual) {
-            workoutCards.push({
-              id: primaryManual.id,
-              title: primaryManual.title,
-              sport: primaryManual.sport,
-              subcategory: primaryManual.subcategory,
-              notes: primaryManual.notes || "Manuell geplant.",
-              manualWorkoutId: primaryManual.id,
-              durationMin: profilePlan?.minutes ?? suggestedWorkout?.durationMin ?? 0,
+            dayManualEntries[0]?.sport !== "Rest" &&
+            dayManualEntries[0]?.sport !== "Regeneration";
+          if (dayManualEntries.length > 0) {
+            dayManualEntries.forEach((manualEntry) => {
+              workoutCards.push({
+                id: manualEntry.id,
+                title: manualEntry.title,
+                sport: manualEntry.sport,
+                subcategory: manualEntry.subcategory,
+                notes: manualEntry.notes || "Manuell geplant.",
+                manualWorkoutId: manualEntry.id,
+                durationMin: profilePlan?.minutes ?? suggestedWorkout?.durationMin ?? 0,
+              });
             });
           } else if (suggestedWorkout && !isDayDisabled && !hiddenCardIds.has(suggestedWorkout.workoutId ?? `auto-${day}`)) {
             workoutCards.push({
@@ -739,19 +743,6 @@ export default function WeeklyWorkoutPage() {
               autoSuggestion: suggestedWorkout.workoutId ? undefined : suggestedWorkout,
               durationMin: suggestedWorkout.durationMin,
             });
-          } else if (plannedTags.length > 0) {
-            const primaryTag = plannedTags[0];
-            const plannedCardId = `planned-${manualDateKey}`;
-            if (!hiddenCardIds.has(plannedCardId)) {
-              workoutCards.push({
-                id: plannedCardId,
-                title: primaryTag,
-                sport: TAG_TO_SPORT[primaryTag] ?? "Basketball",
-                subcategory: plannedTags.slice(1).join(", ") || primaryTag,
-                notes: `Geplant: ${plannedTags.join(", ")}`,
-                durationMin: profilePlan?.minutes ?? 0,
-              });
-            }
           }
           if (shouldAddRecoveryCard) {
             const recoverySuggestion = buildRecoverySuggestion(dayByIndex[day], availableExercises);

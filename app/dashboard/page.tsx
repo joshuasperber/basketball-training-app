@@ -33,7 +33,7 @@ export default function DashboardPage() {
   const [weeklyPlannedCount, setWeeklyPlannedCount] = useState(0);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const refreshTodayData = () => {
       setProgress(
         parseWorkoutProgress(
           window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
@@ -41,6 +41,7 @@ export default function DashboardPage() {
         ),
       );
       try {
+        setTodayLabel(null);
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
         if (rawManual) {
           const parsed = JSON.parse(rawManual) as Record<string, Array<{ title: string }>>;
@@ -56,8 +57,18 @@ export default function DashboardPage() {
       } catch {
         // noop
       }
-    }, 0);
-    return () => window.clearTimeout(timer);
+    };
+
+    const timer = window.setTimeout(refreshTodayData, 0);
+    const interval = window.setInterval(refreshTodayData, 3000);
+    window.addEventListener("focus", refreshTodayData);
+    window.addEventListener("storage", refreshTodayData);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshTodayData);
+      window.removeEventListener("storage", refreshTodayData);
+    };
   }, [dateKey, fallbackProgress]);
 
   useEffect(() => {

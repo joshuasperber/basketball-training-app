@@ -167,6 +167,10 @@ function WorkoutsPageContent() {
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
   const [isClientReady, setIsClientReady] = useState(false);
+  const [completionBanner, setCompletionBanner] = useState<string | null>(null);
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
+  const [pendingManualEntry, setPendingManualEntry] = useState<ManualDayWorkout | null>(null);
+  const [pendingStartImmediately, setPendingStartImmediately] = useState(false);
   const [customSubcategoriesByCategory, setCustomSubcategoriesByCategory] = useState<Record<"Basketball" | "Gym" | "Home" | "Regeneration", string[]>>({
     Basketball: [],
     Gym: [],
@@ -354,6 +358,7 @@ function WorkoutsPageContent() {
       Array.from(
         new Set(
           [
+            "Komplett",
             ...trainingExercises
               .filter((exercise) => exercise.category === manualCategory)
               .map((exercise) => exercise.subcategory),
@@ -578,6 +583,65 @@ function WorkoutsPageContent() {
     };
   };
 
+  const applyRecoverySuggestionChoice = (choice: "none" | "today" | "tomorrow") => {
+    const dailyRaw = window.localStorage.getItem("bt.daily-plan.v1");
+    const daily = dailyRaw ? (JSON.parse(dailyRaw) as Record<string, string[]>) : {};
+    const baseDate = new Date(`${dateKey}T00:00:00`);
+    if (choice === "tomorrow") {
+      baseDate.setDate(baseDate.getDate() + 1);
+    }
+    if (choice !== "none") {
+      const targetDateKey = toLocalDateKey(baseDate);
+      const nextTags = new Set([...(daily[targetDateKey] ?? []), "Regeneration", "Recovery:Mobilität & Dehnung"]);
+      daily[targetDateKey] = Array.from(nextTags);
+      window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(daily));
+    }
+  };
+
+    const persistManualWorkoutForDay = (entry: ManualDayWorkout, startImmediately: boolean, recoveryChoice: "none" | "today" | "tomorrow") => {
+    if (entry.sport !== "Regeneration") {
+      applyRecoverySuggestionChoice(recoveryChoice);
+    }
+
+    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+    let store: Record<string, ManualDayWorkout[]> = {};
+    if (raw) {
+      try {
+        store = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
+      } catch {
+        store = {};
+      }
+    }
+
+   store[dateKey] = [entry, ...(store[dateKey] ?? []).filter((item) => item.id !== manualWorkoutIdParam)];
+    window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
+
+    const disabledMap = readManualDayDisabledMap();
+    if (disabledMap[dateKey]) {
+      const nextDisabled = { ...disabledMap };
+      delete nextDisabled[dateKey];
+      writeManualDayDisabledMap(nextDisabled);
+    }
+    const selectedMinutes = entry.exerciseIds.reduce((sum, exerciseId) => {
+      const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
+      return sum + (exercise?.durationMin ?? 10);
+    }, 0);
+
+    syncProfileDayConfig(effectiveDay, entry.sport, Math.ceil(selectedMinutes * 1.1 / 5) * 5);
+    setManualStorageVersion((previous) => previous + 1);
+    loadSavedManualWorkout(entry, false);
+
+    if (startImmediately) {
+      const plan = buildManualWorkoutPlan(entry);
+      if (plan) {
+        setManualWorkout(plan);
+      }
+      router.replace(`/workouts?day=${effectiveDay}`);
+      return;
+    }
+
+    router.push("/Weekly-Workout");
+  };
   const saveManualWorkoutForDay = (startImmediately: boolean) => {
     if (selectedManualExerciseIds.length <= 0) return;
     const selectedExercises = expandExercisesWithFamily({
@@ -606,73 +670,47 @@ function WorkoutsPageContent() {
       exerciseIds: orderedExerciseIds,
     };
 
-    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
-    let store: Record<string, ManualDayWorkout[]> = {};
-    if (raw) {
-      try {
-        store = JSON.parse(raw) as Record<string, ManualDayWorkout[]>;
-      } catch {
-        store = {};
-      }
-    }
-
-    store[dateKey] = [nextEntry, ...(store[dateKey] ?? []).filter((entry) => entry.id !== manualWorkoutIdParam)];
-    window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
-
-    const disabledMap = readManualDayDisabledMap();
-    if (disabledMap[dateKey]) {
-      const nextDisabled = { ...disabledMap };
-      delete nextDisabled[dateKey];
-      writeManualDayDisabledMap(nextDisabled);
-    }
-
-    const selectedMinutes = orderedExerciseIds.reduce((sum, exerciseId) => {
-      const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
-      return sum + (exercise?.durationMin ?? 10);
-    }, 0);
-
-    syncProfileDayConfig(effectiveDay, manualCategory, Math.ceil(selectedMinutes * 1.1 / 5) * 5);
-    setManualStorageVersion((previous) => previous + 1);
-    loadSavedManualWorkout(nextEntry, false);
-
-    if (startImmediately) {
-      const plan = buildManualWorkoutPlan(nextEntry);
-      if (plan) {
-        setManualWorkout(plan);
-      }
-      router.replace(`/workouts?day=${effectiveDay}`);
+    if (manualCategory !== "Regeneration") {
+      setPendingManualEntry(nextEntry);
+      setPendingStartImmediately(startImmediately);
+      setShowRecoveryPrompt(true);
       return;
     }
 
-    router.push("/Weekly-Workout");
+    persistManualWorkoutForDay(nextEntry, startImmediately, "none");
   };
 
   function loadSavedManualWorkout(entry: ManualDayWorkout, shouldRoute = true) {
-        setManualCategory(entry.sport);
-    setManualSubcategory(entry.subcategory);
+  setOverrideWorkoutId(null);
+  window.localStorage.removeItem(overrideStorageKey);
+
+  if (entry.sport === "Rest") {
     setManualTitle(entry.title);
-    setSelectedManualExerciseIds(entry.exerciseIds);
-    setOverrideWorkoutId(null);
-    window.localStorage.removeItem(overrideStorageKey);
-
-    if (entry.sport === "Rest") {
-      setManualWorkout({
-        id: entry.id,
-        title: entry.title,
-        sport: "Rest",
-        subcategory: entry.subcategory,
-        exercises: [],
-      });
-      return;
-    }
-
-    const plannedWorkout = buildManualWorkoutPlan(entry);
-    if (!plannedWorkout) return;
-    setManualWorkout(plannedWorkout);
-    if (shouldRoute) {
-      router.push("/Weekly-Workout");
-    }
+    setManualSubcategory(entry.subcategory);
+    setSelectedManualExerciseIds([]);
+    setManualWorkout({
+      id: entry.id,
+      title: entry.title,
+      sport: "Rest",
+      subcategory: entry.subcategory,
+      exercises: [],
+    });
+    return;
   }
+
+  setManualCategory(entry.sport); // jetzt typ-sicher: kein "Rest" mehr möglich
+  setManualSubcategory(entry.subcategory);
+  setManualTitle(entry.title);
+  setSelectedManualExerciseIds(entry.exerciseIds);
+
+  const plannedWorkout = buildManualWorkoutPlan(entry);
+  if (!plannedWorkout) return;
+  setManualWorkout(plannedWorkout);
+
+  if (shouldRoute) {
+    router.push("/Weekly-Workout");
+  }
+}
 
   const syncProfileDayConfig = (
     dayIndex: number,
@@ -868,9 +906,9 @@ function WorkoutsPageContent() {
       const todayTags = new Set([...(daily[todayKey] ?? []), "Regeneration", "Recovery:Mobilität & Dehnung"]);
       daily[todayKey] = Array.from(todayTags);
       window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(daily));
-      window.alert("Good Job ✅ + kurze Regeneration wurde für heute vorgeschlagen.");
+      setCompletionBanner("Stark! Workout abgeschlossen ✅ Regeneration wurde für heute hinzugefügt.");
     } else {
-      window.alert("Good Job, workout completed ✅");
+      setCompletionBanner("Stark! Workout abgeschlossen ✅");
     }
     router.push("/stats");
   };
@@ -892,12 +930,12 @@ function WorkoutsPageContent() {
     const isLastSetInExercise = safeSetIndex === currentExercise.sets.length - 1;
     const isLastExercise = safeExerciseIndex === workoutForExecution.exercises.length - 1;
 
-    if (isLastExercise && (!isGymWorkout || isLastSetInExercise)) {
+    if (isLastExercise && (isLastSetInExercise)) {
       completeWorkout();
       return;
     }
 
-    if (!isGymWorkout || isLastSetInExercise) {
+    if (isLastSetInExercise) {
       persistProgress({
         ...progress,
         exerciseIndex: safeExerciseIndex + 1,
@@ -930,7 +968,7 @@ function WorkoutsPageContent() {
         <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {workoutForExecution.subcategory}</p>
         {workoutNotes ? <p className="mt-1 text-sm text-zinc-500">Notiz: {workoutNotes}</p> : null}
 
-        {effectiveDay === todayDayIndex && !manualWorkout ? (
+        {effectiveDay === todayDayIndex && !manualWorkout && !workoutIdParam && !autoWorkoutParam && !manualWorkoutIdParam && manualParam !== "1" ? (
           <label className="mt-3 block text-sm text-zinc-300">
             Heutiges Workout manuell wählen
             <select
@@ -1088,6 +1126,11 @@ function WorkoutsPageContent() {
       {manualParam !== "1" && progress.status === "completed" ? (
         <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-200">
           Workout abgeschlossen. Sehr stark! ✅
+        </section>
+      ) : null}
+      {completionBanner ? (
+        <section className="mt-4 rounded-2xl border border-cyan-700 bg-cyan-950/40 p-4 text-cyan-100">
+          {completionBanner}
         </section>
       ) : null}
 
@@ -1259,6 +1302,51 @@ function WorkoutsPageContent() {
           ← Zurück zum Weekly Plan
         </Link>
       </div>
+      {showRecoveryPrompt && pendingManualEntry ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-cyan-600 bg-zinc-900 p-4">
+            <h3 className="text-lg font-semibold text-cyan-200">Regeneration ergänzen?</h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              Soll zusätzlich ein Regenerations-Workout eingeplant werden?
+            </p>
+            <div className="mt-4 grid gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+                onClick={() => {
+                  persistManualWorkoutForDay(pendingManualEntry, pendingStartImmediately, "none");
+                  setShowRecoveryPrompt(false);
+                  setPendingManualEntry(null);
+                }}
+              >
+                Nein
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-emerald-600 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-900/30"
+                onClick={() => {
+                  persistManualWorkoutForDay(pendingManualEntry, pendingStartImmediately, "today");
+                  setShowRecoveryPrompt(false);
+                  setPendingManualEntry(null);
+                }}
+              >
+                Ja, heute nach dem Training
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-indigo-600 px-3 py-2 text-sm text-indigo-200 hover:bg-indigo-900/30"
+                onClick={() => {
+                  persistManualWorkoutForDay(pendingManualEntry, pendingStartImmediately, "tomorrow");
+                  setShowRecoveryPrompt(false);
+                  setPendingManualEntry(null);
+                }}
+              >
+                Ja, morgen
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

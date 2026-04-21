@@ -377,7 +377,21 @@ export default function ProfilePage() {
   const applyRecoverySubtag = (tag: RecoveryTag) => {
     updateSelectedDatePlan(["Regeneration", `Recovery:${tag}` as PlannedWorkoutTag]);
   };
-
+const refreshProfileAndWeekly = () => {
+    const latestDailyPlan = readDailyPlanMap();
+    setDailyPlanMap(latestDailyPlan);
+    setCompletedDates(getCompletedWorkoutDateSet());
+    const nextWeekConfig = { ...weekConfig };
+    Object.keys(latestDailyPlan).forEach((dateKey) => {
+      const tags = latestDailyPlan[dateKey] ?? [];
+      const date = new Date(`${dateKey}T00:00:00`);
+      const dayMap: Record<number, DayKey> = { 0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday" };
+      const dayKey = dayMap[date.getDay()];
+      nextWeekConfig[dayKey] = mapTagToDayConfig(tags);
+    });
+    setWeekConfig(nextWeekConfig);
+    setMessage("Profil & Weekly Plan wurden aktualisiert.");
+  };
   const persistProfileToSupabase = useCallback(async () => {
     const username = (profile.username ?? "").trim().toLowerCase();
     if (!username) {
@@ -604,6 +618,13 @@ export default function ProfilePage() {
             </div>
           </section>
         </div>
+        <button
+              type="button"
+              onClick={refreshProfileAndWeekly}
+              className="mt-3 w-full rounded-lg border border-cyan-500 bg-cyan-950/30 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-900/40"
+            >
+              Profil aktualisieren
+            </button>
 
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <h2 className="text-lg font-semibold">Weekly-Plan (aus deiner Konfiguration)</h2>
