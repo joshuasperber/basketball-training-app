@@ -20,6 +20,10 @@ type SportsNewsItem = {
   date: string;
   leagueId: string;
   league: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  hasResult: boolean;
+  status: string;
   url: string;
 };
 
@@ -85,6 +89,12 @@ function mapFixturesToItems(
       new Date().toISOString(),
     );
     const leagueId = String(leagueObj.id ?? "all");
+    const scoresObj = (fixture.scores as Record<string, unknown> | undefined) ?? {};
+    const homeScoreObj = (scoresObj.home as Record<string, unknown> | undefined) ?? {};
+    const awayScoreObj = (scoresObj.away as Record<string, unknown> | undefined) ?? {};
+    const homeScore = typeof homeScoreObj.total === "number" ? homeScoreObj.total : null;
+    const awayScore = typeof awayScoreObj.total === "number" ? awayScoreObj.total : null;
+    const hasResult = homeScore !== null && awayScore !== null;
 
     return {
       title: `${home} vs ${away}`,
@@ -92,6 +102,10 @@ function mapFixturesToItems(
       date,
       leagueId,
       league,
+      homeScore,
+      awayScore,
+      hasResult,
+      status,
       url: `https://www.google.com/search?q=${encodeURIComponent(config.searchQuery(home, away))}`,
     };
   });
@@ -143,6 +157,19 @@ function buildEndpoints(sport: SportsType, leagueId: string | null) {
   ];
 }
 
+function filterItemsByResult(
+  items: SportsNewsItem[],
+  resultFilter: "all" | "with_result" | "without_result",
+) {
+  if (resultFilter === "with_result") {
+    return items.filter((item) => item.hasResult);
+  }
+  if (resultFilter === "without_result") {
+    return items.filter((item) => !item.hasResult);
+  }
+  return items;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const apiKey = process.env.API_SPORTS_KEY;
@@ -157,6 +184,7 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
     const sport = parseSport(params.get("sport"));
     const league = params.get("league");
+    const resultFilter = (params.get("result") ?? "all") as "all" | "with_result" | "without_result";
 
     const endpointCandidates = buildEndpoints(sport, league);
     let payloadToUse: SportsNewsApiPayload | null = null;
@@ -206,7 +234,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const items = mapFixturesToItems(payloadToUse.response ?? [], sport);
+    const mappedItems = mapFixturesToItems(payloadToUse.response ?? [], sport);
+    const items = filterItemsByResult(mappedItems, resultFilter);
     const leagues = [
       { id: "all", name: "Alle Ligen" },
       ...SPORT_CONFIG[sport].leagues,

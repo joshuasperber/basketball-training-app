@@ -16,6 +16,10 @@ type SportsNewsItem = {
   url: string;
   leagueId: string;
   league: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  hasResult: boolean;
+  status: string;
 };
 
 type SportsNewsPayload = {
@@ -40,6 +44,7 @@ function formatDate(value: string) {
 export default function SportsNewsPage() {
   const [sport, setSport] = useState<SportType>("basketball");
   const [selectedLeague, setSelectedLeague] = useState("all");
+  const [resultFilter, setResultFilter] = useState<"all" | "with_result" | "without_result">("all");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,13 +52,18 @@ export default function SportsNewsPage() {
   const [news, setNews] = useState<SportsNewsItem[]>([]);
   const [leagues, setLeagues] = useState<LeagueOption[]>([{ id: "all", name: "Alle Ligen" }]);
 
-  const loadNews = async (nextSport: SportType, nextLeague: string) => {
+  const loadNews = async (
+    nextSport: SportType,
+    nextLeague: string,
+    nextResultFilter: "all" | "with_result" | "without_result",
+  ) => {
     try {
       setLoading(true);
       setError(null);
 
       const params = new URLSearchParams({ sport: nextSport });
       if (nextLeague !== "all") params.set("league", nextLeague);
+      params.set("result", nextResultFilter);
 
       const response = await fetch(`/api/sports-news?${params.toString()}`, { cache: "no-store" });
       const payload = (await response.json()) as SportsNewsPayload;
@@ -74,8 +84,8 @@ export default function SportsNewsPage() {
   };
 
   useEffect(() => {
-    void loadNews(sport, selectedLeague);
-  }, [sport, selectedLeague]);
+    void loadNews(sport, selectedLeague, resultFilter);
+  }, [sport, selectedLeague, resultFilter]);
 
   const headerText = useMemo(() => {
     return sport === "basketball"
@@ -97,6 +107,7 @@ export default function SportsNewsPage() {
               onClick={() => {
                 setSport(tab.id);
                 setSelectedLeague("all");
+                setResultFilter("all");
               }}
               className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
                 sport === tab.id
@@ -126,10 +137,23 @@ export default function SportsNewsPage() {
               ))}
             </select>
           </label>
+          <label className="grid gap-1 text-sm text-zinc-300">
+            Ergebnisse
+            <select
+              className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none ring-blue-400 transition focus:ring-2"
+              value={resultFilter}
+              onChange={(event) => setResultFilter(event.target.value as "all" | "with_result" | "without_result")}
+              disabled={loading}
+            >
+              <option value="all">Alle anzeigen</option>
+              <option value="with_result">Nur mit Ergebnis</option>
+              <option value="without_result">Nur ohne Ergebnis</option>
+            </select>
+          </label>
 
           <button
             type="button"
-            onClick={() => loadNews(sport, selectedLeague)}
+            onClick={() => loadNews(sport, selectedLeague, resultFilter)}
             className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
             disabled={loading}
           >
@@ -153,6 +177,11 @@ export default function SportsNewsPage() {
                 {item.title}
               </a>
               <p className="mt-1 text-sm text-zinc-300">{item.source}</p>
+              {item.hasResult ? (
+                <p className="mt-1 text-sm text-emerald-300">Ergebnis: {item.homeScore} - {item.awayScore}</p>
+              ) : (
+                <p className="mt-1 text-sm text-zinc-400">Noch kein Ergebnis ({item.status})</p>
+              )}
               <p className="mt-1 text-xs text-zinc-500">{formatDate(item.date)}</p>
             </article>
           ))}

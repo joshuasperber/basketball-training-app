@@ -25,12 +25,10 @@ import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
+const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
+const LAST_SEEN_LEVEL_KEY = "bt.profile.last-seen-level.v1";
 const PRIMARY_DAY_TABS = ["Gym", "Basketball", "HomeWorkout", "Regeneration", "Keine Zeit"] as const;
 type PrimaryDayTab = (typeof PRIMARY_DAY_TABS)[number];
-const BASKETBALL_SUBTAGS = exerciseSubcategoriesByCategory.Basketball;
-const GYM_TAGS = exerciseSubcategoriesByCategory.Gym;
-const HOME_TAGS = exerciseSubcategoriesByCategory.Home;
-const RECOVERY_TAGS = exerciseSubcategoriesByCategory.Regeneration;
 type BasketballTag = string;
 type GymTag = string;
 type HomeTag = string;
@@ -141,28 +139,25 @@ function getPrimaryTabByTags(tags: PlannedWorkoutTag[]): PrimaryDayTab | null {
 function getGymSubtagFromTags(tags: PlannedWorkoutTag[]): GymTag | null {
   const gymSubtag = tags.find((tag) => tag.startsWith("Gym:"));
   if (!gymSubtag) return null;
-  const value = gymSubtag.replace("Gym:", "") as GymTag;
-  return GYM_TAGS.includes(value) ? value : null;
+  return gymSubtag.replace("Gym:", "") as GymTag;
 }
 function getBasketballSubtagFromTags(tags: PlannedWorkoutTag[]): BasketballTag | null {
   const basketballSubtag = tags.find((tag) => tag.startsWith("Basketball:"));
   if (!basketballSubtag) return null;
-  const value = basketballSubtag.replace("Basketball:", "") as BasketballTag;
-  return BASKETBALL_SUBTAGS.includes(value) ? value : null;
+  return basketballSubtag.replace("Basketball:", "") as BasketballTag;
 }
 
 function getHomeSubtagFromTags(tags: PlannedWorkoutTag[]): HomeTag | null {
   const homeSubtag = tags.find((tag) => tag.startsWith("Home:"));
   if (!homeSubtag) return null;
-  const value = homeSubtag.replace("Home:", "") as HomeTag;
-  return HOME_TAGS.includes(value) ? value : null;
+  return homeSubtag.replace("Home:", "") as HomeTag;
 }
 
 function getRecoverySubtagFromTags(tags: PlannedWorkoutTag[]): RecoveryTag | null {
   const recoverySubtag = tags.find((tag) => tag.startsWith("Recovery:"));
   if (!recoverySubtag) return null;
   const value = recoverySubtag.replace("Recovery:", "");
-  return RECOVERY_TAGS.includes(value) ? value : null;
+  return value || null;
 }
 
 export default function ProfilePage() {
@@ -183,6 +178,17 @@ export default function ProfilePage() {
   const [selectedDateKey, setSelectedDateKey] = useState(() => toLocalDateKey(new Date()));
   const [completedDates, setCompletedDates] = useState<Set<string>>(new Set());
   const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
+  const [customSubcategories, setCustomSubcategories] = useState(() => ({
+    Basketball: [...exerciseSubcategoriesByCategory.Basketball],
+    Gym: [...exerciseSubcategoriesByCategory.Gym],
+    Home: [...exerciseSubcategoriesByCategory.Home],
+    Regeneration: [...exerciseSubcategoriesByCategory.Regeneration],
+  }));
+
+  const basketballTags = customSubcategories.Basketball;
+  const gymTags = customSubcategories.Gym;
+  const homeTags = customSubcategories.Home;
+  const recoveryTags = customSubcategories.Regeneration;
 
   const persistCurrentCache = useCallback(() => {
     saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
@@ -234,6 +240,44 @@ export default function ProfilePage() {
     if (loading) return;
     persistCurrentCache();
   }, [loading, persistCurrentCache]);
+
+  useEffect(() => {
+    const loadCustom = () => {
+      const raw = window.localStorage.getItem(CUSTOM_SUBCATEGORY_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as Partial<Record<"Basketball" | "Gym" | "Home" | "Regeneration", string[]>>;
+        setCustomSubcategories({
+          Basketball: [...new Set([...(parsed.Basketball ?? []), ...exerciseSubcategoriesByCategory.Basketball])],
+          Gym: [...new Set([...(parsed.Gym ?? []), ...exerciseSubcategoriesByCategory.Gym])],
+          Home: [...new Set([...(parsed.Home ?? []), ...exerciseSubcategoriesByCategory.Home])],
+          Regeneration: [...new Set([...(parsed.Regeneration ?? []), ...exerciseSubcategoriesByCategory.Regeneration])],
+        });
+      } catch {
+        // noop
+      }
+    };
+
+    loadCustom();
+    window.addEventListener("storage", loadCustom);
+    return () => window.removeEventListener("storage", loadCustom);
+  }, []);
+
+  useEffect(() => {
+    const rawProgression = window.localStorage.getItem("bt.progression.v1");
+    if (!rawProgression) return;
+    try {
+      const progression = JSON.parse(rawProgression) as { level?: number };
+      const currentLevel = Math.max(1, progression.level ?? 1);
+      const previousSeen = Number(window.localStorage.getItem(LAST_SEEN_LEVEL_KEY) ?? "1");
+      if (currentLevel > previousSeen) {
+        window.alert(`🎉 Globales Level-Up! Du bist jetzt Level ${currentLevel}.`);
+      }
+      window.localStorage.setItem(LAST_SEEN_LEVEL_KEY, String(currentLevel));
+    } catch {
+      // noop
+    }
+  }, [completedDates]);
 
   useEffect(() => {
     const refresh = () => {
@@ -300,19 +344,19 @@ export default function ProfilePage() {
   const applyPrimaryTab = (tab: PrimaryDayTab) => {
     if (tab === "Basketball") {
       updateSelectedDatePlan(["Trainingstag"]);
-      updateSelectedDatePlan(["Trainingstag", `Basketball:${BASKETBALL_SUBTAGS[0]}` as PlannedWorkoutTag]);
+      updateSelectedDatePlan(["Trainingstag", `Basketball:${basketballTags[0]}` as PlannedWorkoutTag]);
       return;
     }
     if (tab === "Gym") {
-      updateSelectedDatePlan(["Gym", "Gym:Push" as PlannedWorkoutTag]);
+      updateSelectedDatePlan(["Gym", `Gym:${gymTags[0]}` as PlannedWorkoutTag]);
       return;
     }
     if (tab === "HomeWorkout") {
-      updateSelectedDatePlan(["Home-Workout", "Home:Mobility" as PlannedWorkoutTag]);
+      updateSelectedDatePlan(["Home-Workout", `Home:${homeTags[0]}` as PlannedWorkoutTag]);
       return;
     }
     if (tab === "Regeneration") {
-      updateSelectedDatePlan(["Regeneration", `Recovery:${RECOVERY_TAGS[0]}` as PlannedWorkoutTag]);
+      updateSelectedDatePlan(["Regeneration", `Recovery:${recoveryTags[0]}` as PlannedWorkoutTag]);
       return;
     }
     updateSelectedDatePlan([]);
@@ -521,7 +565,7 @@ export default function ProfilePage() {
                   </div>
                   {activePrimaryTab === "Basketball" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {BASKETBALL_SUBTAGS.map((tag) => (
+                      {basketballTags.map((tag) => (
                         <button key={tag} type="button" onClick={() => applyBasketballSubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeBasketballSubtag === tag ? "border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-600 text-zinc-300"}`}>
                           {tag}
                         </button>
@@ -530,7 +574,7 @@ export default function ProfilePage() {
                   ) : null}
                   {activePrimaryTab === "Gym" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {GYM_TAGS.map((tag) => (
+                      {gymTags.map((tag) => (
                         <button key={tag} type="button" onClick={() => applyGymSubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeGymSubtag === tag ? "border-amber-400 bg-amber-500/20 text-amber-100" : "border-zinc-600 text-zinc-300"}`}>
                           {tag}
                         </button>
@@ -539,7 +583,7 @@ export default function ProfilePage() {
                   ) : null}
                   {activePrimaryTab === "HomeWorkout" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {HOME_TAGS.map((tag) => (
+                      {homeTags.map((tag) => (
                         <button key={tag} type="button" onClick={() => applyHomeSubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeHomeSubtag === tag ? "border-amber-400 bg-amber-500/20 text-amber-100" : "border-zinc-600 text-zinc-300"}`}>
                           {tag}
                         </button>
@@ -548,7 +592,7 @@ export default function ProfilePage() {
                   ) : null}
                   {activePrimaryTab === "Regeneration" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {RECOVERY_TAGS.map((tag) => (
+                      {recoveryTags.map((tag) => (
                         <button key={tag} type="button" onClick={() => applyRecoverySubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeRecoverySubtag === tag ? "border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-600 text-zinc-300"}`}>
                           {tag}
                         </button>

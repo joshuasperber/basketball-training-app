@@ -31,6 +31,8 @@ import {
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
 
+const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
+
 type ManualDayWorkout = {
   id: string;
   title: string;
@@ -165,9 +167,37 @@ function WorkoutsPageContent() {
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
   const [isClientReady, setIsClientReady] = useState(false);
+  const [customSubcategoriesByCategory, setCustomSubcategoriesByCategory] = useState<Record<"Basketball" | "Gym" | "Home" | "Regeneration", string[]>>({
+    Basketball: [],
+    Gym: [],
+    Home: [],
+    Regeneration: [],
+  });
 
   useEffect(() => {
     setIsClientReady(true);
+  }, []);
+
+  useEffect(() => {
+    const loadCustomSubcategories = () => {
+      const raw = window.localStorage.getItem(CUSTOM_SUBCATEGORY_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as Partial<Record<"Basketball" | "Gym" | "Home" | "Regeneration", string[]>>;
+        setCustomSubcategoriesByCategory({
+          Basketball: parsed.Basketball ?? [],
+          Gym: parsed.Gym ?? [],
+          Home: parsed.Home ?? [],
+          Regeneration: parsed.Regeneration ?? [],
+        });
+      } catch {
+        // noop
+      }
+    };
+
+    loadCustomSubcategories();
+    window.addEventListener("storage", loadCustomSubcategories);
+    return () => window.removeEventListener("storage", loadCustomSubcategories);
   }, []);
 
   const autoWorkoutFromWeekly = useMemo<WorkoutPlan | null>(() => {
@@ -323,12 +353,15 @@ function WorkoutsPageContent() {
     () =>
       Array.from(
         new Set(
-          trainingExercises
-            .filter((exercise) => exercise.category === manualCategory)
-            .map((exercise) => exercise.subcategory),
+          [
+            ...trainingExercises
+              .filter((exercise) => exercise.category === manualCategory)
+              .map((exercise) => exercise.subcategory),
+            ...(customSubcategoriesByCategory[manualCategory] ?? []),
+          ],
         ),
       ).sort((left, right) => left.localeCompare(right)),
-    [manualCategory, trainingExercises],
+    [customSubcategoriesByCategory, manualCategory, trainingExercises],
   );
 
   const manualTemplateOptions = useMemo(
@@ -615,7 +648,7 @@ function WorkoutsPageContent() {
   };
 
   function loadSavedManualWorkout(entry: ManualDayWorkout, shouldRoute = true) {
-    setManualCategory(entry.sport);
+        setManualCategory(entry.sport);
     setManualSubcategory(entry.subcategory);
     setManualTitle(entry.title);
     setSelectedManualExerciseIds(entry.exerciseIds);

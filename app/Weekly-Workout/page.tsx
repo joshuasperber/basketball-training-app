@@ -217,6 +217,37 @@ function buildRecoverySuggestion(day: DayKey, exercises: Exercise[]): SuggestedW
   };
 }
 
+function syncNoTimeForDate(dateKey: string) {
+  const dailyRaw = window.localStorage.getItem("bt.daily-plan.v1");
+  const dailyPlan = dailyRaw ? (JSON.parse(dailyRaw) as Record<string, PlannedWorkoutTag[]>) : {};
+  dailyPlan[dateKey] = [];
+  window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(dailyPlan));
+
+  const parsedDate = new Date(`${dateKey}T00:00:00`);
+  const dayMap: Record<number, DayKey> = {
+    0: "sunday",
+    1: "monday",
+    2: "tuesday",
+    3: "wednesday",
+    4: "thursday",
+    5: "friday",
+    6: "saturday",
+  };
+  const targetDay = dayMap[parsedDate.getDay()];
+  const rawProfile = window.localStorage.getItem("profile_cache_v4");
+  if (!rawProfile) return;
+  try {
+    const parsed = JSON.parse(rawProfile) as { weekConfig?: Partial<Record<DayKey, { mode: string; minutes: number }>> };
+    parsed.weekConfig = {
+      ...(parsed.weekConfig ?? {}),
+      [targetDay]: { mode: "unavailable", minutes: 0 },
+    };
+    window.localStorage.setItem("profile_cache_v4", JSON.stringify(parsed));
+  } catch {
+    // noop
+  }
+}
+
 function selectBestWorkout(
   mode: string,
   day: DayKey,
@@ -234,6 +265,9 @@ function selectBestWorkout(
 ): SuggestedWorkout {
   const targetWithExtra = targetMinutes;
   const modeLabel = mode === "game-training" ? "Spieltraining (15 Min vorab + 30 Min danach)" : "Direktes Training";
+  if (mode === "recovery") {
+    return buildRecoverySuggestion(day, exercises);
+  }
   const fallback = buildFallbackSuggestion(mode, targetWithExtra);
   if (fallback) return fallback;
 
@@ -574,6 +608,12 @@ export default function WeeklyWorkoutPage() {
         const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
         writeManualDayDisabledMap(disabledMap);
         setDisabledManualDays(disabledMap);
+        const isToday = dateKey === getTodayDateKey();
+        const hasCompletedToday = completedDateSet.has(dateKey);
+        if (isToday && !hasCompletedToday) {
+          syncNoTimeForDate(dateKey);
+          setDailyPlanMap(readDailyPlanMap());
+        }
       }
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(next));
       setManualWorkoutsByDate(next);
@@ -593,6 +633,12 @@ export default function WeeklyWorkoutPage() {
       const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
       writeManualDayDisabledMap(disabledMap);
       setDisabledManualDays(disabledMap);
+      const isToday = dateKey === getTodayDateKey();
+      const hasCompletedToday = completedDateSet.has(dateKey);
+      if (isToday && !hasCompletedToday) {
+        syncNoTimeForDate(dateKey);
+        setDailyPlanMap(readDailyPlanMap());
+      }
       setManualWorkoutsByDate(parsed);
       setManualVersion((current) => current + 1);
     } catch {
