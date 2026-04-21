@@ -18,24 +18,6 @@
       "trackingType": "reps"
     },
     {
-      "id": "ex-5",
-      "name": "Bench Press",
-      "durationMin": 15,
-      "category": "Gym",
-      "subcategory": "Push",
-      "notes": "Kontrollierte Exzentrik",
-      "metricKeys": [
-        "weight",
-        "reps"
-      ],
-      "targetByMetric": {
-        "weight": 70,
-        "reps": 8
-      },
-      "trackingType": "weight",
-      "targetValue": 70
-    },
-    {
       "id": "ex-6",
       "name": "Barbell Row",
       "durationMin": 15,
@@ -421,17 +403,6 @@
         "ex-1774961895979",
         "ex-1774962194568",
         "ex-1774962225019"
-      ]
-    },
-    {
-      "id": "wo-4",
-      "name": "Gym Push 1",
-      "category": "Gym",
-      "subcategory": "Push",
-      "notes": "Saubere Technik",
-      "level": 1,
-      "exerciseIds": [
-        "ex-5"
       ]
     },
     {

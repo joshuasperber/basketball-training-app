@@ -14,8 +14,10 @@ import { toLocalDateKey } from "@/lib/workout";
 import {
   getCompletedWorkoutDateSet,
   readDailyPlanMap,
+  readManualDayDisabledMap,
   type PlannedWorkoutTag,
   writeDailyPlanMap,
+  writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadExercises } from "@/lib/training-storage";
@@ -25,10 +27,11 @@ const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
 const PRIMARY_DAY_TABS = ["Gym", "Basketball", "HomeWorkout", "Regeneration", "Keine Zeit"] as const;
 type PrimaryDayTab = (typeof PRIMARY_DAY_TABS)[number];
-const BASKETBALL_TAGS: PlannedWorkoutTag[] = ["Spieltag", "Trainingstag", "Spieltraining"];
+const BASKETBALL_SUBTAGS = exerciseSubcategoriesByCategory.Basketball;
 const GYM_TAGS = exerciseSubcategoriesByCategory.Gym;
 const HOME_TAGS = exerciseSubcategoriesByCategory.Home;
 const RECOVERY_TAGS = exerciseSubcategoriesByCategory.Regeneration;
+type BasketballTag = string;
 type GymTag = string;
 type HomeTag = string;
 type RecoveryTag = string;
@@ -140,6 +143,12 @@ function getGymSubtagFromTags(tags: PlannedWorkoutTag[]): GymTag | null {
   if (!gymSubtag) return null;
   const value = gymSubtag.replace("Gym:", "") as GymTag;
   return GYM_TAGS.includes(value) ? value : null;
+}
+function getBasketballSubtagFromTags(tags: PlannedWorkoutTag[]): BasketballTag | null {
+  const basketballSubtag = tags.find((tag) => tag.startsWith("Basketball:"));
+  if (!basketballSubtag) return null;
+  const value = basketballSubtag.replace("Basketball:", "") as BasketballTag;
+  return BASKETBALL_SUBTAGS.includes(value) ? value : null;
 }
 
 function getHomeSubtagFromTags(tags: PlannedWorkoutTag[]): HomeTag | null {
@@ -262,6 +271,14 @@ export default function ProfilePage() {
       const next = { ...current, [selectedDateKey]: nextTags };
       if (nextTags.length === 0) delete next[selectedDateKey];
       writeDailyPlanMap(next);
+      if (nextTags.length > 0) {
+        const disabledMap = readManualDayDisabledMap();
+        if (disabledMap[selectedDateKey]) {
+          const nextDisabledMap = { ...disabledMap };
+          delete nextDisabledMap[selectedDateKey];
+          writeManualDayDisabledMap(nextDisabledMap);
+        }
+      }
 
       const selectedDate = new Date(`${selectedDateKey}T00:00:00`);
       const dayIndex = selectedDate.getDay();
@@ -275,6 +292,7 @@ export default function ProfilePage() {
   };
 
   const activePrimaryTab = getPrimaryTabByTags(selectedTags);
+  const activeBasketballSubtag = getBasketballSubtagFromTags(selectedTags);
   const activeGymSubtag = getGymSubtagFromTags(selectedTags);
   const activeHomeSubtag = getHomeSubtagFromTags(selectedTags);
   const activeRecoverySubtag = getRecoverySubtagFromTags(selectedTags);
@@ -282,6 +300,7 @@ export default function ProfilePage() {
   const applyPrimaryTab = (tab: PrimaryDayTab) => {
     if (tab === "Basketball") {
       updateSelectedDatePlan(["Trainingstag"]);
+      updateSelectedDatePlan(["Trainingstag", `Basketball:${BASKETBALL_SUBTAGS[0]}` as PlannedWorkoutTag]);
       return;
     }
     if (tab === "Gym") {
@@ -299,8 +318,8 @@ export default function ProfilePage() {
     updateSelectedDatePlan([]);
   };
 
-  const applyBasketballTag = (tag: PlannedWorkoutTag) => {
-    updateSelectedDatePlan([tag]);
+  const applyBasketballSubtag = (tag: BasketballTag) => {
+    updateSelectedDatePlan(["Trainingstag", `Basketball:${tag}` as PlannedWorkoutTag]);
   };
 
   const applyGymSubtag = (tag: GymTag) => {
@@ -502,8 +521,8 @@ export default function ProfilePage() {
                   </div>
                   {activePrimaryTab === "Basketball" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {BASKETBALL_TAGS.map((tag) => (
-                        <button key={tag} type="button" onClick={() => applyBasketballTag(tag)} className={`rounded-full border px-3 py-1 text-xs ${selectedTags.includes(tag) ? "border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-600 text-zinc-300"}`}>
+                      {BASKETBALL_SUBTAGS.map((tag) => (
+                        <button key={tag} type="button" onClick={() => applyBasketballSubtag(tag)} className={`rounded-full border px-3 py-1 text-xs ${activeBasketballSubtag === tag ? "border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-600 text-zinc-300"}`}>
                           {tag}
                         </button>
                       ))}
