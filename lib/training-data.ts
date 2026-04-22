@@ -11,6 +11,7 @@ export type Exercise = {
   notes?: string;
   metricKeys: MetricKey[];
   targetByMetric?: Partial<Record<MetricKey, number>>;
+  setTargetsByMetric?: Partial<Record<MetricKey, number>>[];
   trackingType: "reps" | "weight";
   targetValue?: number;
 };

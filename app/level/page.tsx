@@ -11,6 +11,7 @@ import {
 } from "@/lib/level-system";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises } from "@/lib/training-storage";
+import { buildPlayerBadges, computeBadgeStats } from "@/lib/badge-system";
 
 type DailyStreak = { current: number; best: number };
 
@@ -22,8 +23,6 @@ type ExercisePointEntry = {
   subcategory: string;
   points: number;
 };
-type Badge = { id: string; name: string; description: string };
-
 const ALLOWED_BASKETBALL = ["Handles", "Shooting", "Finishing", "Conditioning"] as const;
 const ALLOWED_GYM = ["Oberkörper", "Arme", "Core", "Beine", "Cardio"] as const;
 const ALLOWED_HOME = ["Mobility", "Conditioning", "Recovery"] as const;
@@ -270,21 +269,11 @@ export default function LevelPage() {
     return Math.max(0.7, Math.min(1.4, recencyScore * 0.7 + regenScore * 0.3));
   };
 
-  const badges = (() => {
-    const nextBadges: Badge[] = [];
-    if (weightedLevelData.level >= 5) nextBadges.push({ id: "lvl-5", name: "Rookie+ Lv5", description: "Level 5 erreicht" });
-    if (weightedLevelData.level >= 10) nextBadges.push({ id: "lvl-10", name: "Grinder Lv10", description: "Level 10 erreicht" });
-    if (weightedLevelData.level >= 20) nextBadges.push({ id: "lvl-20", name: "Elite Lv20", description: "Level 20 erreicht" });
-    if (streakData.current >= 7) nextBadges.push({ id: "streak-7", name: "Consistency King", description: "7 Tage Streak" });
-
-    const topSub = [...categoryBreakdown.flatMap((g) => g.items.map((i) => ({ key: `${g.category}:${i.subcategory}`, points: i.points })))]
-      .sort((a, b) => b.points - a.points)[0];
-    if (topSub && topSub.points >= 400) {
-      nextBadges.push({ id: `spec-${topSub.key}`, name: "Specialist", description: `Starker Fokus auf ${topSub.key}` });
-    }
-
-    return nextBadges;
-  })();
+  const badges = useMemo(() => {
+    const sessions = getWorkoutSessions();
+    const stats = computeBadgeStats(sessions, weightedLevelData.level);
+    return buildPlayerBadges(stats).unlocked;
+  }, [weightedLevelData.level]);
 
 
   return (
@@ -392,8 +381,10 @@ export default function LevelPage() {
           <h3 className="text-lg font-semibold">Badges</h3>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {badges.map((badge) => (
-              <div key={badge.id} className="rounded-lg border border-amber-600/40 bg-zinc-950 p-2 text-sm">
-                <p className="font-semibold text-amber-200">{badge.name}</p>
+              <div key={`${badge.id}-${badge.name}`} className="rounded-lg border border-amber-600/40 bg-zinc-950 p-2 text-sm">
+                <p className="font-semibold text-amber-200">
+                  {badge.emoji} {badge.name} • {badge.tier}
+                </p>
                 <p className="text-zinc-300">{badge.description}</p>
               </div>
             ))}

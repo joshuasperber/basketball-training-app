@@ -138,10 +138,23 @@ function getExercisePrimaryTargetValue(exercise: ReturnType<typeof loadExercises
 }
 
 function buildExerciseSets(exercise: ReturnType<typeof loadExercises>[number]) {
-  const targetKg = exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0;
-  const targetReps = getExercisePrimaryTargetValue(exercise);
   const setCount = Math.max(1, exercise.setCount ?? 1);
-  return Array.from({ length: setCount }, () => ({ targetKg, targetReps }));
+  const perSetTargets = exercise.setTargetsByMetric ?? [];
+  return Array.from({ length: setCount }, (_, index) => {
+    const perSet = perSetTargets[index];
+    const fallbackKg = exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0;
+    const fallbackReps = getExercisePrimaryTargetValue(exercise);
+    return {
+      targetKg: perSet?.weight ?? fallbackKg,
+      targetReps:
+        perSet?.reps ??
+        perSet?.makes ??
+        perSet?.tries ??
+        perSet?.time ??
+        perSet?.points ??
+        fallbackReps,
+    };
+  });
 }
 
 function WorkoutsPageContent() {
@@ -243,9 +256,13 @@ function WorkoutsPageContent() {
         };
       }
       if (exerciseNames.length === 0) return null;
+      const autoWorkoutId =
+              sport === "Regeneration"
+          ? `auto-weekly-recovery-${effectiveDay}`
+          : `auto-weekly-${effectiveDay}`;
 
       return {
-        id: `auto-weekly-${effectiveDay}`,
+        id: autoWorkoutId,
         title: parsed.title,
         sport,
         subcategory: parsed.subcategory ?? "-",
@@ -712,7 +729,7 @@ function WorkoutsPageContent() {
       .map((exercise) => exercise.id);
 
     const nextEntry: ManualDayWorkout = {
-      id: `manual-day-${Date.now()}`,
+      id: manualWorkoutIdParam ?? `manual-day-${Date.now()}`,
       title: manualTitle.trim() || "Manuelles Workout",
       sport: manualCategory,
       subcategory: manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Keine Zeit",
@@ -760,7 +777,7 @@ function WorkoutsPageContent() {
   if (shouldRoute) {
     router.push("/Weekly-Workout");
   }
-}
+  }
 
   const syncProfileDayConfig = (
     dayIndex: number,
@@ -822,6 +839,14 @@ function WorkoutsPageContent() {
         ...previous,
         exercises: nextExercises,
       };
+    });
+  };
+
+  const jumpToSet = (setIndex: number) => {
+    persistProgress({
+      ...progress,
+      setIndex,
+      status: progress.status === "not_started" ? "in_progress" : progress.status,
     });
   };
 
@@ -1012,7 +1037,7 @@ function WorkoutsPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-black p-6 pb-24 text-white">
+        <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Workouts</h1>
       <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
       <p className="mt-1 text-xs text-emerald-300">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
@@ -1239,6 +1264,24 @@ function WorkoutsPageContent() {
               <p className="text-sm text-zinc-400">
                 Satz {safeSetIndex + 1}/{currentExercise.sets.length}
               </p>
+              {currentExercise.sets.length > 1 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {currentExercise.sets.map((_, setIdx) => (
+                    <button
+                      key={`${safeExerciseIndex}-set-tab-${setIdx}`}
+                      type="button"
+                      onClick={() => jumpToSet(setIdx)}
+                      className={`rounded-full border px-3 py-1 text-xs ${
+                        safeSetIndex === setIdx
+                          ? "border-indigo-400 bg-indigo-500/20 text-indigo-100"
+                          : "border-zinc-700 bg-zinc-900 text-zinc-300"
+                      }`}
+                    >
+                      Satz {setIdx + 1}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {isGymWorkout ? (
@@ -1254,7 +1297,7 @@ function WorkoutsPageContent() {
                 ) : null}
 
                 {tracksTriesAndMakes ? (
-                  <>
+                                    <>
                     <label className="text-sm text-zinc-300">
                       Tries
                       <input
@@ -1336,6 +1379,14 @@ function WorkoutsPageContent() {
               <div className="mt-4 flex gap-2">
                 <button
                   type="button"
+                  onClick={() => jumpToSet(Math.max(0, safeSetIndex - 1))}
+                  disabled={safeSetIndex <= 0}
+                  className="rounded-lg border border-zinc-600 px-3 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40"
+                >
+                  ← Satz zurück
+                </button>
+                <button
+                  type="button"
                   onClick={progress.status === "in_progress" ? completeWorkout : startWorkout}
                   className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
                 >
@@ -1354,6 +1405,14 @@ function WorkoutsPageContent() {
                   className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-950"
                 >
                   Satz hinzufügen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => jumpToSet(Math.min(currentExercise.sets.length - 1, safeSetIndex + 1))}
+                  disabled={safeSetIndex >= currentExercise.sets.length - 1}
+                  className="rounded-lg border border-zinc-600 px-3 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40"
+                >
+                  Satz vor →
                 </button>
               </div>
             </article>

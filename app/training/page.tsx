@@ -49,6 +49,16 @@ function parseMetricInput(value?: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeSetTargetsLength(
+  current: Partial<Record<MetricKey, string>>[],
+  setCountValue: string,
+): Partial<Record<MetricKey, string>>[] {
+  const count = Math.max(1, Number(setCountValue) || 1);
+  const next = [...current];
+  while (next.length < count) next.push({});
+  return next.slice(0, count);
+}
+
 function validateMetricTargets(metricKeys: MetricKey[], targets: Partial<Record<MetricKey, string>>) {
   if (metricKeys.length === 0) {
     return "Bitte mindestens ein Messfeld auswählen.";
@@ -118,6 +128,7 @@ export default function TrainingPage() {
   const [newExerciseSetCount, setNewExerciseSetCount] = useState("1");
   const [newExerciseMetrics, setNewExerciseMetrics] = useState<MetricKey[]>(["reps"]);
   const [newExerciseTargets, setNewExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
+  const [newExerciseSetTargets, setNewExerciseSetTargets] = useState<Partial<Record<MetricKey, string>>[]>([{}]);
   const [newExerciseError, setNewExerciseError] = useState<string | null>(null);
   const [subcategoriesByCategory, setSubcategoriesByCategory] = useState<SubcategoryMap>(() => {
     const base = buildInitialSubcategoryMap();
@@ -148,6 +159,7 @@ export default function TrainingPage() {
   const [editExerciseSetCount, setEditExerciseSetCount] = useState("1");
   const [editExerciseMetrics, setEditExerciseMetrics] = useState<MetricKey[]>(["reps"]);
   const [editExerciseTargets, setEditExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
+  const [editExerciseSetTargets, setEditExerciseSetTargets] = useState<Partial<Record<MetricKey, string>>[]>([{}]);
   const [editExerciseError, setEditExerciseError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -299,6 +311,14 @@ export default function TrainingPage() {
             return parsed === null ? [] : [[metric, parsed]];
           }),
         ) as Partial<Record<MetricKey, number>>,
+        setTargetsByMetric: normalizeSetTargetsLength(newExerciseSetTargets, newExerciseSetCount).map((setTargets) =>
+          Object.fromEntries(
+            Object.entries(setTargets).flatMap(([metric, value]) => {
+              const parsed = parseMetricInput(value);
+              return parsed === null ? [] : [[metric, parsed]];
+            }),
+          ) as Partial<Record<MetricKey, number>>,
+        ),
         trackingType: (newExerciseMetrics.includes("weight") ? "weight" : "reps") as "weight" | "reps",
         targetValue: Number(newExerciseTargets.reps ?? newExerciseTargets.weight ?? "") || undefined,
       },
@@ -314,6 +334,7 @@ export default function TrainingPage() {
     setNewExerciseSetCount("1");
     setNewExerciseMetrics(["reps"]);
     setNewExerciseTargets({});
+    setNewExerciseSetTargets([{}]);
     setNewExerciseError(null);
   }
 
@@ -389,6 +410,14 @@ export default function TrainingPage() {
         Object.entries(exercise.targetByMetric ?? {}).map(([metric, value]) => [metric, String(value)]),
       ) as Partial<Record<MetricKey, string>>,
     );
+    setEditExerciseSetTargets(
+      normalizeSetTargetsLength(
+        (exercise.setTargetsByMetric ?? []).map((setTargets) =>
+          Object.fromEntries(Object.entries(setTargets ?? {}).map(([metric, value]) => [metric, String(value)])),
+        ) as Partial<Record<MetricKey, string>>[],
+        String(exercise.setCount ?? 1),
+      ),
+    );
     setEditExerciseError(null);
   }
 
@@ -454,6 +483,14 @@ export default function TrainingPage() {
         notes: editExerciseNotes.trim() || undefined,
         metricKeys: metrics,
         targetByMetric: numericTargets,
+        setTargetsByMetric: normalizeSetTargetsLength(editExerciseSetTargets, editExerciseSetCount).map((setTargets) =>
+          Object.fromEntries(
+            Object.entries(setTargets).flatMap(([metric, value]) => {
+              const parsed = parseMetricInput(value);
+              return parsed === null ? [] : [[metric, parsed]];
+            }),
+          ) as Partial<Record<MetricKey, number>>,
+        ),
         trackingType: (metrics.includes("weight") ? "weight" : "reps") as "weight" | "reps",
         targetValue: Number(editExerciseTargets.reps ?? editExerciseTargets.weight ?? "") || undefined,
       };
@@ -470,6 +507,7 @@ export default function TrainingPage() {
     setEditExerciseSetCount("1");
     setEditExerciseMetrics(["reps"]);
     setEditExerciseTargets({});
+    setEditExerciseSetTargets([{}]);
     setEditExerciseError(null);
   }
 
@@ -491,6 +529,7 @@ export default function TrainingPage() {
       setEditExerciseSetCount("1");
       setEditExerciseMetrics(["reps"]);
       setEditExerciseTargets({});
+      setEditExerciseSetTargets([{}]);
       setEditExerciseError(null);
     }
   }
@@ -618,12 +657,23 @@ export default function TrainingPage() {
             newExerciseDurationUnit={newExerciseDurationUnit}
             onNewExerciseDurationUnitChange={setNewExerciseDurationUnit}
             newExerciseSetCount={newExerciseSetCount}
-            onNewExerciseSetCountChange={setNewExerciseSetCount}
+            onNewExerciseSetCountChange={(value) => {
+              setNewExerciseSetCount(value);
+              setNewExerciseSetTargets((current) => normalizeSetTargetsLength(current, value));
+            }}
             newExerciseMetrics={newExerciseMetrics}
             onToggleNewExerciseMetric={toggleNewExerciseMetric}
             newExerciseTargets={newExerciseTargets}
             onNewExerciseTargetChange={(metric, value) =>
               setNewExerciseTargets((current) => ({ ...current, [metric]: value }))
+            }
+            newExerciseSetTargets={newExerciseSetTargets}
+            onNewExerciseSetTargetChange={(setIndex, metric, value) =>
+              setNewExerciseSetTargets((current) => {
+                const normalized = normalizeSetTargetsLength(current, newExerciseSetCount);
+                normalized[setIndex] = { ...(normalized[setIndex] ?? {}), [metric]: value };
+                return [...normalized];
+              })
             }
             onCreateExercise={handleAddExercise}
             editingExerciseId={editingExerciseId}
@@ -642,12 +692,23 @@ export default function TrainingPage() {
             editExerciseDurationUnit={editExerciseDurationUnit}
             onEditExerciseDurationUnitChange={setEditExerciseDurationUnit}
             editExerciseSetCount={editExerciseSetCount}
-            onEditExerciseSetCountChange={setEditExerciseSetCount}
+            onEditExerciseSetCountChange={(value) => {
+              setEditExerciseSetCount(value);
+              setEditExerciseSetTargets((current) => normalizeSetTargetsLength(current, value));
+            }}
             editExerciseMetrics={editExerciseMetrics}
             onToggleEditExerciseMetric={toggleEditExerciseMetric}
             editExerciseTargets={editExerciseTargets}
             onEditExerciseTargetChange={(metric, value) =>
               setEditExerciseTargets((current) => ({ ...current, [metric]: value }))
+            }
+            editExerciseSetTargets={editExerciseSetTargets}
+            onEditExerciseSetTargetChange={(setIndex, metric, value) =>
+              setEditExerciseSetTargets((current) => {
+                const normalized = normalizeSetTargetsLength(current, editExerciseSetCount);
+                normalized[setIndex] = { ...(normalized[setIndex] ?? {}), [metric]: value };
+                return [...normalized];
+              })
             }
             onUpdateExercise={handleUpdateExercise}
             onDeleteExercise={handleDeleteExercise}

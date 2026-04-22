@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SportsNewsSection from "@/components/SportsNewsSection";
 import { getWorkoutSessions } from "@/lib/session-storage";
+import { buildPlayerBadges, computeBadgeStats, type PlayerBadge } from "@/lib/badge-system";
+import { getLevelFromXp, getProgressionState } from "@/lib/level-system";
 import {
   WorkoutProgress,
   buildWorkoutStorageKey,
@@ -14,6 +16,13 @@ import {
   parseWorkoutProgress,
 } from "@/lib/workout";
 import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap } from "@/lib/activity-calendar";
+
+const PLAYER_QUOTES = [
+  "Hard work beats talent when talent fails to work hard. — Kevin Durant",
+  "Excellence is not a singular act, but a habit. — Shaquille O’Neal",
+  "Some people want it to happen, some wish it would happen, others make it happen. — Michael Jordan",
+  "If you’re afraid to fail, then you’re probably going to fail. — Kobe Bryant",
+];
 
 export default function DashboardPage() {
   const dateKey = useMemo(() => getTodayDateKey(), []);
@@ -27,6 +36,11 @@ export default function DashboardPage() {
   const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
   const [todayLabel, setTodayLabel] = useState<string | null>(null);
   const [plannedTags, setPlannedTags] = useState<string[]>([]);
+  const [todaySport, setTodaySport] = useState(todayWorkout.sport);
+  const [todaySubcategory, setTodaySubcategory] = useState(todayWorkout.subcategory);
+  const [showAllBadges, setShowAllBadges] = useState(false);
+  const [badges, setBadges] = useState<PlayerBadge[]>([]);
+  const [selectedBadge, setSelectedBadge] = useState<PlayerBadge | null>(null);
   const [username, setUsername] = useState<string>("Player");
   const [weeklyCompleted, setWeeklyCompleted] = useState(0);
   const [streakDays, setStreakDays] = useState(0);
@@ -42,13 +56,17 @@ export default function DashboardPage() {
       );
       try {
         setTodayLabel(null);
+        setTodaySport(todayWorkout.sport);
+        setTodaySubcategory(todayWorkout.subcategory);
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
         if (rawManual) {
-          const parsed = JSON.parse(rawManual) as Record<string, Array<{ title: string }>>;
+          const parsed = JSON.parse(rawManual) as Record<string, Array<{ title: string; sport?: string; subcategory?: string }>>;
           const todayManual = parsed[dateKey]?.[0];
           if (todayManual?.title) {
             setTodayLabel(todayManual.title);
           }
+          if (todayManual?.sport) setTodaySport(todayManual.sport);
+          if (todayManual?.subcategory) setTodaySubcategory(todayManual.subcategory);
         }
         const dailyPlans = readDailyPlanMap();
         setPlannedTags(dailyPlans[dateKey] ?? []);
@@ -69,11 +87,15 @@ export default function DashboardPage() {
       window.removeEventListener("focus", refreshTodayData);
       window.removeEventListener("storage", refreshTodayData);
     };
-  }, [dateKey, fallbackProgress]);
+  }, [dateKey, fallbackProgress, todayWorkout.sport, todayWorkout.subcategory]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const sessions = getWorkoutSessions();
+      const progression = getProgressionState();
+      const level = getLevelFromXp(progression.totalXp).level;
+      const badgeStats = computeBadgeStats(sessions, level);
+      setBadges(buildPlayerBadges(badgeStats).all);
 
       const start = new Date();
       start.setDate(start.getDate() - 6);
@@ -100,7 +122,9 @@ export default function DashboardPage() {
 
       const plannedCount = Object.keys(plans).filter((key) => {
         const d = new Date(`${key}T00:00:00`);
-        return d >= weekStart && d <= weekEnd;
+        if (!(d >= weekStart && d <= weekEnd)) return false;
+        const tags = plans[key] ?? [];
+        return tags.includes("Gym") || tags.includes("Trainingstag") || tags.includes("Home-Workout");
       }).length;
       setWeeklyPlannedCount(plannedCount);
     }, 0);
@@ -114,6 +138,16 @@ export default function DashboardPage() {
 
   const isCompleted = progress.status === "completed";
   const isInProgress = progress.status === "in_progress";
+  const quoteOfTheDay = PLAYER_QUOTES[(new Date(dateKey).getDate() - 1) % PLAYER_QUOTES.length];
+  const visibleBadges = showAllBadges ? badges : badges.filter((badge) => badge.unlocked);
+  const badgeSections = useMemo(() => {
+    return {
+      Allgemein: visibleBadges.filter((badge) => badge.category === "Allgemein"),
+      Basketball: visibleBadges.filter((badge) => badge.category === "Basketball"),
+      Gym: visibleBadges.filter((badge) => badge.category === "Gym"),
+      Home: visibleBadges.filter((badge) => badge.category === "Home"),
+    };
+  }, [visibleBadges]);
 
   return (
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
@@ -126,8 +160,8 @@ export default function DashboardPage() {
             Heutiges Workout • {weekdayLabel}
           </p>
           <h2 className="mt-2 text-xl font-semibold">{todayLabel ?? todayWorkout.title}</h2>
-          <p className="text-sm text-zinc-400">Sport: {todayWorkout.sport}</p>
-          <p className="text-sm text-zinc-400">Unterkategorie: {todayWorkout.subcategory}</p>
+          <p className="text-sm text-zinc-400">Sport: {todaySport}</p>
+          <p className="text-sm text-zinc-400">Unterkategorie: {todaySubcategory}</p>
           {plannedTags.length > 0 ? (
             <p className="mt-2 text-xs text-zinc-300">Geplant heute: {plannedTags.join(", ")}</p>
           ) : null}
@@ -172,8 +206,68 @@ export default function DashboardPage() {
           <p className="mt-2 text-3xl font-bold">{completionRate}%</p>
         </article>
       </section>
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-semibold">Badges (wie im Level)</h3>
+          <button
+            type="button"
+            onClick={() => setShowAllBadges((current) => !current)}
+            className="rounded-lg border border-zinc-600 px-3 py-1 text-xs"
+          >
+            {showAllBadges ? "Nur erreichte" : "Alle Badges"}
+          </button>
+        </div>
+        <div className="mt-3 space-y-3">
+          {(Object.keys(badgeSections) as Array<keyof typeof badgeSections>).map((section) =>
+            badgeSections[section].length > 0 ? (
+              <div key={`badge-section-${section}`}>
+                <p className="mb-2 text-xs uppercase tracking-wide text-zinc-400">{section} Badges</p>
+                <div className="flex flex-wrap gap-2">
+                  {badgeSections[section].map((badge) => (
+                    <button
+                      key={badge.id}
+                      type="button"
+                      onClick={() => setSelectedBadge(badge)}
+                      className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-100 hover:bg-zinc-800"
+                    >
+                      {badge.emoji} {badge.name} • {badge.tier}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null,
+          )}
+        </div>
+      </section>
+      <section className="mt-6 rounded-2xl border border-indigo-800 bg-indigo-950/30 p-4">
+        <p className="text-xs uppercase tracking-wide text-indigo-300">Motivation</p>
+        <p className="mt-2 text-sm text-indigo-100">“{quoteOfTheDay}”</p>
+      </section>
 
       <SportsNewsSection />
+      {selectedBadge ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-lg font-semibold">
+                {selectedBadge.emoji} {selectedBadge.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedBadge(null)}
+                className="rounded-lg border border-zinc-600 px-2 py-1 text-xs"
+              >
+                Schließen
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-zinc-300">{selectedBadge.description}</p>
+            <p className="mt-2 text-xs text-zinc-400">Fortschritt: {selectedBadge.progressText}</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Status: {selectedBadge.unlocked ? "Badge erhalten ✅" : "Noch nicht erreicht"}
+            </p>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

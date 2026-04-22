@@ -130,15 +130,7 @@ export function WorkoutsTab({
   onUpdateWorkout,
   onDeleteWorkout,
 }: WorkoutsTabProps) {
-  const editExerciseOptions = useMemo(
-    () =>
-      availableExercises.filter(
-        (exercise) =>
-          exercise.category === editWorkoutCategory &&
-          (editWorkoutSubcategory === "Komplett" || exercise.subcategory === editWorkoutSubcategory),
-      ),
-    [availableExercises, editWorkoutCategory, editWorkoutSubcategory],
-  );
+  const editExerciseOptions = useMemo(() => availableExercises, [availableExercises]);
 
   const selectedExercises = useMemo(
     () => availableExercises.filter((exercise) => selectedExerciseIds.includes(exercise.id)),
@@ -240,9 +232,10 @@ export function WorkoutsTab({
           <input
             value={newWorkoutName}
             onChange={(event) => onNewWorkoutNameChange(event.target.value)}
-            placeholder="Workout Name"
+            placeholder="Workout Name *"
             className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
           />
+          <p className="text-xs text-rose-300">* Pflichtfeld</p>
           <textarea
             value={newWorkoutNotes}
             onChange={(event) => onNewWorkoutNotesChange(event.target.value)}
@@ -277,6 +270,16 @@ export function WorkoutsTab({
               })
             )}
           </div>
+          {selectedExercises.length > 0 ? (
+            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+              <p className="text-xs text-zinc-400">Bereits ausgewählt</p>
+              <ul className="mt-2 list-inside list-disc text-sm text-zinc-300">
+                {selectedExercises.map((exercise) => (
+                  <li key={`selected-${exercise.id}`}>{exercise.name}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           <p className="text-xs text-zinc-400">
             Zeitberechnung: {selectedExercises.reduce((sum, item) => sum + item.durationMin, 0)} Min × 1.10 ⇒{" "}
@@ -401,6 +404,8 @@ type ExercisesTabProps = {
   onToggleNewExerciseMetric: (metric: MetricKey) => void;
   newExerciseTargets: Partial<Record<MetricKey, string>>;
   onNewExerciseTargetChange: (metric: MetricKey, value: string) => void;
+  newExerciseSetTargets: Partial<Record<MetricKey, string>>[];
+  onNewExerciseSetTargetChange: (setIndex: number, metric: MetricKey, value: string) => void;
   onCreateExercise: (event: React.SyntheticEvent<HTMLFormElement>) => void;
   editingExerciseId: string | null;
   onStartEditExercise: (exercise: Exercise) => void;
@@ -423,6 +428,8 @@ type ExercisesTabProps = {
   onToggleEditExerciseMetric: (metric: MetricKey) => void;
   editExerciseTargets: Partial<Record<MetricKey, string>>;
   onEditExerciseTargetChange: (metric: MetricKey, value: string) => void;
+  editExerciseSetTargets: Partial<Record<MetricKey, string>>[];
+  onEditExerciseSetTargetChange: (setIndex: number, metric: MetricKey, value: string) => void;
   onUpdateExercise: (event: React.SyntheticEvent<HTMLFormElement>) => void;
   onDeleteExercise: (exerciseId: string) => void;
   newExerciseError: string | null;
@@ -460,6 +467,8 @@ export function ExercisesTab({
   onToggleNewExerciseMetric,
   newExerciseTargets,
   onNewExerciseTargetChange,
+  newExerciseSetTargets,
+  onNewExerciseSetTargetChange,
   onCreateExercise,
   editingExerciseId,
   onStartEditExercise,
@@ -482,6 +491,8 @@ export function ExercisesTab({
   onToggleEditExerciseMetric,
   editExerciseTargets,
   onEditExerciseTargetChange,
+  editExerciseSetTargets,
+  onEditExerciseSetTargetChange,
   onUpdateExercise,
   onDeleteExercise,
   newExerciseError,
@@ -601,18 +612,19 @@ export function ExercisesTab({
             </label>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <label className="block text-sm text-zinc-300">
-                Zeiteinheit
-                <select
-                  value={newExerciseDurationUnit}
-                  onChange={(event) => onNewExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
-                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                >
-                  <option value="minutes">Minuten</option>
-                  <option value="seconds">Sekunden</option>
-                </select>
-              </label>
-
+              {newExerciseMetrics.includes("time") ? (
+                <label className="block text-sm text-zinc-300">
+                  Zeiteinheit
+                  <select
+                    value={newExerciseDurationUnit}
+                    onChange={(event) => onNewExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
+                    className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                  >
+                    <option value="minutes">Minuten</option>
+                    <option value="seconds">Sekunden</option>
+                  </select>
+                </label>
+              ) : null}
               <label className="block text-sm text-zinc-300">
                 Anzahl Sets
                 <input
@@ -680,6 +692,30 @@ export function ExercisesTab({
             ) : (
               <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
             )}
+            {Number(newExerciseSetCount) > 1 && newExerciseMetrics.length > 0 ? (
+              <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                <p className="text-xs text-zinc-400">Set-spezifische Ziele</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {newExerciseSetTargets.map((setTargets, setIndex) => (
+                    <div key={`new-set-goal-${setIndex}`} className="w-full rounded-lg border border-zinc-700 p-2">
+                      <p className="text-xs text-cyan-200">Satz {setIndex + 1}</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {newExerciseMetrics.filter((metric) => metric !== "completed").map((metric) => (
+                          <input
+                            key={`new-set-${setIndex}-${metric}`}
+                            type="number"
+                            value={setTargets[metric] ?? ""}
+                            onChange={(event) => onNewExerciseSetTargetChange(setIndex, metric, event.target.value)}
+                            placeholder={`${METRIC_LABELS[metric]} (Satz ${setIndex + 1})`}
+                            className="w-full rounded-xl border border-zinc-700 bg-black px-3 py-2"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <button type="submit" className="w-full rounded-xl bg-indigo-600 px-4 py-2 font-semibold">
               Exercise hinzufügen
@@ -736,18 +772,19 @@ export function ExercisesTab({
               </label>
 
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="block text-sm text-zinc-300">
-                  Zeiteinheit
-                  <select
-                    value={editExerciseDurationUnit}
-                    onChange={(event) => onEditExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
-                    className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                  >
-                    <option value="minutes">Minuten</option>
-                    <option value="seconds">Sekunden</option>
-                  </select>
-                </label>
-
+                {editExerciseMetrics.includes("time") ? (
+                  <label className="block text-sm text-zinc-300">
+                    Zeiteinheit
+                    <select
+                      value={editExerciseDurationUnit}
+                      onChange={(event) => onEditExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
+                      className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                    >
+                      <option value="minutes">Minuten</option>
+                      <option value="seconds">Sekunden</option>
+                    </select>
+                  </label>
+                ) : null}
                 <label className="block text-sm text-zinc-300">
                   Anzahl Sets
                   <input
@@ -811,6 +848,30 @@ export function ExercisesTab({
               ) : (
                 <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
               )}
+              {Number(editExerciseSetCount) > 1 && editExerciseMetrics.length > 0 ? (
+                <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+                  <p className="text-xs text-zinc-400">Set-spezifische Ziele</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {editExerciseSetTargets.map((setTargets, setIndex) => (
+                      <div key={`edit-set-goal-${setIndex}`} className="w-full rounded-lg border border-zinc-700 p-2">
+                        <p className="text-xs text-cyan-200">Satz {setIndex + 1}</p>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {editExerciseMetrics.filter((metric) => metric !== "completed").map((metric) => (
+                            <input
+                              key={`edit-set-${setIndex}-${metric}`}
+                              type="number"
+                              value={setTargets[metric] ?? ""}
+                              onChange={(event) => onEditExerciseSetTargetChange(setIndex, metric, event.target.value)}
+                              placeholder={`${METRIC_LABELS[metric]} (Satz ${setIndex + 1})`}
+                              className="w-full rounded-xl border border-zinc-700 bg-black px-3 py-2"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="flex gap-2">
                 <button type="submit" className="flex-1 rounded-xl bg-amber-600 px-4 py-2 font-semibold">
