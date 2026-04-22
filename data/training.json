@@ -565,6 +565,24 @@
       },
       "trackingType": "reps",
       "targetValue": 20
+    },
+    {
+      "id": "ex-1776843425613",
+      "name": "Burpees",
+      "durationMin": 10,
+      "timeUnit": "minutes",
+      "setCount": 3,
+      "category": "Home",
+      "subcategory": "Conditioning",
+      "notes": "Jump and push-up",
+      "metricKeys": [
+        "reps"
+      ],
+      "targetByMetric": {
+        "reps": 20
+      },
+      "trackingType": "reps",
+      "targetValue": 20
     }
   ],
   "workouts": [
@@ -654,6 +672,40 @@
         "ex-1775057909593",
         "ex-1775057983150",
         "ex-1775063396821"
+      ]
+    },
+    {
+      "id": "wo-1776843080698",
+      "name": "Basketball-workout",
+      "category": "Home",
+      "subcategory": "Basketball-spezifisch",
+      "level": 1,
+      "exerciseIds": [
+        "ex-1776803576495",
+        "ex-1776803707334"
+      ]
+    },
+    {
+      "id": "wo-1776843193459",
+      "name": "Challenge-Workout",
+      "category": "Home",
+      "subcategory": "Gym-spezifisch",
+      "level": 1,
+      "exerciseIds": [
+        "ex-1776803809086",
+        "ex-1776803826957",
+        "ex-1776803838118"
+      ]
+    },
+    {
+      "id": "wo-1776843446208",
+      "name": "All-out",
+      "category": "Home",
+      "subcategory": "Conditioning",
+      "level": 1,
+      "exerciseIds": [
+        "ex-1776803576495",
+        "ex-1776843425613"
       ]
     }
   ]

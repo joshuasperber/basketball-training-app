@@ -137,6 +137,13 @@ function getExercisePrimaryTargetValue(exercise: ReturnType<typeof loadExercises
   );
 }
 
+function buildExerciseSets(exercise: ReturnType<typeof loadExercises>[number]) {
+  const targetKg = exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0;
+  const targetReps = getExercisePrimaryTargetValue(exercise);
+  const setCount = Math.max(1, exercise.setCount ?? 1);
+  return Array.from({ length: setCount }, () => ({ targetKg, targetReps }));
+}
+
 function WorkoutsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -248,10 +255,7 @@ function WorkoutsPageContent() {
               .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise))
               .map((exercise) => ({
                 name: exercise.name,
-                sets: [{
-                  targetKg: exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0,
-                  targetReps: getExercisePrimaryTargetValue(exercise),
-                }],
+                sets: buildExerciseSets(exercise),
               }))
           : exerciseNames.map((name) => ({
               name,
@@ -276,10 +280,9 @@ function WorkoutsPageContent() {
     });
     const exercises = groupedExercises
       .map((exercise) => {
-        const targetKg = exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 20 : 0;
         return {
           name: exercise.name,
-          sets: [{ targetKg, targetReps: getExercisePrimaryTargetValue(exercise) }],
+          sets: buildExerciseSets(exercise),
         };
       });
 
@@ -455,7 +458,7 @@ function WorkoutsPageContent() {
   );
   const currentSet = currentExercise?.sets[safeSetIndex] ?? { targetKg: 0, targetReps: 0 };
   const currentLogKey = buildSetLogKey(safeExerciseIndex, safeSetIndex);
-  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "", misses: "" };
+  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "", misses: "", completed: false };
 
   const exerciseMeta = useMemo(() => {
     const lookup = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
@@ -481,7 +484,7 @@ function WorkoutsPageContent() {
     const tries = Number(log.tries) || 0;
     const makes = Number(log.makes) || 0;
     const misses = Number(log.misses) || 0;
-    return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0;
+    return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || log.completed === true;
   };
 
   const getExerciseStatus = (exerciseIndex: number): "not_started" | "in_progress" | "completed" => {
@@ -512,6 +515,19 @@ function WorkoutsPageContent() {
         [currentLogKey]: {
           ...currentLog,
           [field]: value,
+        },
+      },
+    });
+  };
+  const updateCompletionLog = (value: boolean) => {
+    setSetValidationError(null);
+    persistProgress({
+      ...progress,
+      logs: {
+        ...progress.logs,
+        [currentLogKey]: {
+          ...currentLog,
+          completed: value,
         },
       },
     });
@@ -576,10 +592,7 @@ function WorkoutsPageContent() {
       subcategory: entry.subcategory,
       exercises: selectedExercises.map((exercise) => ({
         name: exercise.name,
-        sets: [{
-          targetKg: exercise.trackingType === "weight" ? exercise.targetByMetric?.weight ?? exercise.targetValue ?? 0 : 0,
-          targetReps: getExercisePrimaryTargetValue(exercise),
-        }],
+        sets: buildExerciseSets(exercise),
       })),
     };
   };
@@ -645,7 +658,11 @@ function WorkoutsPageContent() {
     if (entry.sport !== "Regeneration") {
       applyRecoverySuggestionChoice(recoveryChoice, store);
     }
-    store[dateKey] = [entry, ...(store[dateKey] ?? []).filter((item) => item.id !== manualWorkoutIdParam)];
+    const existingForDate = store[dateKey] ?? [];
+    store[dateKey] = [
+      entry,
+      ...existingForDate.filter((item) => item.id !== manualWorkoutIdParam && item.id !== entry.id),
+    ];
 
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
 
@@ -821,9 +838,10 @@ function WorkoutsPageContent() {
         const makes = Number(setLog.makes) || 0;
         const tries = Number(setLog.tries) || 0;
         const weight = Number(setLog.weight) || 0;
-        const effectiveReps = makes > 0 ? makes : reps;
+        const completedFlag = setLog.completed ?? true;
+        const effectiveReps = completedFlag ? (makes > 0 ? makes : reps) : 0;
 
-        if (effectiveReps > 0 || weight > 0 || tries > 0) {
+        if ((effectiveReps > 0 || weight > 0 || tries > 0) && completedFlag) {
           accumulator.totalSets += 1;
         }
 
@@ -860,7 +878,9 @@ function WorkoutsPageContent() {
         const computedTries = tries > 0 ? tries : makes + misses;
         const computedMisses = computedTries > 0 ? Math.max(0, computedTries - makes) : misses;
         const fallbackReps = parseNonNegative(log?.reps);
-        const completedValue = makes > 0 ? makes : fallbackReps > 0 ? fallbackReps : null;
+        const usesCompletionFlag = exerciseDef.metricKeys.includes("completed");
+        const isCompleted = usesCompletionFlag ? log?.completed === true : true;
+        const completedValue = !isCompleted ? null : makes > 0 ? makes : fallbackReps > 0 ? fallbackReps : null;
         return {
           exerciseId: exerciseDef.id,
           completedValue,
@@ -869,6 +889,7 @@ function WorkoutsPageContent() {
           misses: computedMisses > 0 ? computedMisses : null,
           attempts: computedTries > 0 ? computedTries : null,
           weightKg: parseNonNegative(log?.weight) || null,
+          completed: isCompleted,
         };
       });
     });
@@ -892,10 +913,11 @@ function WorkoutsPageContent() {
         const reps = Number(log?.reps) || 0;
         const makes = Number(log?.makes) || 0;
         const weight = Number(log?.weight) || 0;
+        const setCompleted = log?.completed ?? true;
         const effectiveReps = makes > 0 ? makes : reps;
         const repsMet = effectiveReps >= set.targetReps;
         const weightMet = set.targetKg <= 0 || weight >= set.targetKg;
-        if (repsMet && weightMet) {
+        if (setCompleted && repsMet && weightMet) {
           achievedSets += 1;
         }
       });
@@ -1254,7 +1276,7 @@ function WorkoutsPageContent() {
                   </>
                 ) : (
                   <label className="text-sm text-zinc-300">
-                    {isGymWorkout ? "Reps" : `Wert (${activeMetric})`}
+                    {isGymWorkout ? "Reps" : `Wert (${activeMetric}${activeMetric === "time" ? currentExerciseMeta?.timeUnit === "seconds" ? " in Sek." : " in Min." : ""})`}
                     <input
                       value={currentLog.reps}
                       onChange={(event) => updateCurrentLog("reps", event.target.value)}
@@ -1263,6 +1285,16 @@ function WorkoutsPageContent() {
                     />
                   </label>
                 )}
+                {currentMetricOptions.includes("completed") ? (
+                  <label className="flex items-center gap-2 text-sm text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={currentLog.completed === true}
+                      onChange={(event) => updateCompletionLog(event.target.checked)}
+                    />
+                    Geschafft?
+                  </label>
+                ) : null}
               </div>
 
               {!isGymWorkout && currentMetricOptions.length > 0 && !tracksTriesAndMakes ? (
@@ -1292,11 +1324,12 @@ function WorkoutsPageContent() {
 
               <div className="mt-3 text-sm text-zinc-400">
                 <p>
-                  Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksTriesAndMakes ? `${currentExerciseMeta?.targetByMetric?.tries ?? "-"} Tries • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} Treffer/Reps`}
+                  Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksTriesAndMakes ? `${currentExerciseMeta?.targetByMetric?.tries ?? "-"} Tries • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} ${activeMetric === "time" && currentExerciseMeta?.timeUnit === "seconds" ? "Sekunden" : "Treffer/Reps"}`}
                 </p>
                 <p className="mt-1">
-                  Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.tries)} Tries • ${currentLog.makes || 0} Makes • ${Math.max(0, parseNonNegative(currentLog.tries) - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0}`}
+                  Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.tries)} Tries • ${currentLog.makes || 0} Makes • ${Math.max(0, parseNonNegative(currentLog.tries) - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0}${activeMetric === "time" ? ` ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}` : ""}`}
                 </p>
+                {currentMetricOptions.includes("completed") ? <p className="mt-1">Geschafft: {currentLog.completed ? "Ja" : "Nein"}</p> : null}
               </div>
               {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
 

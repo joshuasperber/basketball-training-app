@@ -10,6 +10,7 @@ import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from 
 type ExerciseSet = {
   id: string;
   values: Partial<Record<string, string>>;
+  completed?: boolean;
 };
 
 function getNumeric(values: Partial<Record<string, string>>, key: string) {
@@ -48,7 +49,10 @@ export default function ExerciseExecutionPage() {
     [exerciseId, exercises],
   );
 
-  const [sets, setSets] = useState<ExerciseSet[]>([{ id: "set-1", values: {} }]);
+  const [sets, setSets] = useState<ExerciseSet[]>(() => {
+    const setCount = Math.max(1, exercise?.setCount ?? 1);
+    return Array.from({ length: setCount }, (_, index) => ({ id: `set-${index + 1}`, values: {}, completed: false }));
+  });
   const [sessionNote, setSessionNote] = useState("");
   const [saved, setSaved] = useState(false);
   const [history, setHistory] = useState<{ dateISO: string; value: number }[]>([]);
@@ -81,7 +85,11 @@ export default function ExerciseExecutionPage() {
 
   function addSet() {
     setSaved(false);
-    setSets((previous) => [...previous, { id: `set-${Date.now()}`, values: {} }]);
+    setSets((previous) => [...previous, { id: `set-${Date.now()}`, values: {}, completed: false }]);
+  }
+
+  function updateSetCompleted(id: string, completed: boolean) {
+    setSets((previous) => previous.map((entry) => (entry.id === id ? { ...entry, completed } : entry)));
   }
 
   async function handleSaveExercise() {
@@ -105,8 +113,11 @@ export default function ExerciseExecutionPage() {
     sets.forEach((set) => {
       const primaryMetric = exercise.metricKeys[0];
       const rawPrimaryValue = set.values[primaryMetric];
+      const usesCompletionFlag = exercise.metricKeys.includes("completed");
+      const isCompleted = usesCompletionFlag ? set.completed === true : true;
       const value = Number(rawPrimaryValue);
       if (!Number.isFinite(value)) return;
+      if (!isCompleted) return;
       createdAnyLog = true;
       appendExerciseHistory({
         id: `eh-${Date.now()}-${set.id}`,
@@ -123,6 +134,7 @@ export default function ExerciseExecutionPage() {
       sessionLogs.push({
         exerciseId: exercise.id,
         completedValue: value,
+        completed: isCompleted,
         note: sessionNote,
         attempts,
         made,
@@ -210,6 +222,16 @@ export default function ExerciseExecutionPage() {
                     </label>
                   ))}
                 </div>
+                {exercise.metricKeys.includes("completed") ? (
+                  <label className="mt-2 flex items-center gap-2 text-sm text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={set.completed === true}
+                      onChange={(event) => updateSetCompleted(set.id, event.target.checked)}
+                    />
+                    Geschafft?
+                  </label>
+                ) : null}
                 {validateMetricValues(set.values) ? (
                   <p className="mt-2 text-xs text-rose-300">{validateMetricValues(set.values)}</p>
                 ) : null}

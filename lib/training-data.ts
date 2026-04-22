@@ -4,6 +4,8 @@ export type Exercise = {
   id: string;
   name: string;
   durationMin: number;
+  timeUnit?: "minutes" | "seconds";
+  setCount?: number;
   category: Category;
   subcategory: string;
   notes?: string;
@@ -22,7 +24,8 @@ export type MetricKey =
   | "misses"
   | "tries"
   | "points"
-  | "intensity";
+  | "intensity"
+  | "completed";
 
 export type Workout = {
   id: string;

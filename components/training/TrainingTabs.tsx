@@ -16,6 +16,7 @@ const METRIC_OPTIONS: MetricKey[] = [
   "tries",
   "points",
   "intensity",
+  "completed",
 ];
 
 const METRIC_LABELS: Record<MetricKey, string> = {
@@ -28,6 +29,7 @@ const METRIC_LABELS: Record<MetricKey, string> = {
   tries: "Trys",
   points: "Punkte",
   intensity: "Intensität",
+  completed: "Geschafft (Ja/Nein)",
 };
 
 function formatMetricTargets(exercise: Exercise) {
@@ -35,7 +37,9 @@ function formatMetricTargets(exercise: Exercise) {
   return exercise.metricKeys
     .map((metric) => {
       const value = exercise.targetByMetric?.[metric];
-      return value !== undefined ? `${METRIC_LABELS[metric]} ${value}` : null;
+      if (value === undefined) return null;
+      if (metric === "completed") return `${METRIC_LABELS[metric]} ${value >= 1 ? "Ja" : "Nein"}`;
+      return `${METRIC_LABELS[metric]} ${value}`;
     })
     .filter((entry): entry is string => Boolean(entry))
     .join(" • ");
@@ -135,14 +139,13 @@ export function WorkoutsTab({
       ),
     [availableExercises, editWorkoutCategory, editWorkoutSubcategory],
   );
+
   const selectedExercises = useMemo(
     () => availableExercises.filter((exercise) => selectedExerciseIds.includes(exercise.id)),
     [availableExercises, selectedExerciseIds],
   );
-  const selectedWorkoutMinutes = useMemo(
-    () => calculateWorkoutMinutes(selectedExercises),
-    [selectedExercises],
-  );
+
+  const selectedWorkoutMinutes = useMemo(() => calculateWorkoutMinutes(selectedExercises), [selectedExercises]);
 
   return (
     <section className="grid gap-4 lg:grid-cols-2">
@@ -263,7 +266,8 @@ export function WorkoutsTab({
                       checked={checked}
                       onChange={() =>
                         onSelectedExerciseIdsChange(
-                          checked                            ? selectedExerciseIds.filter((id) => id !== exercise.id)
+                          checked
+                            ? selectedExerciseIds.filter((id) => id !== exercise.id)
                             : [...selectedExerciseIds, exercise.id],
                         )
                       }
@@ -273,6 +277,7 @@ export function WorkoutsTab({
               })
             )}
           </div>
+
           <p className="text-xs text-zinc-400">
             Zeitberechnung: {selectedExercises.reduce((sum, item) => sum + item.durationMin, 0)} Min × 1.10 ⇒{" "}
             {selectedWorkoutMinutes} Min (auf 5er-Schritte aufgerundet)
@@ -282,7 +287,6 @@ export function WorkoutsTab({
             Workout hinzufügen
           </button>
         </form>
-
       </section>
 
       {editingWorkoutId ? (
@@ -326,6 +330,7 @@ export function WorkoutsTab({
               ) : (
                 editExerciseOptions.map((exercise) => {
                   const checked = editWorkoutExerciseIds.includes(exercise.id);
+
                   return (
                     <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm">
                       <span>{exercise.name}</span>
@@ -388,6 +393,10 @@ type ExercisesTabProps = {
   onNewExerciseNotesChange: (value: string) => void;
   newExerciseDurationMin: string;
   onNewExerciseDurationMinChange: (value: string) => void;
+  newExerciseDurationUnit: "minutes" | "seconds";
+  onNewExerciseDurationUnitChange: (value: "minutes" | "seconds") => void;
+  newExerciseSetCount: string;
+  onNewExerciseSetCountChange: (value: string) => void;
   newExerciseMetrics: MetricKey[];
   onToggleNewExerciseMetric: (metric: MetricKey) => void;
   newExerciseTargets: Partial<Record<MetricKey, string>>;
@@ -406,6 +415,10 @@ type ExercisesTabProps = {
   onEditExerciseNotesChange: (value: string) => void;
   editExerciseDurationMin: string;
   onEditExerciseDurationMinChange: (value: string) => void;
+  editExerciseDurationUnit: "minutes" | "seconds";
+  onEditExerciseDurationUnitChange: (value: "minutes" | "seconds") => void;
+  editExerciseSetCount: string;
+  onEditExerciseSetCountChange: (value: string) => void;
   editExerciseMetrics: MetricKey[];
   onToggleEditExerciseMetric: (metric: MetricKey) => void;
   editExerciseTargets: Partial<Record<MetricKey, string>>;
@@ -439,6 +452,10 @@ export function ExercisesTab({
   onNewExerciseNotesChange,
   newExerciseDurationMin,
   onNewExerciseDurationMinChange,
+  newExerciseDurationUnit,
+  onNewExerciseDurationUnitChange,
+  newExerciseSetCount,
+  onNewExerciseSetCountChange,
   newExerciseMetrics,
   onToggleNewExerciseMetric,
   newExerciseTargets,
@@ -457,6 +474,10 @@ export function ExercisesTab({
   onEditExerciseNotesChange,
   editExerciseDurationMin,
   onEditExerciseDurationMinChange,
+  editExerciseDurationUnit,
+  onEditExerciseDurationUnitChange,
+  editExerciseSetCount,
+  onEditExerciseSetCountChange,
   editExerciseMetrics,
   onToggleEditExerciseMetric,
   editExerciseTargets,
@@ -537,6 +558,7 @@ export function ExercisesTab({
 
         <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
           <h3 className="text-xl font-semibold">Neue Exercise hinzufügen</h3>
+
           <form className="mt-3 space-y-3" onSubmit={onCreateExercise}>
             <FilterSection
               title="Kategorie"
@@ -565,16 +587,44 @@ export function ExercisesTab({
               rows={2}
               className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
             />
+
             <label className="block text-sm text-zinc-300">
-              Zeit (Minuten) – pro Exercise
+              Zeit (Dauer)
               <input
                 type="number"
-                min={1}                value={newExerciseDurationMin}
+                min={1}
+                value={newExerciseDurationMin}
                 onChange={(event) => onNewExerciseDurationMinChange(event.target.value)}
                 placeholder="z. B. 12"
                 className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
               />
             </label>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="block text-sm text-zinc-300">
+                Zeiteinheit
+                <select
+                  value={newExerciseDurationUnit}
+                  onChange={(event) => onNewExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
+                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                >
+                  <option value="minutes">Minuten</option>
+                  <option value="seconds">Sekunden</option>
+                </select>
+              </label>
+
+              <label className="block text-sm text-zinc-300">
+                Anzahl Sets
+                <input
+                  type="number"
+                  min={1}
+                  value={newExerciseSetCount}
+                  onChange={(event) => onNewExerciseSetCountChange(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                />
+              </label>
+            </div>
+
             <p className="text-xs text-zinc-500">
               Diese Zeit wird in der Dauer-Spalte angezeigt und in die Workout-Gesamtzeit übernommen.
             </p>
@@ -604,16 +654,28 @@ export function ExercisesTab({
 
             {newExerciseMetrics.length > 0 ? (
               <div className="grid gap-2 sm:grid-cols-2">
-                {newExerciseMetrics.map((metric) => (
-                  <input
-                    key={metric}
-                    type="number"
-                    value={newExerciseTargets[metric] ?? ""}
-                    onChange={(event) => onNewExerciseTargetChange(metric, event.target.value)}
-                    placeholder={`Ziel ${METRIC_LABELS[metric]}`}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                  />
-                ))}
+                {newExerciseMetrics.map((metric) =>
+                  metric === "completed" ? (
+                    <select
+                      key={metric}
+                      value={newExerciseTargets[metric] ?? "1"}
+                      onChange={(event) => onNewExerciseTargetChange(metric, event.target.value)}
+                      className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                    >
+                      <option value="1">Ziel: Ja</option>
+                      <option value="0">Ziel: Nein</option>
+                    </select>
+                  ) : (
+                    <input
+                      key={metric}
+                      type="number"
+                      value={newExerciseTargets[metric] ?? ""}
+                      onChange={(event) => onNewExerciseTargetChange(metric, event.target.value)}
+                      placeholder={`Ziel ${METRIC_LABELS[metric]}`}
+                      className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                    />
+                  ),
+                )}
               </div>
             ) : (
               <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
@@ -631,6 +693,7 @@ export function ExercisesTab({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <section className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-4">
             <h3 className="text-xl font-semibold text-amber-300">Exercise bearbeiten</h3>
+
             <form className="mt-3 space-y-3" onSubmit={onUpdateExercise}>
               <FilterSection
                 title="Kategorie"
@@ -659,8 +722,9 @@ export function ExercisesTab({
                 rows={2}
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
               />
+
               <label className="block text-sm text-zinc-300">
-                Zeit (Minuten) – pro Exercise
+                Zeit (Dauer)
                 <input
                   type="number"
                   min={1}
@@ -670,6 +734,31 @@ export function ExercisesTab({
                   className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
                 />
               </label>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-sm text-zinc-300">
+                  Zeiteinheit
+                  <select
+                    value={editExerciseDurationUnit}
+                    onChange={(event) => onEditExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
+                    className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                  >
+                    <option value="minutes">Minuten</option>
+                    <option value="seconds">Sekunden</option>
+                  </select>
+                </label>
+
+                <label className="block text-sm text-zinc-300">
+                  Anzahl Sets
+                  <input
+                    type="number"
+                    min={1}
+                    value={editExerciseSetCount}
+                    onChange={(event) => onEditExerciseSetCountChange(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                  />
+                </label>
+              </div>
 
               <div>
                 <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
@@ -696,16 +785,28 @@ export function ExercisesTab({
 
               {editExerciseMetrics.length > 0 ? (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {editExerciseMetrics.map((metric) => (
-                    <input
-                      key={metric}
-                      type="number"
-                      value={editExerciseTargets[metric] ?? ""}
-                      onChange={(event) => onEditExerciseTargetChange(metric, event.target.value)}
-                      placeholder={`Ziel ${METRIC_LABELS[metric]}`}
-                      className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                    />
-                  ))}
+                  {editExerciseMetrics.map((metric) =>
+                    metric === "completed" ? (
+                      <select
+                        key={metric}
+                        value={editExerciseTargets[metric] ?? "1"}
+                        onChange={(event) => onEditExerciseTargetChange(metric, event.target.value)}
+                        className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                      >
+                        <option value="1">Ziel: Ja</option>
+                        <option value="0">Ziel: Nein</option>
+                      </select>
+                    ) : (
+                      <input
+                        key={metric}
+                        type="number"
+                        value={editExerciseTargets[metric] ?? ""}
+                        onChange={(event) => onEditExerciseTargetChange(metric, event.target.value)}
+                        placeholder={`Ziel ${METRIC_LABELS[metric]}`}
+                        className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                      />
+                    ),
+                  )}
                 </div>
               ) : (
                 <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
@@ -723,6 +824,7 @@ export function ExercisesTab({
                   Abbrechen
                 </button>
               </div>
+
               {editExerciseError ? <p className="text-sm text-rose-300">{editExerciseError}</p> : null}
             </form>
           </section>
@@ -747,11 +849,16 @@ function ExerciseCard({
     <article className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2">
       <p className="font-semibold">{exercise.name}</p>
       <p className="text-sm text-zinc-400">
-        {exercise.category} • {exercise.subcategory} • {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
+        {exercise.category} • {exercise.subcategory} •{" "}
+        {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
       </p>
-      <p className="text-xs text-zinc-500">Dauer: {exercise.durationMin} Min</p>
+      <p className="text-xs text-zinc-500">
+        Dauer: {exercise.durationMin} {exercise.timeUnit === "seconds" ? "Sek" : "Min"}
+      </p>
+      <p className="text-xs text-zinc-500">Sets: {exercise.setCount ?? 1}</p>
       <p className="text-xs text-zinc-500">Ziele: {formatMetricTargets(exercise)}</p>
       {exercise.notes ? <p className="text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
+
       {href ? (
         <Link
           href={href}
@@ -760,6 +867,7 @@ function ExerciseCard({
           Exercise starten
         </Link>
       ) : null}
+
       {onEdit ? (
         <button
           type="button"
@@ -769,6 +877,7 @@ function ExerciseCard({
           Bearbeiten
         </button>
       ) : null}
+
       {onDelete ? (
         <button
           type="button"
@@ -804,11 +913,16 @@ function FilterSection<T extends string>({
   const canEdit = Boolean(category && onCreateOption && onDeleteOption && title.toLowerCase().includes("unterkategorie"));
   const [draft, setDraft] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+
   const handleAdd = () => {
     if (!canEdit || !category || !onCreateOption) return;
-    if (!showAdd) { setShowAdd(true); return; }
-    if (!draft.trim())return;
-    onCreateOption(category,draft.trim());
+    if (!showAdd) {
+      setShowAdd(true);
+      return;
+    }
+    if (!draft.trim()) return;
+    onCreateOption(category, draft.trim());
+    setDraft("");
     setShowAdd(false);
   };
 
@@ -819,8 +933,60 @@ function FilterSection<T extends string>({
 
   return (
     <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-      <div className="flex items-center justify-between gap-2"><h2 className="text-xl font-semibold">{title}</h2>{canEdit ? <div className="flex gap-2"><button type="button" onClick={handleAdd} className="rounded-lg border border-zinc-600 px-2 py-1 text-xs">✏️</button><button type="button" onClick={handleDelete} className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300">🗑</button></div> : null}</div>
-      {showAdd ? <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3"><p className="text-xs text-zinc-400">Neue Unterkategorie</p><div className="mt-2 flex gap-2"><input value={draft} onChange={(e) => setDraft(e.target.value)} className="flex-1 rounded-lg border border-zinc-700 bg-black px-2 py-1 text-sm" placeholder="Name"/><button type="button" onClick={handleAdd} className="rounded-lg border border-emerald-600 px-2 py-1 text-xs text-emerald-200">Speichern</button><button type="button" onClick={() => { setShowAdd(false); setDraft(""); }} className="rounded-lg border border-zinc-600 px-2 py-1 text-xs">Abbrechen</button></div></div> : null}<div className="mt-3 flex flex-wrap gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-xl font-semibold">{title}</h2>
+        {canEdit ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="rounded-lg border border-zinc-600 px-2 py-1 text-xs"
+            >
+              ✏️
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300"
+            >
+              🗑
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {showAdd ? (
+        <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3">
+          <p className="text-xs text-zinc-400">Neue Unterkategorie</p>
+          <div className="mt-2 flex gap-2">
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              className="flex-1 rounded-lg border border-zinc-700 bg-black px-2 py-1 text-sm"
+              placeholder="Name"
+            />
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="rounded-lg border border-emerald-600 px-2 py-1 text-xs text-emerald-200"
+            >
+              Speichern
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAdd(false);
+                setDraft("");
+              }}
+              className="rounded-lg border border-zinc-600 px-2 py-1 text-xs"
+            >
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap gap-2">
         {options.map((option) => (
           <button
             key={option}

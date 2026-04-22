@@ -11,6 +11,7 @@ export type ExerciseHistoryEntry = {
 export type WorkoutSessionLog = {
   exerciseId: string;
   completedValue: number | null;
+  completed?: boolean;
   note: string;
   made?: number | null;
   attempts?: number | null;

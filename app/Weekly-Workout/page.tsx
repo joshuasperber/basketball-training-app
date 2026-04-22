@@ -722,7 +722,8 @@ export default function WeeklyWorkoutPage() {
           const hiddenCardIds = new Set(hiddenAutoWorkoutsByDate[manualDateKey] ?? []);
           const isDayDisabled = disabledManualDays[manualDateKey] === true;
           const plannedTags = dailyPlanMap[manualDateKey] ?? [];
-          const isRestDisplay = isDayDisabled || (suggestedWorkout?.durationMin ?? 0) <= 0 || suggestedWorkout?.sport === "-";
+          const hasManualWorkout = dayManualEntries.length > 0;
+          const isRestDisplay = !hasManualWorkout && (isDayDisabled || (suggestedWorkout?.durationMin ?? 0) <= 0 || suggestedWorkout?.sport === "-");
           const workoutCards: WorkoutCardItem[] = [];
           const shouldAddRecoveryCard =
             !isRestDisplay &&
