@@ -87,6 +87,9 @@ function normalizePosition(position: string): PlayerPosition {
 
 function normalizeStyle(playStyle: string) {
   const lower = playStyle.trim().toLowerCase();
+  if (lower.includes("handle")) return "ballhandling";
+  if (lower.includes("finish")) return "finishing";
+  if (lower.includes("condition")) return "conditioning";
   if (lower.includes("athlet")) return "athletisch";
   if (lower.includes("shoot")) return "shooter";
   if (lower.includes("slash")) return "slasher";
@@ -101,6 +104,16 @@ export function getFocusProfile(input: PlayerArchetypeInput): FocusProfile {
 
   const exact = ARCHETYPE_MAP[`${position}:${style}`];
   if (exact) return exact;
+
+  if (style === "ballhandling") {
+    return { basketball: ["Handles", "Shooting", "Finishing", "Conditioning"], gym: DEFAULT_FOCUS.gym };
+  }
+  if (style === "finishing") {
+    return { basketball: ["Finishing", "Handles", "Conditioning", "Shooting"], gym: DEFAULT_FOCUS.gym };
+  }
+  if (style === "conditioning") {
+    return { basketball: ["Conditioning", "Finishing", "Handles", "Shooting"], gym: DEFAULT_FOCUS.gym };
+  }
 
   const positionFallback = Object.entries(ARCHETYPE_MAP).find(([key]) => key.startsWith(`${position}:`))?.[1];
   return positionFallback ?? DEFAULT_FOCUS;
@@ -164,7 +177,7 @@ export function buildGeneratedWorkout(params: {
     const totalDuration = fullCategoryPool.reduce((sum, exercise) => sum + exercise.durationMin, 0);
     return {
       id: `auto-${params.day}-${params.category.toLowerCase()}-${params.subcategory.toLowerCase()}`,
-      name: `Auto ${params.subcategory} (${params.day})`,
+      name: `Auto ${params.subcategory}`,
       category: params.category,
       subcategory: params.subcategory,
       exerciseIds: fullCategoryPool.map((exercise) => exercise.id),
@@ -224,7 +237,7 @@ export function buildGeneratedWorkout(params: {
 
   return {
     id: `auto-${params.day}-${params.category.toLowerCase()}-${params.subcategory.toLowerCase()}`,
-    name: `Auto ${params.subcategory} (${params.day})`,
+    name: `Auto ${params.subcategory}`,
     category: params.category,
     subcategory: params.subcategory,
     exerciseIds: picked.map((exercise) => exercise.id),

@@ -12,6 +12,7 @@ import {
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises } from "@/lib/training-storage";
 import { buildPlayerBadges, computeBadgeStats } from "@/lib/badge-system";
+import TopSubTabs from "@/components/TopSubTabs";
 
 type DailyStreak = { current: number; best: number };
 
@@ -280,6 +281,7 @@ export default function LevelPage() {
     <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Level</h1>
       <p className="mt-2 text-zinc-400">Globales Level oben, darunter klare Skill-Level pro Bereich und Unterkategorie.</p>
+      <TopSubTabs items={[{ label: "Fortschritt", href: "/stats" }, { label: "Level", href: "/level" }]} />
       <p className="mt-1 text-sm text-cyan-300">Weiter so, {username} – jede Session zählt.</p>
 
       {popupMessage ? (

@@ -58,6 +58,7 @@ type ProfileRow = {
   favorite_position: string | null;
   height_cm: number | null;
   weight_kg: number | null;
+  email: string | null;
 };
 
 type ProfileLocalCache = {
@@ -163,9 +164,10 @@ function getRecoverySubtagFromTags(tags: PlannedWorkoutTag[]): RecoveryTag | nul
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [savedToastVisible, setSavedToastVisible] = useState(false);
 
-  const [profile, setProfile] = useState<ProfileRow>({ username: "joshua", full_name: "Joshua Sperber", favorite_position: "pf", height_cm: 198, weight_kg: 98 });
-  const [playStyle, setPlayStyle] = useState<string>("Stretch Four");
+  const [profile, setProfile] = useState<ProfileRow>({ username: "", full_name: "", favorite_position: "sg", height_cm: null, weight_kg: null, email: null });
+  const [playStyle, setPlayStyle] = useState<string>("Shooter");
   const [weekConfig, setWeekConfig] = useState<WeekConfig>(getDefaultWeekConfig());
   const [weeklyGoalSessions] = useState<number>(4);
   const [bodyMetrics, setBodyMetrics] = useState({
@@ -203,7 +205,14 @@ export default function ProfilePage() {
       setBodyMetrics(localCache.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null });
     }
 
-    const username = usernameOverride ?? localCache?.profile.username ?? (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) ?? "joshua";
+    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: { email?: string | null } | null } }> } }).auth;
+    const authData = authApi?.getUser ? await authApi.getUser() : null;
+    const authEmail = authData?.data?.user?.email ?? null;
+    const username =
+      usernameOverride ??
+      localCache?.profile.username ??
+      (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) ??
+      "";
 
     const { data } = await supabase
       .from("profiles")
@@ -219,9 +228,12 @@ export default function ProfilePage() {
         favorite_position: data.favorite_position ?? localCache?.profile.favorite_position ?? "sg",
         height_cm: data.height_cm ?? localCache?.profile.height_cm ?? null,
         weight_kg: data.weight_kg ?? localCache?.profile.weight_kg ?? null,
+        email: authEmail ?? localCache?.profile.email ?? null,
       };
       setProfile(mergedProfile);
       setPlayStyle(localCache?.playStyle ?? getDefaultPlayStyle(mergedProfile.favorite_position));
+    } else {
+      setProfile((current) => ({ ...current, email: authEmail ?? localCache?.profile.email ?? null }));
     }
 
     setCompletedDates(getCompletedWorkoutDateSet());
@@ -398,21 +410,27 @@ const refreshProfileAndWeekly = () => {
       setMessage("Bitte einen Username eingeben.");
       return;
     }
+    const fullName = (profile.full_name ?? "").trim();
+    if (!fullName) {
+      setMessage("Bitte einen vollständigen Namen eingeben.");
+      return;
+    }
 
     const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: unknown } }> } }).auth;
     if (authApi?.getUser) {
       const { data: authData } = await authApi.getUser();
       if (!authData?.user) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-        saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        saveLocalCache({ profile: { ...profile, username, full_name: fullName }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         setMessage("Nur lokal gespeichert (kein Supabase-Login).");
         return;
       }
+      setProfile((current) => ({ ...current, email: authData.user?.email ?? current.email ?? null }));
     }
 
     const { error } = await supabase.from("profiles").upsert({
       username,
-      full_name: profile.full_name,
+      full_name: fullName,
       favorite_position: profile.favorite_position,
       height_cm: profile.height_cm,
       weight_kg: profile.weight_kg,
@@ -421,7 +439,7 @@ const refreshProfileAndWeekly = () => {
       const isRlsError = error.message.toLowerCase().includes("row-level security") || error.message.toLowerCase().includes("rls");
       if (isRlsError) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-        saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        saveLocalCache({ profile: { ...profile, username, full_name: fullName }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         setMessage("Supabase-RLS aktiv: Profil lokal gespeichert.");
         return;
       }
@@ -430,17 +448,9 @@ const refreshProfileAndWeekly = () => {
     }
 
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-    saveLocalCache({ profile: { ...profile, username }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+    saveLocalCache({ profile: { ...profile, username, full_name: fullName }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
     setMessage(null);
   }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
-
-  useEffect(() => {
-    if (loading) return;
-    const timer = window.setTimeout(() => {
-      void persistProfileToSupabase();
-    }, 900);
-    return () => window.clearTimeout(timer);
-  }, [loading, persistProfileToSupabase]);
 
   return (
     <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
@@ -452,6 +462,12 @@ const refreshProfileAndWeekly = () => {
             <input value={profile.username ?? ""} onChange={(e) => setProfile((p) => ({ ...p, username: e.target.value }))} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" placeholder="Username" />
             <input value={profile.full_name ?? ""} onChange={(e) => setProfile((p) => ({ ...p, full_name: e.target.value }))} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" placeholder="Vollständiger Name" />
           </div>
+          <input
+            value={profile.email ?? ""}
+            disabled
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-400"
+            placeholder="E-Mail (aus Login)"
+          />
 
           <div className="grid gap-3 sm:grid-cols-2">
             <select value={profile.favorite_position ?? "sg"} onChange={(e) => { const next = e.target.value; setProfile((p) => ({ ...p, favorite_position: next })); setPlayStyle(getDefaultPlayStyle(next)); }} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm">
@@ -620,7 +636,12 @@ const refreshProfileAndWeekly = () => {
         </div>
         <button
               type="button"
-              onClick={refreshProfileAndWeekly}
+              onClick={async () => {
+                refreshProfileAndWeekly();
+                await persistProfileToSupabase();
+                setSavedToastVisible(true);
+                window.setTimeout(() => setSavedToastVisible(false), 2200);
+              }}
               className="mt-3 w-full rounded-lg border border-cyan-500 bg-cyan-950/30 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-900/40"
             >
               Profil aktualisieren
@@ -643,6 +664,11 @@ const refreshProfileAndWeekly = () => {
         </section>
 
         {message ? <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-200">{message}</div> : null}
+        {savedToastVisible ? (
+          <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-emerald-400 bg-emerald-900/90 px-4 py-2 text-xs font-semibold text-emerald-100">
+            Profil gespeichert ✅
+          </div>
+        ) : null}
       </div>
     </main>
   );
