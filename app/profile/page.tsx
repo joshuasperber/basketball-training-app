@@ -25,6 +25,7 @@ import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
+const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 const LAST_SEEN_LEVEL_KEY = "bt.profile.last-seen-level.v1";
 const PRIMARY_DAY_TABS = ["Gym", "Basketball", "HomeWorkout", "Regeneration", "Keine Zeit"] as const;
@@ -71,6 +72,10 @@ type ProfileLocalCache = {
     standing_reach_cm: number | null;
     body_fat_pct: number | null;
   };
+};
+
+type SupabaseAuthUser = {
+  email?: string | null;
 };
 
 function getDefaultPlayStyle(position: string | null) {
@@ -207,7 +212,8 @@ export default function ProfilePage() {
 
     const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: { email?: string | null } | null } }> } }).auth;
     const authData = authApi?.getUser ? await authApi.getUser() : null;
-    const authEmail = authData?.data?.user?.email ?? null;
+    const cachedLoginEmail = typeof window !== "undefined" ? window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY) : null;
+    const authEmail = authData?.data?.user?.email ?? cachedLoginEmail ?? null;
     const username =
       usernameOverride ??
       localCache?.profile.username ??
@@ -234,6 +240,10 @@ export default function ProfilePage() {
       setPlayStyle(localCache?.playStyle ?? getDefaultPlayStyle(mergedProfile.favorite_position));
     } else {
       setProfile((current) => ({ ...current, email: authEmail ?? localCache?.profile.email ?? null }));
+    }
+
+    if (typeof window !== "undefined" && authEmail) {
+      window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, authEmail);
     }
 
     setCompletedDates(getCompletedWorkoutDateSet());
@@ -416,16 +426,20 @@ const refreshProfileAndWeekly = () => {
       return;
     }
 
-    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: unknown } }> } }).auth;
+    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
     if (authApi?.getUser) {
       const { data: authData } = await authApi.getUser();
       if (!authData?.user) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-        saveLocalCache({ profile: { ...profile, username, full_name: fullName }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         setMessage("Nur lokal gespeichert (kein Supabase-Login).");
         return;
       }
-      setProfile((current) => ({ ...current, email: authData.user?.email ?? current.email ?? null }));
+      const loginEmail = authData.user?.email ?? profile.email ?? null;
+      if (typeof window !== "undefined" && loginEmail) {
+        window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, loginEmail);
+      }
+      setProfile((current: ProfileRow) => ({ ...current, email: loginEmail }));
     }
 
     const { error } = await supabase.from("profiles").upsert({
@@ -439,7 +453,7 @@ const refreshProfileAndWeekly = () => {
       const isRlsError = error.message.toLowerCase().includes("row-level security") || error.message.toLowerCase().includes("rls");
       if (isRlsError) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-        saveLocalCache({ profile: { ...profile, username, full_name: fullName }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         setMessage("Supabase-RLS aktiv: Profil lokal gespeichert.");
         return;
       }
@@ -448,7 +462,7 @@ const refreshProfileAndWeekly = () => {
     }
 
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-    saveLocalCache({ profile: { ...profile, username, full_name: fullName }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+    saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
     setMessage(null);
   }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
 
