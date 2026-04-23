@@ -18,7 +18,7 @@ export default function TopSubTabs({ items }: TopSubTabsProps) {
           <Link
             key={item.href}
             href={item.href}
-            className={`rounded-full border px-5 py-2 text-sm font-large ${
+            className={`inline-flex min-w-[180px] justify-center rounded-full border px-8 py-3 text-base font-semibold ${
               isActive
                 ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
                 : "border-zinc-600 text-zinc-300"

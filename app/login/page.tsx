@@ -4,6 +4,7 @@ import { SyntheticEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
+const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
 
 function normalizeCodeInput(value: string) {
   return value.replace(/\D/g, "").slice(0, 8);
@@ -96,6 +97,10 @@ export default function LoginPage() {
       setMessage("Session konnte nicht gespeichert werden. Bitte versuche es erneut.");
       setLoading(false);
       return;
+    }
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email.trim().toLowerCase());
     }
 
     const destination = nextPath ?? "/dashboard";
