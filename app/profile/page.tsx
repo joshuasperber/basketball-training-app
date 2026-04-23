@@ -239,7 +239,7 @@ export default function ProfilePage() {
       setProfile(mergedProfile);
       setPlayStyle(localCache?.playStyle ?? getDefaultPlayStyle(mergedProfile.favorite_position));
     } else {
-      setProfile((current) => ({ ...current, email: authEmail ?? localCache?.profile.email ?? null }));
+      setProfile((current: ProfileRow) => ({ ...current, email: authEmail ?? localCache?.profile.email ?? null }));
     }
 
     if (typeof window !== "undefined" && authEmail) {
