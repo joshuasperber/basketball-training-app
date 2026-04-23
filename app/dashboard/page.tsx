@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase";
 export default async function DashboardPage() {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get("sb-access-token")?.value;
-  if (!!accessToken) {
+  if (!accessToken) {
     redirect("/login?next=/dashboard");
   }
   const supabase = createClient({ accessToken });

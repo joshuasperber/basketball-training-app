@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
 
@@ -15,14 +16,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const cookieStore = await cookies();
+  const isAuthenticated = Boolean(cookieStore.get("sb-access-token")?.value);
+
   return (
     <html lang="de">
       <body>
         {children}
-        <BottomNav />
+        <BottomNav isAuthenticated={isAuthenticated} />
       </body>
     </html>
   );

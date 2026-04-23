@@ -73,6 +73,10 @@ type ProfileLocalCache = {
   };
 };
 
+type SupabaseAuthUser = {
+  email?: string | null;
+};
+
 function getDefaultPlayStyle(position: string | null) {
   const safePosition = position ?? "sg";
   return PLAY_STYLE_BY_POSITION[safePosition]?.[0] ?? "Shooter";
@@ -416,7 +420,7 @@ const refreshProfileAndWeekly = () => {
       return;
     }
 
-    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: unknown } }> } }).auth;
+    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
     if (authApi?.getUser) {
       const { data: authData } = await authApi.getUser();
       if (!authData?.user) {
