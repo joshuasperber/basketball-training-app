@@ -32,11 +32,6 @@ export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolea
             <Link
               key={item.href}
               href={item.href}
-<<<<<<< HEAD
-              className={`min-w-[72px] rounded-lg px-2 py-2 text-center ${
-                isActive ? "bg-zinc-800 font-semibold text-white" : "text-zinc-300"
-              }`}
-=======
               aria-disabled={isLocked}
               className={`min-w-[72px] rounded-lg px-2 py-2 text-center ${
                 isActive ? "bg-zinc-800 font-semibold text-white" : "text-zinc-300"
@@ -45,7 +40,6 @@ export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolea
                 if (!isLocked) return;
                 event.preventDefault();
               }}
->>>>>>> feature/ui-supabase-updates
             >
               {item.label}
             </Link>
