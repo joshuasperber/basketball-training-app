@@ -25,6 +25,7 @@ import {
   readManualDayDisabledMap,
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
+import TopSubTabs from "@/components/TopSubTabs";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
 const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
@@ -709,6 +710,53 @@ export default function WeeklyWorkoutPage() {
     }
   };
 
+  const moveAutoWorkoutToTomorrow = (dayIndex: (typeof weekdayOrder)[number], selectedCard: WorkoutCardItem) => {
+    const sourceDateKey = toLocalDateKey(getDateForWeekday(dayIndex));
+    const sourceDate = new Date(`${sourceDateKey}T00:00:00`);
+    sourceDate.setDate(sourceDate.getDate() + 1);
+    const targetDateKey = toLocalDateKey(sourceDate);
+    const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, ManualDayWorkout[]>) : {};
+
+    const moveStamp = `${dayIndex}-${selectedCard.id.replace(/[^a-z0-9-]/gi, "").toLowerCase()}`;
+    const autoTitle = selectedCard.title.replace(/\s*\(.+\)\s*$/, "").trim();
+    const autoEntry: ManualDayWorkout = {
+      id: `manual-${targetDateKey}-${moveStamp}`,
+      title: autoTitle,
+      sport: (selectedCard.sport as ManualDayWorkout["sport"]) ?? "Basketball",
+      subcategory: selectedCard.subcategory,
+      notes: selectedCard.notes || "Aus Auto-Plan verschoben.",
+      exerciseIds: selectedCard.autoSuggestion?.exerciseIds ?? [],
+    };
+    parsed[targetDateKey] = [autoEntry, ...(parsed[targetDateKey] ?? [])];
+    window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+
+    if (!selectedCard.id.startsWith("recovery-")) {
+      hideAutoWorkoutCard(dayIndex, selectedCard.id);
+      const sourceRecoveryCardId = `recovery-${sourceDateKey}`;
+      const hiddenMap = readHiddenAutoWorkoutsMap();
+      const nextHidden = { ...hiddenMap };
+      nextHidden[sourceDateKey] = [...new Set([...(nextHidden[sourceDateKey] ?? []), sourceRecoveryCardId])];
+      writeHiddenAutoWorkoutsMap(nextHidden);
+      setHiddenAutoWorkoutsByDate(nextHidden);
+
+      const targetRecovery = buildRecoverySuggestion(dayByIndex[dayIndex], availableExercises);
+      const recoveryEntry: ManualDayWorkout = {
+        id: `manual-${targetDateKey}-recovery-${moveStamp}`,
+        title: targetRecovery.title,
+        sport: "Regeneration",
+        subcategory: targetRecovery.subcategory,
+        notes: targetRecovery.notes,
+        exerciseIds: targetRecovery.exerciseIds ?? [],
+      };
+      parsed[targetDateKey] = [...parsed[targetDateKey], recoveryEntry];
+      window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+    }
+
+    setManualWorkoutsByDate(parsed);
+    setManualVersion((current) => current + 1);
+  };
+
   const disableDayAsNoTime = (dayIndex: (typeof weekdayOrder)[number]) => {
     const dateKey = toLocalDateKey(getDateForWeekday(dayIndex));
     const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
@@ -765,6 +813,8 @@ export default function WeeklyWorkoutPage() {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Weekly Workout Plan</h1>
       <p className="mt-2 text-zinc-400">Alle Tage sind direkt bearbeitbar – inklusive heute.</p>
+      <TopSubTabs items={[{ label: "Training", href: "/training" }, { label: "Weekly", href: "/Weekly-Workout" }]} />
+      <p className="mt-2 text-xs text-zinc-500">Wenn noch alles leer ist: zuerst im Profil Trainings-Tage und Schwerpunkte setzen.</p>
 
       <div className="mt-6 space-y-3">
         {orderedDays.map((day) => {
@@ -955,12 +1005,14 @@ export default function WeeklyWorkoutPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={!selectedCard.manualWorkoutId}
                     onClick={() => {
-                      if (!selectedCard.manualWorkoutId) return;
-                      moveManualWorkoutToTomorrow(day, selectedCard.manualWorkoutId);
+                      if (selectedCard.manualWorkoutId) {
+                        moveManualWorkoutToTomorrow(day, selectedCard.manualWorkoutId);
+                        return;
+                      }
+                      moveAutoWorkoutToTomorrow(day, selectedCard);
                     }}
-                    className="rounded-lg border border-cyan-500 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-950 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-lg border border-cyan-500 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-950"
                   >
                     Auf morgen schieben
                   </button>

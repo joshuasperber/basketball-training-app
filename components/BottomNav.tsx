@@ -11,9 +11,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Training", href: "/training" },
-  { label: "Weekly", href: "/Weekly-Workout" },
-  { label: "Stats", href: "/stats" },
-  { label: "Level", href: "/level" },
+  { label: "Fortschritt", href: "/stats" },
   { label: "Profile", href: "/profile" },
 ];
 
@@ -23,8 +21,8 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 border-t border-zinc-800 bg-zinc-900">
-      <div className="mx-auto flex max-w-md justify-around py-3 text-sm">
+    <nav className="fixed bottom-0 left-0 right-0 border-t border-zinc-700 bg-zinc-900/95 backdrop-blur">
+      <div className="mx-auto flex max-w-3xl justify-around px-3 py-4 text-base">
         {uniqueNavItems.map((item) => {
           const isActive = pathname === item.href;
 
@@ -32,7 +30,9 @@ export default function BottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={isActive ? "font-semibold text-white" : "text-zinc-400"}
+              className={`min-w-[72px] rounded-lg px-2 py-2 text-center ${
+                isActive ? "bg-zinc-800 font-semibold text-white" : "text-zinc-300"
+              }`}
             >
               {item.label}
             </Link>

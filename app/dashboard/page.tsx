@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase";
 export default async function DashboardPage() {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get("sb-access-token")?.value;
+  if (!!accessToken) {
+    redirect("/login?next=/dashboard");
+  }
   const supabase = createClient({ accessToken });
 
   const {
@@ -13,21 +16,18 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirect("/login?next=/dashboard");
   }
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("*")
+    .select("username, full_name")
     .eq("id", user.id)
-    .single();
+    .maybeSingle<{ username: string | null; full_name: string | null }>();
 
-  if (!profile) {
-    await supabase.from("profiles").insert({
-      id: user.id,
-      username: `user_${user.id.slice(0, 6)}`,
-    });
-  }
+  const username = typeof profile?.username === "string" ? profile.username.trim() : "";
+  const fullName = typeof profile?.full_name === "string" ? profile.full_name.trim() : "";
+  const shouldSuggestProfileSetup = !profile || !username || !fullName;
 
-  return <DashboardClient />;
+  return <DashboardClient forceProfileSetup={shouldSuggestProfileSetup} />;
 }

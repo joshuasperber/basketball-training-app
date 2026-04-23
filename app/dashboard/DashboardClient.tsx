@@ -31,7 +31,7 @@ const PLAYER_QUOTES = [
   "If you’re afraid to fail, then you’re probably going to fail. — Kobe Bryant",
 ];
 
-export default function DashboardPage() {
+export default function DashboardPage({ forceProfileSetup = false }: { forceProfileSetup?: boolean }) {
   const dateKey = useMemo(() => getTodayDateKey(), []);
   const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
   const weekdayLabel = useMemo(() => getWeekdayName(new Date(`${dateKey}T00:00:00.000Z`)), [dateKey]);
@@ -160,6 +160,19 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Dashboard</h1>
       <p className="mt-2 text-zinc-400">Übersicht über dein Training, {username}</p>
+      {forceProfileSetup ? (
+        <section className="mt-4 rounded-2xl border border-amber-700 bg-amber-950/40 p-4">
+          <p className="text-sm text-amber-200">
+            Bitte vervollständige zuerst dein Profil (Name + Username), damit Weekly & Auto-Plan sauber funktionieren.
+          </p>
+          <Link
+            href="/profile?setup=1"
+            className="mt-3 inline-block rounded-lg border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-900/40"
+          >
+            Zum Profil
+          </Link>
+        </section>
+      ) : null}
 
       {!isCompleted ? (
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
