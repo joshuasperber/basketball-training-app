@@ -551,7 +551,7 @@ useEffect(() => {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Statistiken</h1>
       <p className="mt-2 text-zinc-400">Langfristige Auswertung deiner abgeschlossenen Workouts</p>
-      <TopSubTabs items={[{ label: "Fortschritt", href: "/stats" }, { label: "Level", href: "/level" }]} />
+      <TopSubTabs items={[{ label: "Stats", href: "/stats" }, { label: "Level", href: "/level" }]} />
       <p className="mt-1 text-sm text-cyan-300">{username}, deine Daten zeigen klaren Fortschritt – bleib im Rhythmus.</p>
       <div className="mt-4 inline-flex rounded-lg border border-zinc-700 bg-zinc-900 p-1 text-sm">
         {[
