@@ -14,11 +14,22 @@ type AuthUser = {
   email?: string;
 };
 
+type AuthSession = {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+};
+
 type SupabaseAuthClient = {
   signInWithOtp: (payload: {
     email: string;
     options?: { emailRedirectTo?: string };
   }) => Promise<{ data: null; error: SupabaseError | null }>;
+  verifyOtp: (payload: {
+    email: string;
+    token: string;
+    type?: "email" | "magiclink";
+  }) => Promise<{ data: { session: AuthSession | null }; error: SupabaseError | null }> ;
   getUser: () => Promise<{ data: { user: AuthUser | null }; error: SupabaseError | null }>;
 };
 
@@ -252,6 +263,47 @@ class SupabaseClient {
           return {
             data: null,
             error: { message: error instanceof Error ? error.message : "Magic Link konnte nicht gesendet werden." },
+          };
+        }
+      },
+      verifyOtp: async ({ email, token, type = "email" }) => {
+        if (!this.isConfigured) {
+          return {
+            data: { session: null },
+            error: { message: "Supabase ist nicht konfiguriert." },
+          };
+        }
+
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/v1/verify`, {
+            method: "POST",
+            headers: {
+              apikey: this.anonKey,
+              Authorization: `Bearer ${this.anonKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email,
+              token,
+              type,
+            }),
+            cache: "no-store",
+          });
+
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { msg?: string; error_description?: string; message?: string } | null;
+            return {
+              data: { session: null },
+              error: { message: body?.error_description ?? body?.msg ?? body?.message ?? `OTP verify failed (${response.status})` },
+            };
+          }
+
+          const session = (await response.json()) as AuthSession;
+          return { data: { session }, error: null };
+        } catch (error) {
+          return {
+            data: { session: null },
+            error: { message: error instanceof Error ? error.message : "Code konnte nicht verifiziert werden." },
           };
         }
       },
