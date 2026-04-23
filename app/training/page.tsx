@@ -572,9 +572,9 @@ function TrainingPageContent() {
   return (
     <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-        <header className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h1 className="text-3xl font-bold">Training</h1>
-          <p className="mt-1 text-zinc-400">Workouts und Exercises in einem Bereich</p>
+        <header>
+          <h1 className="text-2xl font-bold">Training</h1>
+          <p className="mt-2 text-zinc-400">Workouts und Exercises in einem Bereich</p>
           <TopSubTabs items={[{ label: "Training", href: "/training" }, { label: "Weekly", href: "/Weekly-Workout" }]} />
           {completionMessage ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-700 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-300">
