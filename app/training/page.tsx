@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   categories,
@@ -92,7 +92,7 @@ function validateMetricTargets(metricKeys: MetricKey[], targets: Partial<Record<
   return null;
 }
 
-export default function TrainingPage() {
+function TrainingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TrainingTab>("Workouts");
@@ -718,5 +718,19 @@ export default function TrainingPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function TrainingPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
+          <p className="text-sm text-zinc-300">Lade Training …</p>
+        </main>
+      }
+    >
+      <TrainingPageContent />
+    </Suspense>
   );
 }

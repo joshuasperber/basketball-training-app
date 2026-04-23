@@ -166,7 +166,7 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   return Array.from(unique.values());
 }
 
-function filterSessionsByRange(sessions: ReturnType<typeof getWorkoutSessions>, range: StatsRange) {
+function filterSessionsByRange<T extends { dateISO: string }>(sessions: T[], range: StatsRange) {
   if (range === "all") return sessions;
   const start = new Date();
   start.setHours(0, 0, 0, 0);

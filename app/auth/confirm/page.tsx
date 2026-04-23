@@ -14,13 +14,16 @@ export default function AuthConfirmPage() {
     if (typeof window === "undefined") return "";
     return `${window.location.origin}/auth/callback${window.location.search}`;
   }, []);
-
+  
   useEffect(() => {
     async function run() {
       const url = new URL(window.location.href);
       const tokenHash = url.searchParams.get("token_hash");
+      const code = url.searchParams.get("code");
+      const queryAccessToken = url.searchParams.get("access_token");
+      const queryRefreshToken = url.searchParams.get("refresh_token");
 
-      if (tokenHash) {
+      if (tokenHash || code || (queryAccessToken && queryRefreshToken)) {
         window.location.replace(callbackUrl);
         return;
       }
@@ -51,7 +54,9 @@ export default function AuthConfirmPage() {
         return;
       }
 
-      window.location.replace("/dashboard");
+      const next = url.searchParams.get("next");
+      const nextPath = next && next.startsWith("/") ? next : "/dashboard";
+      window.location.replace(nextPath);
     }
 
     run().catch(() => {

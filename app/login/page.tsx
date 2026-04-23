@@ -1,7 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { SyntheticEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
@@ -24,10 +23,11 @@ function normalizeRedirectUrl(rawUrl: string | undefined, fallbackOrigin: string
 
 export default function LoginPage() {
   const supabase = createClient();
-  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [nextPath, setNextPath] = useState<string | null>(null);
 
   const callbackInfo = useMemo(() => {
     if (typeof window === "undefined") {
@@ -43,34 +43,44 @@ export default function LoginPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setErrorCode(params.get("error_code"));
+    const next = params.get("next");
+    setNextPath(next && next.startsWith("/") ? next : null);
+  }, []);
+
   const redirectDomainMismatch =
     callbackInfo.appOrigin && callbackInfo.redirectUrl
       ? !callbackInfo.redirectUrl.startsWith(callbackInfo.appOrigin)
       : false;
 
   const urlError = useMemo(() => {
-    const code = searchParams.get("error_code");
-
-    if (code === "otp_expired") {
+    if (errorCode === "otp_expired") {
       return "Der Magic-Link ist abgelaufen oder wurde bereits verwendet. Bitte fordere einen neuen Link an.";
     }
 
-    if (code === "over_email_send_rate_limit") {
+    if (errorCode === "over_email_send_rate_limit") {
       return `Zu viele E-Mails in kurzer Zeit. ${RATE_LIMIT_HINT}`;
     }
 
     return null;
-  }, [searchParams]);
+  }, [errorCode]);
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
     setMessage(null);
 
+    const redirectUrl = nextPath
+      ? `${callbackInfo.redirectUrl}${callbackInfo.redirectUrl.includes("?") ? "&" : "?"}next=${encodeURIComponent(nextPath)}`
+      : callbackInfo.redirectUrl;
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: callbackInfo.redirectUrl,
+        emailRedirectTo: redirectUrl,
       },
     });
 
@@ -80,7 +90,7 @@ export default function LoginPage() {
         : error.message;
       setMessage(friendly);
     } else {
-      setMessage(`Magic Link wurde gesendet. Erwartete Ziel-URL: ${callbackInfo.redirectUrl}`);
+      setMessage(`Magic Link wurde gesendet. Erwartete Ziel-URL: ${redirectUrl}`);
     }
 
     setLoading(false);

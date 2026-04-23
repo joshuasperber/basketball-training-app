@@ -119,8 +119,8 @@ function expandExercisesWithFamily(params: {
 }
 
 function getExercisePrimaryTargetValue(exercise: ReturnType<typeof loadExercises>[number]) {
-  const metricOrder = exercise.metricKeys?.length ? exercise.metricKeys : ["reps"];
-  const primaryMetric = metricOrder[0];
+  const metricOrder: MetricKey[] = exercise.metricKeys?.length ? exercise.metricKeys : ["reps"];
+  const primaryMetric: MetricKey = metricOrder[0];
   const primaryTarget = exercise.targetByMetric?.[primaryMetric];
   if (primaryTarget !== undefined) return primaryTarget;
 
@@ -239,7 +239,7 @@ function WorkoutsPageContent() {
       };
 
       const sport =
-        parsed.sport === "Gym" || parsed.sport === "Home"
+        parsed.sport === "Gym" || parsed.sport === "Home" || parsed.sport === "Regeneration"
           ? parsed.sport
           : parsed.sport === "-"
             ? "Rest"
@@ -481,7 +481,7 @@ function WorkoutsPageContent() {
     const lookup = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
     return workoutForExecution.exercises.map((exercise) => lookup.get(exercise.name) ?? null);
   }, [trainingExercises, workoutForExecution.exercises]);
-
+  
   const currentExerciseMeta = exerciseMeta[safeExerciseIndex];
   const currentMetricOptions = (currentExerciseMeta?.metricKeys?.length ? currentExerciseMeta.metricKeys : ["reps"]) as MetricKey[];
   const activeMetric = selectedMetricByExercise[safeExerciseIndex] ?? currentMetricOptions[0];

@@ -7,6 +7,7 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildPlayerBadges, computeBadgeStats, type PlayerBadge } from "@/lib/badge-system";
 import { getLevelFromXp, getProgressionState } from "@/lib/level-system";
 import {
+  type SportType,
   WorkoutProgress,
   buildWorkoutStorageKey,
   getDefaultWorkoutProgress,
@@ -16,6 +17,12 @@ import {
   parseWorkoutProgress,
 } from "@/lib/workout";
 import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap } from "@/lib/activity-calendar";
+
+const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
+
+function isSportType(value: string): value is SportType {
+  return ALLOWED_SPORTS.includes(value as SportType);
+}
 
 const PLAYER_QUOTES = [
   "Hard work beats talent when talent fails to work hard. — Kevin Durant",
@@ -65,7 +72,7 @@ export default function DashboardPage() {
           if (todayManual?.title) {
             setTodayLabel(todayManual.title);
           }
-          if (todayManual?.sport) setTodaySport(todayManual.sport);
+          if (todayManual?.sport && isSportType(todayManual.sport)) setTodaySport(todayManual.sport);
           if (todayManual?.subcategory) setTodaySubcategory(todayManual.subcategory);
         }
         const dailyPlans = readDailyPlanMap();
