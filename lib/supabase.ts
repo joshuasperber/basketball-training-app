@@ -262,7 +262,7 @@ class SupabaseClient {
         } catch (error) {
           return {
             data: null,
-            error: { message: error instanceof Error ? error.message : "Magic Link konnte nicht gesendet werden." },
+            error: { message: error instanceof Error ? error.message : "OTP-Code konnte nicht gesendet werden." },
           };
         }
       },

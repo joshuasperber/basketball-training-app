@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase";
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
 
 function normalizeCodeInput(value: string) {
-  return value.replace(/\D/g, "").slice(0, 8);
+  return value.replace(/\D/g, "").slice(0, 6);
 }
 
 export default function LoginPage() {
@@ -59,7 +59,7 @@ export default function LoginPage() {
       setMessage(friendly);
     } else {
       setCodeSent(true);
-      setMessage("Code wurde gesendet. Bitte gib den Bestätigungscode aus der E-Mail ein.");
+      setMessage("Code wurde gesendet. Bitte gib den 6-stelligen Bestätigungscode aus der E-Mail ein.");
     }
 
     setLoading(false);
@@ -106,9 +106,13 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-black px-4 text-white">
       <div className="w-full max-w-md space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
         <h1 className="text-2xl font-semibold">Login</h1>
-        <p className="text-sm text-zinc-400">Melde dich per E-Mail-Code an.</p>
+        <p className="text-sm text-zinc-400">Melde dich per 6-stelligem E-Mail-Code an.</p>
 
         {urlError ? <p className="rounded-lg border border-red-700 bg-red-950/40 px-3 py-2 text-sm text-red-200">{urlError}</p> : null}
+
+        <p className="text-xs text-zinc-500">
+          Falls du weiterhin nur einen Link statt eines Codes erhältst, passe in Supabase die Email-Template auf OTP-Token an.
+        </p>
 
         {!codeSent ? (
           <form onSubmit={sendCode} className="space-y-4">
@@ -144,13 +148,14 @@ export default function LoginPage() {
                 onChange={(event) => setOtpCode(normalizeCodeInput(event.target.value))}
                 required
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 tracking-[0.3em] outline-none ring-green-500 focus:ring-2"
-                placeholder="12345678"
+                maxLength={6}
+                placeholder="123456"
               />
             </label>
 
             <button
               type="submit"
-              disabled={loading || otpCode.length < 6}
+              disabled={loading || otpCode.length !== 6}
               className="w-full rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-500 disabled:opacity-70"
             >
               {loading ? "Prüfe..." : "Code bestätigen"}
