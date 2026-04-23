@@ -5,6 +5,22 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
+const AUTH_REDIRECT_OVERRIDE = process.env.NEXT_PUBLIC_AUTH_REDIRECT_URL;
+
+function normalizeRedirectUrl(rawUrl: string | undefined, fallbackOrigin: string) {
+  if (!rawUrl?.trim()) {
+    return `${fallbackOrigin}/auth/confirm`;
+  }
+
+  const value = rawUrl.trim();
+  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+  try {
+    return new URL(withProtocol).toString();
+  } catch {
+    return `${fallbackOrigin}/auth/confirm`;
+  }
+}
 
 export default function LoginPage() {
   const supabase = createClient();
@@ -12,6 +28,25 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const callbackInfo = useMemo(() => {
+    if (typeof window === "undefined") {
+      return {
+        appOrigin: "",
+        redirectUrl: AUTH_REDIRECT_OVERRIDE ?? "",
+      };
+    }
+
+    return {
+      appOrigin: window.location.origin,
+      redirectUrl: normalizeRedirectUrl(AUTH_REDIRECT_OVERRIDE, window.location.origin),
+    };
+  }, []);
+
+  const redirectDomainMismatch =
+    callbackInfo.appOrigin && callbackInfo.redirectUrl
+      ? !callbackInfo.redirectUrl.startsWith(callbackInfo.appOrigin)
+      : false;
 
   const urlError = useMemo(() => {
     const code = searchParams.get("error_code");
@@ -35,7 +70,7 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackInfo.redirectUrl,
       },
     });
 
@@ -45,7 +80,7 @@ export default function LoginPage() {
         : error.message;
       setMessage(friendly);
     } else {
-      setMessage("Magic Link wurde gesendet. Bitte öffne den neuesten Link in deiner E-Mail.");
+      setMessage(`Magic Link wurde gesendet. Erwartete Ziel-URL: ${callbackInfo.redirectUrl}`);
     }
 
     setLoading(false);
@@ -58,6 +93,25 @@ export default function LoginPage() {
         <p className="text-sm text-zinc-400">Melde dich per Magic Link an.</p>
 
         {urlError ? <p className="rounded-lg border border-red-700 bg-red-950/40 px-3 py-2 text-sm text-red-200">{urlError}</p> : null}
+
+        {redirectDomainMismatch ? (
+          <div className="rounded-lg border border-amber-700 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+            <p className="font-semibold">Redirect-URL passt nicht zur aktuellen App-Domain.</p>
+            <p className="mt-1">Aktuelle App: {callbackInfo.appOrigin}</p>
+            <p className="mt-1">Auth-Redirect: {callbackInfo.redirectUrl}</p>
+            <p className="mt-2">
+              Prüfe in Supabase → Authentication → URL Configuration die Allow List. Dort müssen mindestens
+              <br />
+              {callbackInfo.appOrigin}/auth/confirm
+              <br />
+              und
+              <br />
+              {callbackInfo.appOrigin}/auth/callback
+              <br />
+              eingetragen sein.
+            </p>
+          </div>
+        ) : null}
 
         <label className="block space-y-2">
           <span className="text-sm text-zinc-300">E-Mail</span>
