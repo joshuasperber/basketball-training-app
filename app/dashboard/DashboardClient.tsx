@@ -67,6 +67,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   const [plannedTags, setPlannedTags] = useState<string[]>([]);
   const [todaySport, setTodaySport] = useState(todayWorkout.sport);
   const [todaySubcategory, setTodaySubcategory] = useState(todayWorkout.subcategory);
+  const [hasWorkoutPlanned, setHasWorkoutPlanned] = useState(true);
   const [showAllBadges, setShowAllBadges] = useState(false);
   const [badges, setBadges] = useState<PlayerBadge[]>([]);
   const [selectedBadge, setSelectedBadge] = useState<PlayerBadge | null>(null);
@@ -84,6 +85,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         ),
       );
       try {
+        setHasWorkoutPlanned(true);
         setTodayLabel(null);
         setTodaySport(todayWorkout.sport);
         setTodaySubcategory(todayWorkout.subcategory);
@@ -92,6 +94,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           const parsed = JSON.parse(rawManual) as Record<string, Array<{ title: string; sport?: string; subcategory?: string }>>;
           const todayManual = parsed[dateKey]?.[0];
           if (todayManual?.title) {
+            setHasWorkoutPlanned(true);
             setTodayLabel(todayManual.title);
           }
           if (todayManual?.sport && isSportType(todayManual.sport)) setTodaySport(todayManual.sport);
@@ -102,9 +105,13 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         setPlannedTags(tags);
         const workoutFromWeekly = getWorkoutFromTodayTags(tags);
         if (workoutFromWeekly) {
+          setHasWorkoutPlanned(true);
           setTodayLabel(workoutFromWeekly.title);
           setTodaySport(workoutFromWeekly.sport);
           setTodaySubcategory(workoutFromWeekly.subcategory);
+        } else {
+          setHasWorkoutPlanned(false);
+          setTodayLabel(null);
         }
         const profileUsername = window.localStorage.getItem("profile_username");
         if (profileUsername) setUsername(profileUsername);
@@ -207,7 +214,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         </section>
       ) : null}
 
-      {!isCompleted ? (
+      {!isCompleted && hasWorkoutPlanned ? (
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <p className="text-xs uppercase tracking-wide text-zinc-500">
             Heutiges Workout • {weekdayLabel}
@@ -230,6 +237,19 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
             className="mt-4 inline-block rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
           >
             {isInProgress ? "Workout fortsetzen" : "Workout starten"}
+          </Link>
+        </section>
+      ) : !isCompleted ? (
+        <section className="mt-6 rounded-2xl border border-indigo-800 bg-indigo-950/40 p-4">
+          <h2 className="text-lg font-semibold text-indigo-200">Heute ist kein Workout geplant</h2>
+          <p className="mt-1 text-sm text-indigo-100">
+            Wenn du Zeit hast, starte trotzdem eine kurze Session – schon 10–20 Minuten machen einen Unterschied.
+          </p>
+          <Link
+            href="/workouts"
+            className="mt-4 inline-block rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+          >
+            Trotzdem trainieren
           </Link>
         </section>
       ) : (

@@ -224,23 +224,15 @@ export default function ProfilePage() {
     if (authUserId) {
       const byId = await supabase
         .from("profiles")
-        .select("username, full_name, favorite_position, height_cm, weight_kg, email")
+        .select("username, full_name, favorite_position, height_cm, weight_kg")
         .eq("id", authUserId)
         .limit(1)
         .maybeSingle<ProfileRow>();
       data = byId.data ?? null;
-    } else if (authEmail) {
-      const byEmail = await supabase
-        .from("profiles")
-        .select("username, full_name, favorite_position, height_cm, weight_kg, email")
-        .eq("email", authEmail)
-        .limit(1)
-        .maybeSingle<ProfileRow>();
-      data = byEmail.data ?? null;
     } else if (username) {
       const byUsername = await supabase
         .from("profiles")
-        .select("username, full_name, favorite_position, height_cm, weight_kg, email")
+        .select("username, full_name, favorite_position, height_cm, weight_kg")
         .eq("username", username)
         .limit(1)
         .maybeSingle<ProfileRow>();
@@ -467,7 +459,6 @@ const refreshProfileAndWeekly = () => {
 
     const { error } = await supabase.from("profiles").upsert({
       id: authUser?.id,
-      email: profile.email,
       username,
       full_name: fullName,
       favorite_position: profile.favorite_position,
