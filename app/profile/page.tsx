@@ -229,6 +229,15 @@ export default function ProfilePage() {
         .limit(1)
         .maybeSingle<ProfileRow>();
       data = byId.data ?? null;
+      if (!data && username) {
+        const byUsername = await supabase
+          .from("profiles")
+          .select("username, full_name, favorite_position, height_cm, weight_kg")
+          .eq("username", username)
+          .limit(1)
+          .maybeSingle<ProfileRow>();
+        data = byUsername.data ?? null;
+      }
     } else if (username) {
       const byUsername = await supabase
         .from("profiles")
@@ -457,20 +466,29 @@ const refreshProfileAndWeekly = () => {
       setProfile((current: ProfileRow) => ({ ...current, email: loginEmail }));
     }
 
-    const { error } = await supabase.from("profiles").upsert({
+    const payload = {
       id: authUser?.id,
       username,
       full_name: fullName,
       favorite_position: profile.favorite_position,
       height_cm: profile.height_cm,
       weight_kg: profile.weight_kg,
-    });
+    };
+
+    const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "username" });
     if (error) {
       const isRlsError = error.message.toLowerCase().includes("row-level security") || error.message.toLowerCase().includes("rls");
+      const isDuplicateUsername =
+        error.message.toLowerCase().includes("profiles_username_key") ||
+        error.message.toLowerCase().includes("duplicate key value");
       if (isRlsError) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         setMessage("Supabase-RLS aktiv: Profil lokal gespeichert.");
+        return;
+      }
+      if (isDuplicateUsername) {
+        setMessage("Username bereits vergeben. Bitte wähle einen anderen Username.");
         return;
       }
       setMessage(`Speichern fehlgeschlagen: ${error.message}`);
