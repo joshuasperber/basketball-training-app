@@ -31,6 +31,7 @@ import {
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
 import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
+import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
@@ -201,6 +202,7 @@ function WorkoutsPageContent() {
 
   useEffect(() => {
     setIsClientReady(true);
+    void pullProgressFromCloud();
   }, []);
 
   useEffect(() => {
@@ -990,6 +992,7 @@ function WorkoutsPageContent() {
     } else {
       setCompletionBanner("Stark! Workout abgeschlossen ✅");
     }
+    void pushProgressToCloud();
     router.push("/stats");
   };
 

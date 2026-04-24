@@ -571,7 +571,7 @@ function TrainingPageContent() {
 
   return (
     <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         <header>
           <h1 className="text-2xl font-bold">Training</h1>
           <p className="mt-2 text-zinc-400">Workouts und Exercises in einem Bereich</p>

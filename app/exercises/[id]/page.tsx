@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
 import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
+import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 
 type ExerciseSet = {
   id: string;
@@ -158,10 +159,12 @@ export default function ExerciseExecutionPage() {
 
     await refreshHistory();
     setSaved(true);
+    void pushProgressToCloud();
     router.push("/training?completed=exercise");
   }
 
   useEffect(() => {
+    void pullProgressFromCloud();
     const timer = window.setTimeout(() => {
       void refreshHistory();
     }, 0);
@@ -172,7 +175,7 @@ export default function ExerciseExecutionPage() {
   if (!exercise) {
     return (
       <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-        <div className="mx-auto max-w-2xl rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <div className="w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <p className="text-lg font-semibold">Exercise nicht gefunden.</p>
           <Link href="/training" className="mt-3 inline-block text-indigo-300 underline">
             Zurück zu Training
@@ -184,7 +187,7 @@ export default function ExerciseExecutionPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         <header className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
           <h1 className="text-2xl font-bold">{exercise.name}</h1>
           <p className="mt-1 text-sm text-zinc-400">

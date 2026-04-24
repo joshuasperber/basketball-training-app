@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
+import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
@@ -203,6 +204,7 @@ export default function ProfilePage() {
   }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
 
   const loadProfile = useCallback(async (usernameOverride?: string) => {
+    await pullProgressFromCloud();
     const localCache = loadLocalCache();
     if (localCache) {
       setProfile(localCache.profile);
@@ -355,6 +357,7 @@ export default function ProfilePage() {
       const next = { ...current, [selectedDateKey]: nextTags };
       if (nextTags.length === 0) delete next[selectedDateKey];
       writeDailyPlanMap(next);
+      void pushProgressToCloud();
       if (nextTags.length > 0) {
         const disabledMap = readManualDayDisabledMap();
         if (disabledMap[selectedDateKey]) {
@@ -675,6 +678,7 @@ const refreshProfileAndWeekly = () => {
               onClick={async () => {
                 refreshProfileAndWeekly();
                 await persistProfileToSupabase();
+                await pushProgressToCloud();
                 setSavedToastVisible(true);
                 window.setTimeout(() => setSavedToastVisible(false), 2200);
               }}

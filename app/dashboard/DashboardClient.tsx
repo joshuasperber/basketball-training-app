@@ -17,11 +17,33 @@ import {
   parseWorkoutProgress,
 } from "@/lib/workout";
 import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap } from "@/lib/activity-calendar";
+import { pullProgressFromCloud } from "@/lib/progress-sync";
 
 const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
 
 function isSportType(value: string): value is SportType {
   return ALLOWED_SPORTS.includes(value as SportType);
+}
+
+function getWorkoutFromTodayTags(tags: string[]) {
+  const basketballTag = tags.find((tag) => tag.startsWith("Basketball:"))?.replace("Basketball:", "");
+  const gymTag = tags.find((tag) => tag.startsWith("Gym:"))?.replace("Gym:", "");
+  const homeTag = tags.find((tag) => tag.startsWith("Home:"))?.replace("Home:", "");
+  const recoveryTag = tags.find((tag) => tag.startsWith("Recovery:"))?.replace("Recovery:", "");
+
+  if (tags.includes("Trainingstag") || tags.includes("Spieltraining") || tags.includes("Spieltag")) {
+    return { sport: "Basketball" as SportType, title: basketballTag ? `Basketball – ${basketballTag}` : "Basketball Training", subcategory: basketballTag ?? "Training" };
+  }
+  if (tags.includes("Gym")) {
+    return { sport: "Gym" as SportType, title: gymTag ? `Gym – ${gymTag}` : "Gym Session", subcategory: gymTag ?? "Gym" };
+  }
+  if (tags.includes("Home-Workout")) {
+    return { sport: "Home" as SportType, title: homeTag ? `Home – ${homeTag}` : "Home Workout", subcategory: homeTag ?? "Home" };
+  }
+  if (tags.includes("Regeneration")) {
+    return { sport: "Regeneration" as SportType, title: recoveryTag ? `Recovery – ${recoveryTag}` : "Regeneration", subcategory: recoveryTag ?? "Recovery" };
+  }
+  return null;
 }
 
 const PLAYER_QUOTES = [
@@ -76,7 +98,14 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           if (todayManual?.subcategory) setTodaySubcategory(todayManual.subcategory);
         }
         const dailyPlans = readDailyPlanMap();
-        setPlannedTags(dailyPlans[dateKey] ?? []);
+        const tags = dailyPlans[dateKey] ?? [];
+        setPlannedTags(tags);
+        const workoutFromWeekly = getWorkoutFromTodayTags(tags);
+        if (workoutFromWeekly) {
+          setTodayLabel(workoutFromWeekly.title);
+          setTodaySport(workoutFromWeekly.sport);
+          setTodaySubcategory(workoutFromWeekly.subcategory);
+        }
         const profileUsername = window.localStorage.getItem("profile_username");
         if (profileUsername) setUsername(profileUsername);
       } catch {
@@ -95,6 +124,10 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       window.removeEventListener("storage", refreshTodayData);
     };
   }, [dateKey, fallbackProgress, todayWorkout.sport, todayWorkout.subcategory]);
+
+  useEffect(() => {
+    void pullProgressFromCloud();
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

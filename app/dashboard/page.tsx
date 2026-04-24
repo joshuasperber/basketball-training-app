@@ -19,11 +19,23 @@ export default async function DashboardPage() {
     redirect("/login?next=/dashboard");
   }
 
-  const { data: profile } = await supabase
+  let profile: { username: string | null; full_name: string | null } | null = null;
+
+  const byId = await supabase
     .from("profiles")
     .select("username, full_name")
     .eq("id", user.id)
     .maybeSingle<{ username: string | null; full_name: string | null }>();
+    profile = byId.data ?? null;
+
+  if (!profile && user.email) {
+    const byEmail = await supabase
+      .from("profiles")
+      .select("username, full_name")
+      .eq("email", user.email)
+      .maybeSingle<{ username: string | null; full_name: string | null }>();
+    profile = byEmail.data ?? null;
+  }
 
   const username = typeof profile?.username === "string" ? profile.username.trim() : "";
   const fullName = typeof profile?.full_name === "string" ? profile.full_name.trim() : "";

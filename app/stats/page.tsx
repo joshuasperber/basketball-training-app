@@ -6,6 +6,7 @@ import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import TopSubTabs from "@/components/TopSubTabs";
+import { pullProgressFromCloud } from "@/lib/progress-sync";
 
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home" | "Regeneration";
@@ -411,6 +412,10 @@ useEffect(() => {
     // noop
   }
 }, []);
+
+useEffect(() => {
+    void pullProgressFromCloud();
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
