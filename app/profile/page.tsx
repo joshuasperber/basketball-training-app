@@ -475,7 +475,7 @@ const refreshProfileAndWeekly = () => {
       weight_kg: profile.weight_kg,
     };
 
-    const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "username" });
+    const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "id" });
     if (error) {
       const isRlsError = error.message.toLowerCase().includes("row-level security") || error.message.toLowerCase().includes("rls");
       const isDuplicateUsername =
@@ -495,8 +495,10 @@ const refreshProfileAndWeekly = () => {
       return;
     }
 
+    const nextProfile: ProfileRow = { ...profile, username, full_name: fullName, email: profile.email ?? null };
+    setProfile(nextProfile);
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-    saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+    saveLocalCache({ profile: nextProfile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
     setMessage(null);
   }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
 
