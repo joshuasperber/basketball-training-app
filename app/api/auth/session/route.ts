@@ -19,14 +19,14 @@ export async function POST(request: NextRequest) {
     path: "/",
     maxAge: payload.expires_in ?? 60 * 60,
     sameSite: "lax",
-    httpOnly: true,
+    httpOnly: false,
   });
 
   response.cookies.set("sb-refresh-token", payload.refresh_token, {
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
     sameSite: "lax",
-    httpOnly: true,
+    httpOnly: false,
   });
 
   return response;

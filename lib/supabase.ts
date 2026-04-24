@@ -36,13 +36,32 @@ type SupabaseAuthClient = {
 function getAccessTokenFromBrowserCookie() {
   if (typeof document === "undefined") return undefined;
 
+  return getCookieValue("sb-access-token");
+}
+
+function getRefreshTokenFromBrowserCookie() {
+  if (typeof document === "undefined") return undefined;
+  return getCookieValue("sb-refresh-token");
+}
+
+function getCookieValue(name: string) {
   const tokenCookie = document.cookie
     .split(";")
     .map((entry) => entry.trim())
-    .find((entry) => entry.startsWith("sb-access-token="));
+    .find((entry) => entry.startsWith(`${name}=`));
 
   if (!tokenCookie) return undefined;
   return decodeURIComponent(tokenCookie.split("=").slice(1).join("="));
+}
+
+function persistBrowserSessionCookies(session: AuthSession) {
+  if (typeof document === "undefined") return;
+
+  const expires = new Date(Date.now() + session.expires_in * 1000).toUTCString();
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+
+  document.cookie = `sb-access-token=${encodeURIComponent(session.access_token)}; Path=/; Max-Age=${session.expires_in}; Expires=${expires}; SameSite=Lax${secure}`;
+  document.cookie = `sb-refresh-token=${encodeURIComponent(session.refresh_token)}; Path=/; Max-Age=${60 * 60 * 24 * 30}; SameSite=Lax${secure}`;
 }
 
 class SupabaseQueryBuilder<T = Record<string, unknown>> implements PromiseLike<QueryResult<T[]>> {
@@ -315,7 +334,7 @@ class SupabaseClient {
           };
         }
 
-        const bearerToken = this.accessToken ?? getAccessTokenFromBrowserCookie();
+        let bearerToken = this.accessToken ?? getAccessTokenFromBrowserCookie();
 
         if (!bearerToken) {
           return { data: { user: null }, error: null };
@@ -331,6 +350,41 @@ class SupabaseClient {
           });
 
           if (!response.ok) {
+            if (response.status === 401 && typeof window !== "undefined") {
+              const refreshToken = getRefreshTokenFromBrowserCookie();
+              if (refreshToken) {
+                const refreshResponse = await fetch(`${this.baseUrl}/auth/v1/token?grant_type=refresh_token`, {
+                  method: "POST",
+                  headers: {
+                    apikey: this.anonKey,
+                    Authorization: `Bearer ${this.anonKey}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ refresh_token: refreshToken }),
+                  cache: "no-store",
+                });
+
+                if (refreshResponse.ok) {
+                  const refreshedSession = (await refreshResponse.json()) as AuthSession;
+                  if (refreshedSession.access_token && refreshedSession.refresh_token) {
+                    persistBrowserSessionCookies(refreshedSession);
+                    bearerToken = refreshedSession.access_token;
+                    const retryResponse = await fetch(`${this.baseUrl}/auth/v1/user`, {
+                      headers: {
+                        apikey: this.anonKey,
+                        Authorization: `Bearer ${bearerToken}`,
+                      },
+                      cache: "no-store",
+                    });
+
+                    if (retryResponse.ok) {
+                      const user = (await retryResponse.json()) as AuthUser;
+                      return { data: { user }, error: null };
+                    }
+                  }
+                }
+              }
+            }
             return { data: { user: null }, error: null };
           }
 

@@ -75,6 +75,7 @@ type ProfileLocalCache = {
 };
 
 type SupabaseAuthUser = {
+  id?: string;
   email?: string | null;
 };
 
@@ -210,22 +211,39 @@ export default function ProfilePage() {
       setBodyMetrics(localCache.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null });
     }
 
-    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: { email?: string | null } | null } }> } }).auth;
+    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
     const authData = authApi?.getUser ? await authApi.getUser() : null;
+    const authUserId = authData?.data?.user?.id ?? null;
     const cachedLoginEmail = typeof window !== "undefined" ? window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY) : null;
     const authEmail = authData?.data?.user?.email ?? cachedLoginEmail ?? null;
-    const username =
-      usernameOverride ??
-      localCache?.profile.username ??
-      (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) ??
-      "";
+    const username = usernameOverride ?? localCache?.profile.username ?? (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) ?? "";
 
-    const { data } = await supabase
-      .from("profiles")
-      .select("username, full_name, favorite_position, height_cm, weight_kg")
-      .eq("username", username)
-      .limit(1)
-      .maybeSingle<ProfileRow>();
+    let data: ProfileRow | null = null;
+    if (authUserId) {
+      const byId = await supabase
+        .from("profiles")
+        .select("username, full_name, favorite_position, height_cm, weight_kg, email")
+        .eq("id", authUserId)
+        .limit(1)
+        .maybeSingle<ProfileRow>();
+      data = byId.data ?? null;
+    } else if (authEmail) {
+      const byEmail = await supabase
+        .from("profiles")
+        .select("username, full_name, favorite_position, height_cm, weight_kg, email")
+        .eq("email", authEmail)
+        .limit(1)
+        .maybeSingle<ProfileRow>();
+      data = byEmail.data ?? null;
+    } else if (username) {
+      const byUsername = await supabase
+        .from("profiles")
+        .select("username, full_name, favorite_position, height_cm, weight_kg, email")
+        .eq("username", username)
+        .limit(1)
+        .maybeSingle<ProfileRow>();
+      data = byUsername.data ?? null;
+    }
 
     if (data) {
       const mergedProfile: ProfileRow = {
@@ -427,8 +445,10 @@ const refreshProfileAndWeekly = () => {
     }
 
     const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
+    let authUser: SupabaseAuthUser | null = null;
     if (authApi?.getUser) {
       const { data: authData } = await authApi.getUser();
+      authUser = authData?.user ?? null;
       if (!authData?.user) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
@@ -443,6 +463,8 @@ const refreshProfileAndWeekly = () => {
     }
 
     const { error } = await supabase.from("profiles").upsert({
+      id: authUser?.id,
+      email: profile.email,
       username,
       full_name: fullName,
       favorite_position: profile.favorite_position,

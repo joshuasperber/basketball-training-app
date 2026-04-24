@@ -23,14 +23,14 @@ function setSessionCookies(response: NextResponse, session: SupabaseSession) {
     path: "/",
     maxAge: session.expires_in,
     sameSite: "lax",
-    httpOnly: true,
+    httpOnly: false,
   });
 
   response.cookies.set("sb-refresh-token", session.refresh_token, {
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
     sameSite: "lax",
-    httpOnly: true,
+    httpOnly: false,
   });
 }
 
