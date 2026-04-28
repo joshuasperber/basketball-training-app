@@ -479,6 +479,7 @@ export default function WeeklyWorkoutPage() {
   const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
   const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
   const [hiddenAutoWorkoutsByDate, setHiddenAutoWorkoutsByDate] = useState<HiddenAutoWorkoutsMap>({});
+  const [profileVersion, setProfileVersion] = useState(0);
   const availableExercises = useMemo(() => loadExercises(), []);
   const sessions = getWorkoutSessions();
   const completedDateSet = new Set(sessions.map((session) => toLocalDateKey(new Date(session.dateISO))));
@@ -638,7 +639,17 @@ export default function WeeklyWorkoutPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [todayIndex, manualVersion]);
+  }, [todayIndex, manualVersion, profileVersion]);
+
+  useEffect(() => {
+    const refreshProfilePlan = () => setProfileVersion((current) => current + 1);
+    window.addEventListener("storage", refreshProfilePlan);
+    window.addEventListener("focus", refreshProfilePlan);
+    return () => {
+      window.removeEventListener("storage", refreshProfilePlan);
+      window.removeEventListener("focus", refreshProfilePlan);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -813,7 +824,7 @@ export default function WeeklyWorkoutPage() {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Weekly Workout Plan</h1>
       <p className="mt-2 text-zinc-400">Alle Tage sind direkt bearbeitbar – inklusive heute.</p>
-      <TopSubTabs items={[{ label: "Training", href: "/training" }, { label: "Weekly", href: "/Weekly-Workout" }]} />
+      <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
       <p className="mt-2 text-xs text-zinc-500">Wenn noch alles leer ist: zuerst im Profil Trainings-Tage und Schwerpunkte setzen.</p>
 
       <div className="mt-6 space-y-3">
