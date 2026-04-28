@@ -27,16 +27,15 @@ type ProgressRow = {
   profile_cache: string | null;
   xp_history: string | null;
   xp_progression: string | null;
-  updated_at?: string;
 };
 
 const emptySessions: SessionDatabase = { workoutSessions: [], exerciseHistory: {} };
 
-function isConfigured() {
+function isSupabaseConfigured() {
   return Boolean(supabaseUrl && supabaseAnonKey && supabaseServiceRoleKey);
 }
 
-function defaultProgress(): ProgressRecord {
+function getDefaultProgress(): ProgressRecord {
   return {
     sessions: emptySessions,
     dailyPlanMap: {},
@@ -66,8 +65,8 @@ async function getRequestUserEmail(request: NextRequest): Promise<string | null>
   return user.email?.trim().toLowerCase() ?? null;
 }
 
-function mapRowToProgress(row: ProgressRow | null): ProgressRecord {
-  if (!row) return defaultProgress();
+function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
+  if (!row) return getDefaultProgress();
 
   return {
     sessions: row.sessions ?? emptySessions,
@@ -81,7 +80,9 @@ function mapRowToProgress(row: ProgressRow | null): ProgressRecord {
   };
 }
 
-async function readProgress(email: string): Promise<ProgressRecord> {
+async function readProgressFromSupabase(email: string): Promise<ProgressRecord | null> {
+  if (!isSupabaseConfigured()) return null;
+
   const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
   url.searchParams.set("email", `eq.${email}`);
   url.searchParams.set("select", "*");
@@ -97,16 +98,14 @@ async function readProgress(email: string): Promise<ProgressRecord> {
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    return defaultProgress();
-  }
-
+  if (!response.ok) return null;
   const rows = (await response.json()) as ProgressRow[];
-  const row = Array.isArray(rows) ? rows[0] ?? null : null;
-  return mapRowToProgress(row);
+  return mapRowToProgressRecord(rows[0] ?? null);
 }
 
-async function writeProgress(email: string, payload: ProgressRecord): Promise<boolean> {
+async function writeProgressToSupabase(email: string, payload: ProgressRecord): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
   const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
   url.searchParams.set("on_conflict", "email");
 
@@ -138,7 +137,7 @@ async function writeProgress(email: string, payload: ProgressRecord): Promise<bo
 }
 
 export async function GET(request: NextRequest) {
-  if (!isConfigured()) {
+  if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
@@ -147,12 +146,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const progress = await readProgress(email);
-  return NextResponse.json(progress);
+  const progress = await readProgressFromSupabase(email);
+  return NextResponse.json(progress ?? getDefaultProgress());
 }
 
 export async function POST(request: NextRequest) {
-  if (!isConfigured()) {
+  if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
@@ -162,12 +161,11 @@ export async function POST(request: NextRequest) {
   }
 
   const payload = (await request.json().catch(() => null)) as ProgressRecord | null;
-
   if (!payload?.sessions || !payload?.dailyPlanMap) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
   }
 
-  const ok = await writeProgress(email, payload);
+  const ok = await writeProgressToSupabase(email, payload);
   if (!ok) {
     return NextResponse.json({ error: "write_failed" }, { status: 500 });
   }
