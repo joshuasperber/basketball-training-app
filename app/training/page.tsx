@@ -575,7 +575,7 @@ function TrainingPageContent() {
         <header>
           <h1 className="text-2xl font-bold">Training</h1>
           <p className="mt-2 text-zinc-400">Workouts und Exercises in einem Bereich</p>
-          <TopSubTabs items={[{ label: "Training", href: "/training" }, { label: "Weekly", href: "/Weekly-Workout" }]} />
+          <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
           {completionMessage ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-700 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-300">
               <span>{completionMessage} Du bist wieder auf der Training-Startseite.</span>

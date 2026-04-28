@@ -9,7 +9,18 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const dataDir = path.join(process.cwd(), "data");
 const progressDbPath = path.join(dataDir, "progress-by-email.json");
 
-type ProgressByEmail = Record<string, { sessions: SessionDatabase; dailyPlanMap: DailyPlanMap }>;
+type ProgressRecord = {
+  sessions: SessionDatabase;
+  dailyPlanMap: DailyPlanMap;
+  manualDayWorkoutsMap: Record<string, unknown[]>;
+  manualDayDisabledMap: Record<string, boolean>;
+  profileCache: string | null;
+  xpHistory: string | null;
+  xpProgression: string | null;
+  hiddenAutoWorkoutsMap: Record<string, string[]>;
+};
+
+type ProgressByEmail = Record<string, ProgressRecord>;
 
 const emptySessions: SessionDatabase = { workoutSessions: [], exerciseHistory: {} };
 
@@ -61,7 +72,16 @@ export async function GET(request: NextRequest) {
   }
 
   const db = await readProgressDb();
-  const progress = db[email] ?? { sessions: emptySessions, dailyPlanMap: {} };
+  const progress = db[email] ?? {
+    sessions: emptySessions,
+    dailyPlanMap: {},
+    manualDayWorkoutsMap: {},
+    manualDayDisabledMap: {},
+    profileCache: null,
+    xpHistory: null,
+    xpProgression: null,
+    hiddenAutoWorkoutsMap: {},
+  };
   return NextResponse.json(progress);
 }
 
@@ -74,6 +94,12 @@ export async function POST(request: NextRequest) {
   const payload = (await request.json().catch(() => null)) as {
     sessions?: SessionDatabase;
     dailyPlanMap?: DailyPlanMap;
+    manualDayWorkoutsMap?: Record<string, unknown[]>;
+    manualDayDisabledMap?: Record<string, boolean>;
+    profileCache?: string | null;
+    xpHistory?: string | null;
+    xpProgression?: string | null;
+    hiddenAutoWorkoutsMap?: Record<string, string[]>;
   } | null;
 
   if (!payload?.sessions || !payload?.dailyPlanMap) {
@@ -84,6 +110,12 @@ export async function POST(request: NextRequest) {
   db[email] = {
     sessions: payload.sessions,
     dailyPlanMap: payload.dailyPlanMap,
+    manualDayWorkoutsMap: payload.manualDayWorkoutsMap ?? {},
+    manualDayDisabledMap: payload.manualDayDisabledMap ?? {},
+    profileCache: payload.profileCache ?? null,
+    xpHistory: payload.xpHistory ?? null,
+    xpProgression: payload.xpProgression ?? null,
+    hiddenAutoWorkoutsMap: payload.hiddenAutoWorkoutsMap ?? {},
   };
   await writeProgressDb(db);
 

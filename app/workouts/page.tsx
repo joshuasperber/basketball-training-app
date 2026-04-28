@@ -34,6 +34,7 @@ import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
+const MOBILE_EXERCISE_PREVIEW_COUNT = 8;
 
 type ManualDayWorkout = {
   id: string;
@@ -186,6 +187,8 @@ function WorkoutsPageContent() {
   const [manualTemplateWorkoutId, setManualTemplateWorkoutId] = useState("");
   const [manualNotes, setManualNotes] = useState("");
   const [selectedManualExerciseIds, setSelectedManualExerciseIds] = useState<string[]>([]);
+  const [showAllManualExercises, setShowAllManualExercises] = useState(false);
+  const [showAllProgressExercises, setShowAllProgressExercises] = useState(false);
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
   const [isClientReady, setIsClientReady] = useState(false);
@@ -411,6 +414,28 @@ function WorkoutsPageContent() {
       return `${exercise.name} ${exercise.subcategory}`.toLowerCase().includes(query);
     });
   }, [manualCategory, manualSearch, manualSubcategory, trainingExercises]);
+  const visibleManualExercisePool = useMemo(
+    () =>
+      showAllManualExercises
+        ? manualExercisePool
+        : manualExercisePool.slice(0, MOBILE_EXERCISE_PREVIEW_COUNT),
+    [manualExercisePool, showAllManualExercises],
+  );
+  const visibleProgressExercises = useMemo(
+    () =>
+      showAllProgressExercises
+        ? workoutForExecution.exercises
+        : workoutForExecution.exercises.slice(0, MOBILE_EXERCISE_PREVIEW_COUNT),
+    [showAllProgressExercises, workoutForExecution.exercises],
+  );
+
+  useEffect(() => {
+    setShowAllManualExercises(false);
+  }, [manualCategory, manualSubcategory, manualSearch]);
+
+  useEffect(() => {
+    setShowAllProgressExercises(false);
+  }, [workoutForExecution.id]);
 
   useEffect(() => {
     const rawOverride = window.localStorage.getItem(overrideStorageKey);
@@ -1159,7 +1184,7 @@ function WorkoutsPageContent() {
               placeholder="Exercise suchen..."
             />
             <div className="mt-3 max-h-48 space-y-2 overflow-auto rounded-lg border border-zinc-700 p-2">
-              {manualExercisePool.map((exercise) => (
+              {visibleManualExercisePool.map((exercise) => (
                 <label key={exercise.id} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -1170,6 +1195,15 @@ function WorkoutsPageContent() {
                 </label>
               ))}
             </div>
+            {manualExercisePool.length > MOBILE_EXERCISE_PREVIEW_COUNT ? (
+              <button
+                type="button"
+                onClick={() => setShowAllManualExercises((current) => !current)}
+                className="mt-2 rounded-lg border border-zinc-600 px-3 py-1 text-xs text-zinc-200"
+              >
+                {showAllManualExercises ? "Weniger anzeigen" : `Mehr anzeigen (${manualExercisePool.length - MOBILE_EXERCISE_PREVIEW_COUNT})`}
+              </button>
+            ) : null}
             {selectedManualExerciseIds.length > 0 ? (
               <div className="mt-2 space-y-2 rounded-lg border border-zinc-700 p-2">
                 <p className="text-xs text-zinc-400">Reihenfolge festlegen</p>
@@ -1224,7 +1258,9 @@ function WorkoutsPageContent() {
           <div className="mb-3">
             <p className="text-xs uppercase tracking-wide text-zinc-400">Workout-Fortschritt</p>
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {workoutForExecution.exercises.map((exercise, index) => {
+              {visibleProgressExercises.map((exercise) => {
+                const index = workoutForExecution.exercises.findIndex((entry) => entry.id === exercise.id);
+                if (index < 0) return null;
                 const status = getExerciseStatus(index);
                 const isActive = index === safeExerciseIndex;
                 const badgeClass =
@@ -1255,6 +1291,17 @@ function WorkoutsPageContent() {
                 );
               })}
             </div>
+            {workoutForExecution.exercises.length > MOBILE_EXERCISE_PREVIEW_COUNT ? (
+              <button
+                type="button"
+                onClick={() => setShowAllProgressExercises((current) => !current)}
+                className="mt-3 rounded-lg border border-zinc-600 px-3 py-1 text-xs text-zinc-200"
+              >
+                {showAllProgressExercises
+                  ? "Weniger anzeigen"
+                  : `Mehr anzeigen (${workoutForExecution.exercises.length - MOBILE_EXERCISE_PREVIEW_COUNT})`}
+              </button>
+            ) : null}
           </div>
 
           {currentExercise ? (
@@ -1379,7 +1426,24 @@ function WorkoutsPageContent() {
               </div>
               {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
 
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={progress.status === "in_progress" ? completeWorkout : startWorkout}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+                  >
+                    {progress.status === "in_progress" ? "Workout beenden" : "Workout starten"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={finishSet}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                  >
+                    Satz abschließen
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => jumpToSet(Math.max(0, safeSetIndex - 1))}
@@ -1387,20 +1451,6 @@ function WorkoutsPageContent() {
                   className="rounded-lg border border-zinc-600 px-3 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40"
                 >
                   ← Satz zurück
-                </button>
-                <button
-                  type="button"
-                  onClick={progress.status === "in_progress" ? completeWorkout : startWorkout}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-                >
-                  {progress.status === "in_progress" ? "Workout beenden" : "Workout starten"}
-                </button>
-                <button
-                  type="button"
-                  onClick={finishSet}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-                >
-                  Satz abschließen
                 </button>
                 <button
                   type="button"
@@ -1417,6 +1467,7 @@ function WorkoutsPageContent() {
                 >
                   Satz vor →
                 </button>
+                </div>
               </div>
             </article>
           ) : (
