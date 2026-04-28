@@ -1258,9 +1258,7 @@ function WorkoutsPageContent() {
           <div className="mb-3">
             <p className="text-xs uppercase tracking-wide text-zinc-400">Workout-Fortschritt</p>
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {visibleProgressExercises.map((exercise) => {
-                const index = workoutForExecution.exercises.findIndex((entry) => entry.id === exercise.id);
-                if (index < 0) return null;
+              {visibleProgressExercises.map((exercise, index) => {
                 const status = getExerciseStatus(index);
                 const isActive = index === safeExerciseIndex;
                 const badgeClass =
