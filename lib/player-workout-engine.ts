@@ -87,7 +87,13 @@ function normalizePosition(position: string): PlayerPosition {
 
 function normalizeStyle(playStyle: string) {
   const lower = playStyle.trim().toLowerCase();
-  if (lower.includes("handle")) return "ballhandling";
+  if (
+    lower.includes("handle") ||
+    lower.includes("passer") ||
+    lower.includes("floor general") ||
+    lower.includes("pick-and-roll") ||
+    lower.includes("tempo controller")
+  ) return "ballhandling";
   if (lower.includes("finish")) return "finishing";
   if (lower.includes("condition")) return "conditioning";
   if (lower.includes("athlet")) return "athletisch";
@@ -164,7 +170,7 @@ export function buildGeneratedWorkout(params: {
     if (fullCategoryPool.length === 0) {
       return {
         id: `auto-${params.day}-${params.category.toLowerCase()}`,
-        name: `Auto ${params.subcategory}`,
+        name: `${params.subcategory} (automatisch generiert)`,
         category: params.category,
         subcategory: params.subcategory,
         exerciseIds: [],
@@ -177,7 +183,7 @@ export function buildGeneratedWorkout(params: {
     const totalDuration = fullCategoryPool.reduce((sum, exercise) => sum + exercise.durationMin, 0);
     return {
       id: `auto-${params.day}-${params.category.toLowerCase()}-${params.subcategory.toLowerCase()}`,
-      name: `Auto ${params.subcategory}`,
+      name: `${params.subcategory} (automatisch generiert)`,
       category: params.category,
       subcategory: params.subcategory,
       exerciseIds: fullCategoryPool.map((exercise) => exercise.id),
@@ -225,7 +231,7 @@ export function buildGeneratedWorkout(params: {
   if (picked.length === 0) {
     return {
       id: `auto-${params.day}-${params.category.toLowerCase()}`,
-      name: `Auto ${params.subcategory}`,
+      name: `${params.subcategory} (automatisch generiert)`,
       category: params.category,
       subcategory: params.subcategory,
       exerciseIds: [],
@@ -237,7 +243,7 @@ export function buildGeneratedWorkout(params: {
 
   return {
     id: `auto-${params.day}-${params.category.toLowerCase()}-${params.subcategory.toLowerCase()}`,
-    name: `Auto ${params.subcategory}`,
+    name: `${params.subcategory} (automatisch generiert)`,
     category: params.category,
     subcategory: params.subcategory,
     exerciseIds: picked.map((exercise) => exercise.id),

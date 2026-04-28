@@ -65,7 +65,7 @@ function filterItemsByResult(
 }
 
 async function loadBasketballFromBallDontLie(apiKey: string): Promise<SportsNewsItem[]> {
-  const endpoint = "https://api.balldontlie.io/v1/games?per_page=25";
+  const endpoint = "https://api.balldontlie.io/v1/games?per_page=100";
   const response = await fetch(endpoint, {
     headers: {
       Authorization: apiKey,
@@ -80,7 +80,7 @@ async function loadBasketballFromBallDontLie(apiKey: string): Promise<SportsNews
   const payload = (await response.json()) as BallDontLieResponse;
   const games = Array.isArray(payload.data) ? payload.data : [];
 
-  return games.slice(0, 20).map((game) => {
+  const mapped = games.map((game) => {
     const home = game.home_team?.full_name ?? "Home";
     const away = game.visitor_team?.full_name ?? "Away";
     const date = game.date ?? new Date().toISOString();
@@ -103,6 +103,13 @@ async function loadBasketballFromBallDontLie(apiKey: string): Promise<SportsNews
       url: `https://www.google.com/search?q=${encodeURIComponent(`${home} vs ${away} NBA`)}`,
     };
   });
+
+  return mapped
+    .sort((left, right) => {
+      if (left.hasResult !== right.hasResult) return left.hasResult ? -1 : 1;
+      return new Date(right.date).getTime() - new Date(left.date).getTime();
+    })
+    .slice(0, 20);
 }
 
 export async function GET(request: NextRequest) {
