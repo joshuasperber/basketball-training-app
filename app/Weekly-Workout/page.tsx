@@ -8,8 +8,11 @@ import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import {
   WORKOUT_OVERRIDE_PREFIX,
   WEEKLY_WORKOUT_PLAN,
+  buildWorkoutStorageKey,
+  getDefaultWorkoutProgress,
   getDateForWeekday,
   getTodayDateKey,
+  parseWorkoutProgress,
   toLocalDateKey,
 } from "@/lib/workout";
 import { buildWeeklyPlan, type DayKey, type WeekConfig } from "@/lib/planner";
@@ -26,7 +29,6 @@ import {
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
 import TopSubTabs from "@/components/TopSubTabs";
-import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
 const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
@@ -480,10 +482,6 @@ export default function WeeklyWorkoutPage() {
   const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
   const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
   const [hiddenAutoWorkoutsByDate, setHiddenAutoWorkoutsByDate] = useState<HiddenAutoWorkoutsMap>({});
-
-  const persistProgress = () => {
-    void pushProgressToCloud();
-  };
   const [profileVersion, setProfileVersion] = useState(0);
   const availableExercises = useMemo(() => loadExercises(), []);
   const sessions = getWorkoutSessions();
@@ -663,17 +661,6 @@ export default function WeeklyWorkoutPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void pullProgressFromCloud().then(() => {
-        setManualVersion((current) => current + 1);
-        setProfileVersion((current) => current + 1);
-        setDailyPlanMap(readDailyPlanMap());
-      });
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
   const deleteManualWorkout = (dayIndex: (typeof weekdayOrder)[number], manualWorkoutId: string) => {
     const dateKey = toLocalDateKey(getDateForWeekday(dayIndex));
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
@@ -696,7 +683,6 @@ export default function WeeklyWorkoutPage() {
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(next));
       setManualWorkoutsByDate(next);
       setManualVersion((current) => current + 1);
-      persistProgress();
     } catch {
       // noop
     }
@@ -733,7 +719,6 @@ export default function WeeklyWorkoutPage() {
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
       setManualWorkoutsByDate(parsed);
       setManualVersion((current) => current + 1);
-      persistProgress();
     } catch {
       // noop
     }
@@ -784,7 +769,6 @@ export default function WeeklyWorkoutPage() {
 
     setManualWorkoutsByDate(parsed);
     setManualVersion((current) => current + 1);
-    persistProgress();
   };
 
   const disableDayAsNoTime = (dayIndex: (typeof weekdayOrder)[number]) => {
@@ -816,7 +800,6 @@ export default function WeeklyWorkoutPage() {
       setDailyPlanMap(readDailyPlanMap());
     }
     setManualVersion((current) => current + 1);
-    persistProgress();
   };
 
   const hideAutoWorkoutCard = (dayIndex: (typeof weekdayOrder)[number], cardId: string) => {
@@ -838,7 +821,6 @@ export default function WeeklyWorkoutPage() {
     }
     setSelectedWorkoutByDay((current) => ({ ...current, [dayByIndex[dayIndex]]: undefined }));
     setManualVersion((current) => current + 1);
-    persistProgress();
   };
 
   return (
@@ -924,6 +906,26 @@ export default function WeeklyWorkoutPage() {
               (selectedCard.workoutId && completedIdsForDate.has(selectedCard.workoutId))),
           );
           const allCardsCompleted = workoutCards.length > 0 && completedCardsCount === workoutCards.length;
+          const isSelectedCardInProgress = (() => {
+            if (!selectedCard || typeof window === "undefined") return false;
+            const selectedWorkoutId =
+              selectedCard.manualWorkoutId ??
+              selectedCard.workoutId ??
+              selectedCard.autoSuggestion?.workoutId ??
+              selectedCard.id;
+            const fallbackProgress = getDefaultWorkoutProgress(manualDateKey, {
+              id: selectedWorkoutId,
+              title: selectedCard.title,
+              sport: (selectedCard.sport as "Gym" | "Basketball" | "Home" | "Regeneration" | "Rest") ?? "Basketball",
+              subcategory: selectedCard.subcategory,
+              exercises: [],
+            });
+            const progress = parseWorkoutProgress(
+              window.localStorage.getItem(buildWorkoutStorageKey(manualDateKey)),
+              fallbackProgress,
+            );
+            return progress.status === "in_progress" && progress.workoutId === selectedWorkoutId;
+          })();
           const startHref = (() => {
             if (!selectedCard) return `/workouts?day=${day}`;
             if (selectedCard.manualWorkoutId) return `/workouts?day=${day}&manualWorkoutId=${selectedCard.manualWorkoutId}`;
@@ -1008,7 +1010,11 @@ export default function WeeklyWorkoutPage() {
                     href={startHref}
                     className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
                   >
-                    {showTodayCompletionState && isSelectedCardCompleted ? "Workout ansehen" : "Workout starten"}
+                    {showTodayCompletionState && isSelectedCardCompleted
+                      ? "Workout ansehen"
+                      : isSelectedCardInProgress
+                        ? "Workout bearbeiten"
+                        : "Workout starten"}
                   </Link>
                   <Link
                     href={editHref}
