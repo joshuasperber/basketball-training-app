@@ -25,6 +25,24 @@ type RemoteProgress = {
   hiddenAutoWorkoutsMap: Record<string, string[]>;
 };
 
+function hasEntries(value: Record<string, unknown> | null | undefined) {
+  return Boolean(value && Object.keys(value).length > 0);
+}
+
+function hasMeaningfulProgress(progress: RemoteProgress) {
+  return (
+    progress.sessions.workoutSessions.length > 0 ||
+    hasEntries(progress.sessions.exerciseHistory) ||
+    hasEntries(progress.dailyPlanMap) ||
+    hasEntries(progress.manualDayWorkoutsMap) ||
+    hasEntries(progress.manualDayDisabledMap) ||
+    hasEntries(progress.hiddenAutoWorkoutsMap) ||
+    Boolean(progress.profileCache) ||
+    Boolean(progress.xpHistory) ||
+    Boolean(progress.xpProgression)
+  );
+}
+
 function readLocalDailyPlanMap(): DailyPlanMap {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(DAILY_PLAN_KEY);
@@ -91,6 +109,19 @@ export async function pullProgressFromCloud() {
   const response = await fetch("/api/session", { cache: "no-store" });
   if (!response.ok) return null;
   const remote = (await response.json()) as RemoteProgress;
+  const localSnapshot = buildLocalProgressSnapshot();
+  const remoteHasData = hasMeaningfulProgress(remote);
+  const localHasData = hasMeaningfulProgress(localSnapshot);
+
+  if (!remoteHasData && localHasData) {
+    await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(localSnapshot),
+    });
+    return localSnapshot;
+  }
+
   applyRemoteProgressToLocal(remote);
   return remote;
 }

@@ -10,7 +10,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
-  { label: "Training", href: "/training" },
+  { label: "Training", href: "/Weekly-Workout" },
   { label: "Fortschritt", href: "/stats" },
   { label: "Profile", href: "/profile" },
 ];
