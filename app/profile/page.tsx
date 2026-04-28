@@ -282,6 +282,7 @@ export default function ProfilePage() {
   useEffect(() => {
     if (loading) return;
     persistCurrentCache();
+    void pushProgressToCloud();
   }, [loading, persistCurrentCache]);
 
   useEffect(() => {
@@ -358,7 +359,6 @@ export default function ProfilePage() {
       const next = { ...current, [selectedDateKey]: nextTags };
       if (nextTags.length === 0) delete next[selectedDateKey];
       writeDailyPlanMap(next);
-      void pushProgressToCloud();
       if (nextTags.length > 0) {
         const disabledMap = readManualDayDisabledMap();
         if (disabledMap[selectedDateKey]) {
@@ -367,6 +367,7 @@ export default function ProfilePage() {
           writeManualDayDisabledMap(nextDisabledMap);
         }
       }
+      void pushProgressToCloud();
 
       const selectedDate = new Date(`${selectedDateKey}T00:00:00`);
       const dayIndex = selectedDate.getDay();
@@ -456,6 +457,7 @@ const refreshProfileAndWeekly = () => {
       if (!authData?.user) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        void pushProgressToCloud();
         setMessage("Nur lokal gespeichert (kein Supabase-Login).");
         return;
       }
@@ -484,6 +486,7 @@ const refreshProfileAndWeekly = () => {
       if (isRlsError) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+        void pushProgressToCloud();
         setMessage("Supabase-RLS aktiv: Profil lokal gespeichert.");
         return;
       }
@@ -499,6 +502,7 @@ const refreshProfileAndWeekly = () => {
     setProfile(nextProfile);
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
     saveLocalCache({ profile: nextProfile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+    void pushProgressToCloud();
     setMessage(null);
   }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
 

@@ -26,6 +26,7 @@ import {
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
 import TopSubTabs from "@/components/TopSubTabs";
+import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
 const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
@@ -479,6 +480,10 @@ export default function WeeklyWorkoutPage() {
   const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
   const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
   const [hiddenAutoWorkoutsByDate, setHiddenAutoWorkoutsByDate] = useState<HiddenAutoWorkoutsMap>({});
+
+  const persistProgress = () => {
+    void pushProgressToCloud();
+  };
   const [profileVersion, setProfileVersion] = useState(0);
   const availableExercises = useMemo(() => loadExercises(), []);
   const sessions = getWorkoutSessions();
@@ -658,6 +663,17 @@ export default function WeeklyWorkoutPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void pullProgressFromCloud().then(() => {
+        setManualVersion((current) => current + 1);
+        setProfileVersion((current) => current + 1);
+        setDailyPlanMap(readDailyPlanMap());
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const deleteManualWorkout = (dayIndex: (typeof weekdayOrder)[number], manualWorkoutId: string) => {
     const dateKey = toLocalDateKey(getDateForWeekday(dayIndex));
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
@@ -680,6 +696,7 @@ export default function WeeklyWorkoutPage() {
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(next));
       setManualWorkoutsByDate(next);
       setManualVersion((current) => current + 1);
+      persistProgress();
     } catch {
       // noop
     }
@@ -716,6 +733,7 @@ export default function WeeklyWorkoutPage() {
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
       setManualWorkoutsByDate(parsed);
       setManualVersion((current) => current + 1);
+      persistProgress();
     } catch {
       // noop
     }
@@ -766,6 +784,7 @@ export default function WeeklyWorkoutPage() {
 
     setManualWorkoutsByDate(parsed);
     setManualVersion((current) => current + 1);
+    persistProgress();
   };
 
   const disableDayAsNoTime = (dayIndex: (typeof weekdayOrder)[number]) => {
@@ -797,6 +816,7 @@ export default function WeeklyWorkoutPage() {
       setDailyPlanMap(readDailyPlanMap());
     }
     setManualVersion((current) => current + 1);
+    persistProgress();
   };
 
   const hideAutoWorkoutCard = (dayIndex: (typeof weekdayOrder)[number], cardId: string) => {
@@ -818,6 +838,7 @@ export default function WeeklyWorkoutPage() {
     }
     setSelectedWorkoutByDay((current) => ({ ...current, [dayByIndex[dayIndex]]: undefined }));
     setManualVersion((current) => current + 1);
+    persistProgress();
   };
 
   return (
