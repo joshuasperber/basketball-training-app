@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
-import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
+import { appendExerciseHistory, getExerciseHistory } from "@/lib/session-storage";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 
 type ExerciseSet = {
@@ -100,18 +100,6 @@ export default function ExerciseExecutionPage() {
     }
 
     const nowISO = new Date().toISOString();
-    let createdAnyLog = false;
-    const sessionLogs: Array<{
-      exerciseId: string;
-      completedValue: number | null;
-      completed?: boolean;
-      note: string;
-      made?: number | null;
-      attempts?: number | null;
-      misses?: number | null;
-      weightKg?: number | null;
-    }> = [];
-
     sets.forEach((set) => {
       const primaryMetric = exercise.metricKeys[0];
       const rawPrimaryValue = set.values[primaryMetric];
@@ -120,7 +108,6 @@ export default function ExerciseExecutionPage() {
       const value = Number(rawPrimaryValue);
       if (!Number.isFinite(value)) return;
       if (!isCompleted) return;
-      createdAnyLog = true;
       appendExerciseHistory({
         id: `eh-${Date.now()}-${set.id}`,
         dateISO: nowISO,
@@ -130,32 +117,7 @@ export default function ExerciseExecutionPage() {
         source: "exercise",
       });
 
-      const attempts = getNumeric(set.values, "tries") ?? getNumeric(set.values, "reps");
-      const made = getNumeric(set.values, "makes");
-      const misses = getNumeric(set.values, "misses") ?? (attempts !== null && made !== null ? Math.max(0, attempts - made) : null);
-      sessionLogs.push({
-        exerciseId: exercise.id,
-        completedValue: value,
-        completed: isCompleted,
-        note: sessionNote,
-        attempts,
-        made,
-        misses,
-        weightKg: getNumeric(set.values, "weight"),
-      });
     });
-
-    if (createdAnyLog) {
-      appendWorkoutSession({
-        id: `solo-${Date.now()}`,
-        dateISO: nowISO,
-        workoutId: "single-exercise-session",
-        workoutName: "Einzelübung",
-        workoutCategory: exercise.category,
-        workoutSubcategory: exercise.subcategory,
-        logs: sessionLogs,
-      });
-    }
 
     await refreshHistory();
     setSaved(true);
