@@ -8,8 +8,11 @@ import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import {
   WORKOUT_OVERRIDE_PREFIX,
   WEEKLY_WORKOUT_PLAN,
+  buildWorkoutStorageKey,
+  getDefaultWorkoutProgress,
   getDateForWeekday,
   getTodayDateKey,
+  parseWorkoutProgress,
   toLocalDateKey,
 } from "@/lib/workout";
 import { buildWeeklyPlan, type DayKey, type WeekConfig } from "@/lib/planner";
@@ -479,6 +482,7 @@ export default function WeeklyWorkoutPage() {
   const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
   const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
   const [hiddenAutoWorkoutsByDate, setHiddenAutoWorkoutsByDate] = useState<HiddenAutoWorkoutsMap>({});
+  const [profileVersion, setProfileVersion] = useState(0);
   const availableExercises = useMemo(() => loadExercises(), []);
   const sessions = getWorkoutSessions();
   const completedDateSet = new Set(sessions.map((session) => toLocalDateKey(new Date(session.dateISO))));
@@ -638,7 +642,17 @@ export default function WeeklyWorkoutPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [todayIndex, manualVersion]);
+  }, [todayIndex, manualVersion, profileVersion]);
+
+  useEffect(() => {
+    const refreshProfilePlan = () => setProfileVersion((current) => current + 1);
+    window.addEventListener("storage", refreshProfilePlan);
+    window.addEventListener("focus", refreshProfilePlan);
+    return () => {
+      window.removeEventListener("storage", refreshProfilePlan);
+      window.removeEventListener("focus", refreshProfilePlan);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -813,7 +827,7 @@ export default function WeeklyWorkoutPage() {
     <main className="min-h-screen bg-black p-6 pb-24 text-white">
       <h1 className="text-2xl font-bold">Weekly Workout Plan</h1>
       <p className="mt-2 text-zinc-400">Alle Tage sind direkt bearbeitbar – inklusive heute.</p>
-      <TopSubTabs items={[{ label: "Training", href: "/training" }, { label: "Weekly", href: "/Weekly-Workout" }]} />
+      <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
       <p className="mt-2 text-xs text-zinc-500">Wenn noch alles leer ist: zuerst im Profil Trainings-Tage und Schwerpunkte setzen.</p>
 
       <div className="mt-6 space-y-3">
@@ -892,6 +906,26 @@ export default function WeeklyWorkoutPage() {
               (selectedCard.workoutId && completedIdsForDate.has(selectedCard.workoutId))),
           );
           const allCardsCompleted = workoutCards.length > 0 && completedCardsCount === workoutCards.length;
+          const isSelectedCardInProgress = (() => {
+            if (!selectedCard || typeof window === "undefined") return false;
+            const selectedWorkoutId =
+              selectedCard.manualWorkoutId ??
+              selectedCard.workoutId ??
+              selectedCard.autoSuggestion?.workoutId ??
+              selectedCard.id;
+            const fallbackProgress = getDefaultWorkoutProgress(manualDateKey, {
+              id: selectedWorkoutId,
+              title: selectedCard.title,
+              sport: (selectedCard.sport as "Gym" | "Basketball" | "Home" | "Regeneration" | "Rest") ?? "Basketball",
+              subcategory: selectedCard.subcategory,
+              exercises: [],
+            });
+            const progress = parseWorkoutProgress(
+              window.localStorage.getItem(buildWorkoutStorageKey(manualDateKey)),
+              fallbackProgress,
+            );
+            return progress.status === "in_progress" && progress.workoutId === selectedWorkoutId;
+          })();
           const startHref = (() => {
             if (!selectedCard) return `/workouts?day=${day}`;
             if (selectedCard.manualWorkoutId) return `/workouts?day=${day}&manualWorkoutId=${selectedCard.manualWorkoutId}`;
@@ -976,7 +1010,11 @@ export default function WeeklyWorkoutPage() {
                     href={startHref}
                     className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
                   >
-                    {showTodayCompletionState && isSelectedCardCompleted ? "Workout ansehen" : "Workout starten"}
+                    {showTodayCompletionState && isSelectedCardCompleted
+                      ? "Workout ansehen"
+                      : isSelectedCardInProgress
+                        ? "Workout bearbeiten"
+                        : "Workout starten"}
                   </Link>
                   <Link
                     href={editHref}

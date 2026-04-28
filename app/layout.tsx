@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
+import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
   title: "Basketball Training App",
@@ -25,6 +26,7 @@ export default async function RootLayout({
   return (
     <html lang="de">
       <body>
+        <ServiceWorkerRegister />
         {children}
         <BottomNav isAuthenticated={isAuthenticated} />
       </body>

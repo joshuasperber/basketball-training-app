@@ -100,7 +100,7 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   const workoutLookup = new Map(workouts.map((workout) => [workout.id, workout]));
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
 
-  const sessionHistory = getWorkoutSessions().flatMap((session) => {
+  const sessionHistory = getTrackedWorkoutSessions().flatMap((session) => {
     const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
     const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
     const workout = workoutLookup.get(session.workoutId);
@@ -168,6 +168,10 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   return Array.from(unique.values());
 }
 
+function getTrackedWorkoutSessions() {
+  return getWorkoutSessions().filter((session) => session.workoutId !== "single-exercise-session");
+}
+
 function filterSessionsByRange<T extends { dateISO: string }>(sessions: T[], range: StatsRange) {
   if (range === "all") return sessions;
   const start = new Date();
@@ -178,7 +182,7 @@ function filterSessionsByRange<T extends { dateISO: string }>(sessions: T[], ran
 }
 
 function buildBasketballExerciseStats(range: StatsRange): BasketballExerciseStat[] {
-  const sessions = filterSessionsByRange(getWorkoutSessions(), range);
+  const sessions = filterSessionsByRange(getTrackedWorkoutSessions(), range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, { attempts: number; made: number; misses: number; usesShotMetrics: boolean }>();
@@ -233,7 +237,7 @@ function buildBasketballExerciseStats(range: StatsRange): BasketballExerciseStat
 }
 
 function buildTimedExerciseTrends(range: StatsRange): TimedExerciseTrend[] {
-  const sessions = filterSessionsByRange(getWorkoutSessions(), range);
+  const sessions = filterSessionsByRange(getTrackedWorkoutSessions(), range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, number[]>();
@@ -260,7 +264,7 @@ function buildTimedExerciseTrends(range: StatsRange): TimedExerciseTrend[] {
 }
 
 function buildGymExerciseGoals(range: StatsRange): GymExerciseGoalStat[] {
-  const sessions = filterSessionsByRange(getWorkoutSessions(), range);
+  const sessions = filterSessionsByRange(getTrackedWorkoutSessions(), range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, { weights: number[]; reps: number[]; latestISO: string | null; maxWeight: number; maxRepsAtMaxWeight: number }>();
@@ -420,7 +424,7 @@ useEffect(() => {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setHistory(loadCombinedHistory());
-      setSessionDetails(getWorkoutSessions().map((session) => ({
+      setSessionDetails(getTrackedWorkoutSessions().map((session) => ({
         id: session.id,
         dateISO: session.dateISO,
         workoutName: session.workoutName,
@@ -607,13 +611,18 @@ useEffect(() => {
       <div className="mt-6 space-y-4">
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <h2 className="text-xl font-semibold">Kategorien Vergleich</h2>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
             <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
               <p className="text-sm text-zinc-400">Basketball</p>
               <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Basketball")?.value ?? 0}</p>
               <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
             </div>
-            <div className="row-span-2 rounded-xl border border-zinc-700 bg-zinc-950 p-4">
+            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
+              <p className="text-sm text-zinc-400">Gym</p>
+              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Gym")?.value ?? 0}</p>
+              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            </div>
+            <div className="col-span-2 rounded-xl border border-zinc-700 bg-zinc-950 p-4 md:row-span-2 md:col-span-1">
               <h3 className="text-sm font-semibold text-center">Gesamtverteilung</h3>
               <div className="mt-3 flex justify-center">
                 <div className="h-36 w-36 rounded-full border border-zinc-700" style={{ background: pieGradient(sportSlices) }} />
@@ -623,11 +632,6 @@ useEffect(() => {
                   <p key={`center-${slice.label}`}>{slice.label}: <span className="font-semibold text-white">{slice.value}</span></p>
                 ))}
               </div>
-            </div>
-            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
-              <p className="text-sm text-zinc-400">Gym</p>
-              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Gym")?.value ?? 0}</p>
-              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
             </div>
             <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
               <p className="text-sm text-zinc-400">Home</p>
