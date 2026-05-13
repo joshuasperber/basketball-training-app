@@ -31,6 +31,25 @@ type CoachPayload = {
   recentSessions?: CoachContextItem[];
   recentGames?: CoachGameItem[];
   focus?: string;
+  /** Anthropometrische / Profil-Daten für individuelleren Plan. */
+  profile?: {
+    heightCm?: number | null;
+    weightKg?: number | null;
+    bodyFatPct?: number | null;
+    wingspanCm?: number | null;
+    standingReachCm?: number | null;
+    age?: number | null;
+    fullName?: string | null;
+  };
+  /** Woche-Verfügbarkeit (Mo–So mit Mode + Minuten). */
+  weekAvailability?: Record<
+    string,
+    { mode: string; minutes: number }
+  >;
+  /** Aktive Ziele aus Training-Goals (z. B. Wurfquote-Ziel). */
+  activeGoals?: string[];
+  /** Verletzungs-/Schon-Übungen, die nicht progredieren sollen. */
+  injuryExerciseNames?: string[];
 };
 
 function buildHeuristicResponse(payload: CoachPayload) {
@@ -161,12 +180,54 @@ function resolveLlmConfig() {
 async function callLlm(payload: CoachPayload, config: NonNullable<ReturnType<typeof resolveLlmConfig>>) {
   const sessions = payload.recentSessions ?? [];
   const games = payload.recentGames ?? [];
+  const profile = payload.profile ?? {};
+  const profileLine = [
+    profile.heightCm ? `${profile.heightCm} cm` : null,
+    profile.weightKg ? `${profile.weightKg} kg` : null,
+    profile.bodyFatPct ? `KFA ${profile.bodyFatPct}%` : null,
+    profile.wingspanCm ? `Spannweite ${profile.wingspanCm} cm` : null,
+    profile.standingReachCm ? `Standing Reach ${profile.standingReachCm} cm` : null,
+  ].filter(Boolean).join(" · ");
+
+  const availabilityLine = payload.weekAvailability
+    ? Object.entries(payload.weekAvailability)
+        .map(([day, cfg]) => `${day}=${cfg.mode}(${cfg.minutes}m)`)
+        .join(", ")
+    : "nicht angegeben";
+
+  const goalsLine = payload.activeGoals?.length
+    ? payload.activeGoals.slice(0, 6).join("; ")
+    : "keine aktiven Ziele";
+
+  const injuryLine = payload.injuryExerciseNames?.length
+    ? `Schon-Übungen: ${payload.injuryExerciseNames.slice(0, 6).join(", ")}`
+    : "";
+
   const userPrompt = `Du bist ein präziser Basketball- und Krafttrainings-Coach. Antworte auf Deutsch, knapp, mit 3-5 konkret umsetzbaren Empfehlungen für die nächste Woche.
-Position: ${payload.position ?? "unbekannt"} | Style: ${payload.playStyle ?? "unbekannt"} | Level: ${payload.level ?? "?"} | Phase: ${payload.mesocyclePhase ?? "build"}
-Fokus: ${payload.focus ?? "Allgemein"}
-Letzte ${sessions.length} Sessions: ${JSON.stringify(sessions).slice(0, 1800)}
-Letzte ${games.length} Spiele: ${JSON.stringify(games).slice(0, 800)}
-Gib die Antwort als JSON mit Feldern "headline" (max 6 Wörter) und "bullets" (Array, jeweils 1 Satz).`;
+
+[Spieler]
+Position: ${payload.position ?? "unbekannt"} | Spielstil: ${payload.playStyle ?? "unbekannt"} | Level: ${payload.level ?? "?"} | Phase: ${payload.mesocyclePhase ?? "build"}
+Körper: ${profileLine || "keine Angaben"}
+${injuryLine}
+
+[Verfügbarkeit pro Woche]
+${availabilityLine}
+
+[Aktive Ziele]
+${goalsLine}
+
+[Fokus]
+${payload.focus ?? "Allgemein – ganzheitlich (Skill, Kraft, Regeneration)"}
+
+[Letzte ${sessions.length} Sessions]
+${JSON.stringify(sessions).slice(0, 1600)}
+
+[Letzte ${games.length} Spiele]
+${JSON.stringify(games).slice(0, 700)}
+
+[Aufgabe]
+Berücksichtige die Verfügbarkeit (wenn 3 Tage frei → kompakter Plan, wenn 5+ → Periodisierung möglich), Körperdaten (z. B. höheres Gewicht → mehr Knie-/Hüft-Mobility, höheres KFA → mehr Conditioning, große Spannweite → Drives ausnutzen), Position und Spielstil (PG braucht mehr Handles, C mehr Post + Rim Protection).
+Gib die Antwort als JSON mit Feldern "headline" (max 6 Wörter) und "bullets" (Array, jeweils 1 konkret umsetzbarer Satz, max 5).`;
 
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",

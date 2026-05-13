@@ -24,6 +24,7 @@ import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import PageHeader from "@/components/PageHeader";
+import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
@@ -658,6 +659,108 @@ const refreshProfileAndWeekly = () => {
       </section>
 
       <section className="mt-4 app-card">
+        <p className="section-eyebrow">Wochen-Verfügbarkeit</p>
+        <h2 className="section-title mt-1">An welchen Tagen hast du Zeit?</h2>
+        <p className="text-xs text-muted">
+          Wähle pro Tag den Standard-Schwerpunkt. Der Wochenplan wird automatisch gefüllt – einzelne Tage kannst du unten im Kalender immer noch überschreiben.
+        </p>
+        <div className="mt-4 space-y-2">
+          {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as DayKey[]).map((dayKey) => {
+            const dayConfig = weekConfig[dayKey] ?? { mode: "unavailable" as DayMode, minutes: 0 };
+            const isAvailable = dayConfig.mode !== "unavailable" && dayConfig.mode !== "rest";
+            return (
+              <div
+                key={dayKey}
+                className={`flex flex-wrap items-center gap-2 rounded-2xl border p-3 transition ${
+                  isAvailable ? "border-emerald-500/40 bg-emerald-500/5" : "border-white/10 bg-white/[0.02]"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWeekConfig((prev) => ({
+                      ...prev,
+                      [dayKey]: isAvailable
+                        ? { mode: "unavailable", minutes: 0 }
+                        : { mode: "basketball_training", minutes: 45 },
+                    }));
+                  }}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-sm font-bold transition ${
+                    isAvailable
+                      ? "border-emerald-400 bg-emerald-500 text-white"
+                      : "border-white/20 bg-white/[0.05] text-faint"
+                  }`}
+                  aria-pressed={isAvailable}
+                  aria-label={`${DAY_LABELS[dayKey]} ${isAvailable ? "verfügbar" : "nicht verfügbar"}`}
+                >
+                  {isAvailable ? "✓" : "—"}
+                </button>
+                <span className="w-24 text-sm font-semibold text-strong">{DAY_LABELS[dayKey]}</span>
+                {isAvailable ? (
+                  <>
+                    <select
+                      value={dayConfig.mode}
+                      onChange={(event) => {
+                        const nextMode = event.target.value as DayMode;
+                        const defaultMinutes: Record<DayMode, number> = {
+                          unavailable: 0,
+                          rest: 0,
+                          recovery: 25,
+                          game_day: 60,
+                          game_training: 45,
+                          basketball_training: 45,
+                          gym: 60,
+                          custom: 30,
+                        };
+                        setWeekConfig((prev) => ({
+                          ...prev,
+                          [dayKey]: {
+                            mode: nextMode,
+                            minutes: dayConfig.minutes || defaultMinutes[nextMode],
+                          },
+                        }));
+                      }}
+                      className="select min-w-[140px] flex-1"
+                    >
+                      <option value="basketball_training">Basketball</option>
+                      <option value="game_training">Spieltraining</option>
+                      <option value="game_day">Spieltag</option>
+                      <option value="gym">Gym</option>
+                      <option value="custom">Home / Custom</option>
+                      <option value="recovery">Regeneration</option>
+                    </select>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={240}
+                        step={5}
+                        value={dayConfig.minutes}
+                        onChange={(event) => {
+                          const minutes = Number(event.target.value) || 0;
+                          setWeekConfig((prev) => ({
+                            ...prev,
+                            [dayKey]: { ...dayConfig, minutes },
+                          }));
+                        }}
+                        className="input w-20"
+                      />
+                      <span className="text-xs text-faint">Min</span>
+                    </div>
+                  </>
+                ) : (
+                  <span className="text-xs text-faint">Frei / Keine Zeit</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[11px] text-faint">
+          Tipp: 3–5 Trainings/Woche sind ein guter Start. Mehr ist nur sinnvoll, wenn Regeneration und Schlaf passen.
+        </p>
+      </section>
+
+      <section className="mt-4 app-card">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="section-eyebrow">Kalender</p>
@@ -826,6 +929,8 @@ const refreshProfileAndWeekly = () => {
       >
         Profil aktualisieren
       </button>
+
+      <WorkoutReminderSettings weekConfig={weekConfig} />
 
       <section className="mt-4 app-card">
         <p className="section-eyebrow">Vorschau</p>

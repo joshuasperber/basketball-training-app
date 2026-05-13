@@ -1073,10 +1073,17 @@ export default function WeeklyWorkoutPage() {
           const startHref = (() => {
             if (!selectedCard) return `/workouts?day=${day}`;
             if (selectedCard.manualWorkoutId) return `/workouts?day=${day}&manualWorkoutId=${selectedCard.manualWorkoutId}`;
-            if (selectedCard.workoutId) return `/workouts?day=${day}&workoutId=${selectedCard.workoutId}`;
-            if (selectedCard.autoSuggestion) {
+            const hasSyntheticId =
+              selectedCard.workoutId?.startsWith("auto-") ||
+              selectedCard.workoutId?.startsWith("recovery-");
+            // Synthetische IDs (Recovery/Auto-Generated) haben kein echtes Workout im Katalog
+            // → immer ueber autoSuggestion-Pfad gehen, sonst landet man auf dem Default-Wochenplan.
+            if (selectedCard.autoSuggestion && (!selectedCard.workoutId || hasSyntheticId)) {
               const autoSuggestion = encodeAutoWorkoutSuggestion(selectedCard.autoSuggestion);
               return `/workouts?day=${day}${autoSuggestion ? `&autoWorkout=${autoSuggestion}` : ""}`;
+            }
+            if (selectedCard.workoutId && !hasSyntheticId) {
+              return `/workouts?day=${day}&workoutId=${selectedCard.workoutId}`;
             }
             return `/workouts?day=${day}`;
           })();

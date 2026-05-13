@@ -234,8 +234,126 @@ class SupabaseQueryBuilder<T = Record<string, unknown>> implements PromiseLike<Q
   }
 }
 
+type StorageUploadOptions = {
+  contentType?: string;
+  upsert?: boolean;
+  cacheControl?: string;
+};
+
+type StorageError = { message: string };
+
+class SupabaseStorageBucket {
+  constructor(
+    private readonly bucket: string,
+    private readonly baseUrl: string,
+    private readonly anonKey: string,
+    private readonly isConfigured: boolean,
+    private readonly accessTokenProvider: () => string | undefined,
+  ) {}
+
+  private bearer(): string {
+    return this.accessTokenProvider() ?? this.anonKey;
+  }
+
+  async upload(path: string, body: Blob | ArrayBuffer | Uint8Array, options?: StorageUploadOptions): Promise<{ data: { path: string } | null; error: StorageError | null }> {
+    if (!this.isConfigured) return { data: null, error: { message: "Supabase ist nicht konfiguriert." } };
+    try {
+      const headers: HeadersInit = {
+        apikey: this.anonKey,
+        Authorization: `Bearer ${this.bearer()}`,
+        "Content-Type": options?.contentType ?? "application/octet-stream",
+      };
+      if (options?.cacheControl) headers["Cache-Control"] = `max-age=${options.cacheControl}`;
+      if (options?.upsert) headers["x-upsert"] = "true";
+
+      const response = await fetch(`${this.baseUrl}/storage/v1/object/${encodeURIComponent(this.bucket)}/${path}`, {
+        method: "POST",
+        headers,
+        body: body as BodyInit,
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        let message = `Storage upload failed (${response.status})`;
+        try {
+          const json = (await response.json()) as { message?: string; error?: string };
+          if (json?.message) message = json.message;
+          else if (json?.error) message = json.error;
+        } catch {
+          // noop
+        }
+        return { data: null, error: { message } };
+      }
+      return { data: { path }, error: null };
+    } catch (err) {
+      return { data: null, error: { message: err instanceof Error ? err.message : "Unbekannter Storage-Fehler" } };
+    }
+  }
+
+  async createSignedUrl(path: string, expiresInSeconds: number): Promise<{ data: { signedUrl: string } | null; error: StorageError | null }> {
+    if (!this.isConfigured) return { data: null, error: { message: "Supabase ist nicht konfiguriert." } };
+    try {
+      const response = await fetch(`${this.baseUrl}/storage/v1/object/sign/${encodeURIComponent(this.bucket)}/${path}`, {
+        method: "POST",
+        headers: {
+          apikey: this.anonKey,
+          Authorization: `Bearer ${this.bearer()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ expiresIn: expiresInSeconds }),
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        return { data: null, error: { message: `Signed URL failed (${response.status})` } };
+      }
+      const json = (await response.json()) as { signedURL?: string; signedUrl?: string };
+      const relative = json.signedURL ?? json.signedUrl;
+      if (!relative) return { data: null, error: { message: "Signed URL fehlt." } };
+      const fullUrl = relative.startsWith("http") ? relative : `${this.baseUrl}/storage/v1${relative}`;
+      return { data: { signedUrl: fullUrl }, error: null };
+    } catch (err) {
+      return { data: null, error: { message: err instanceof Error ? err.message : "Unbekannter Storage-Fehler" } };
+    }
+  }
+
+  async remove(paths: string[]): Promise<{ error: StorageError | null }> {
+    if (!this.isConfigured) return { error: { message: "Supabase ist nicht konfiguriert." } };
+    try {
+      const response = await fetch(`${this.baseUrl}/storage/v1/object/${encodeURIComponent(this.bucket)}`, {
+        method: "DELETE",
+        headers: {
+          apikey: this.anonKey,
+          Authorization: `Bearer ${this.bearer()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prefixes: paths }),
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        return { error: { message: `Storage delete failed (${response.status})` } };
+      }
+      return { error: null };
+    } catch (err) {
+      return { error: { message: err instanceof Error ? err.message : "Unbekannter Storage-Fehler" } };
+    }
+  }
+}
+
+class SupabaseStorageClient {
+  constructor(
+    private readonly baseUrl: string,
+    private readonly anonKey: string,
+    private readonly isConfigured: boolean,
+    private readonly accessTokenProvider: () => string | undefined,
+  ) {}
+
+  from(bucket: string) {
+    return new SupabaseStorageBucket(bucket, this.baseUrl, this.anonKey, this.isConfigured, this.accessTokenProvider);
+  }
+}
+
 class SupabaseClient {
   auth: SupabaseAuthClient;
+  storage: SupabaseStorageClient;
 
   constructor(
     private readonly baseUrl: string,
@@ -243,6 +361,7 @@ class SupabaseClient {
     private readonly isConfigured: boolean,
     private readonly accessToken?: string,
   ) {
+    this.storage = new SupabaseStorageClient(baseUrl, anonKey, isConfigured, () => this.accessToken ?? getAccessTokenFromBrowserCookie());
     this.auth = {
       signInWithOtp: async ({ email, options }) => {
         if (!this.isConfigured) {

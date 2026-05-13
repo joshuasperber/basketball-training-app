@@ -40,3 +40,40 @@ self.addEventListener("fetch", (event) => {
       ),
   );
 });
+
+// Workout-Reminder: lokaler Push aus dem Client via postMessage
+self.addEventListener("message", (event) => {
+  const data = event.data || {};
+  if (data.type === "schedule-reminder") {
+    const { title, body, tag, fireAtTs } = data.payload || {};
+    const delay = Math.max(0, (fireAtTs || 0) - Date.now());
+    setTimeout(() => {
+      self.registration.showNotification(title || "Trainings-Reminder", {
+        body: body || "Zeit fürs Workout! 🏀",
+        tag: tag || "workout-reminder",
+        icon: "/icon.png",
+        badge: "/icon.png",
+        data: { url: "/Weekly-Workout" },
+      });
+    }, delay);
+  }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || "/Weekly-Workout";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.navigate(targetUrl).catch(() => undefined);
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+      return undefined;
+    }),
+  );
+});

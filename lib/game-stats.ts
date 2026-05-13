@@ -12,6 +12,8 @@ export type GameStatEntry = {
   rebounds: number | null;
   steals: number | null;
   notes?: string;
+  /** Pfad zum Foto im Supabase Storage Bucket "game-photos". */
+  photoPath?: string | null;
   createdAt: string;
 };
 

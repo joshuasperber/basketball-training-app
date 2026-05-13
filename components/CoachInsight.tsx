@@ -20,13 +20,24 @@ function buildPayload() {
   const games = loadGameStats().slice(0, 8);
   const exerciseLookup = new Map(loadExercises().map((exercise) => [exercise.id, exercise]));
   const goals = loadTrainingGoalsBundle();
-  const profile = (() => {
+  const profileCache = (() => {
     try {
       const raw = window.localStorage.getItem("profile_cache_v4");
       return raw
         ? (JSON.parse(raw) as {
-            profile?: { favorite_position?: string | null };
+            profile?: {
+              favorite_position?: string | null;
+              height_cm?: number | null;
+              weight_kg?: number | null;
+              full_name?: string | null;
+            };
             playStyle?: string;
+            weekConfig?: Record<string, { mode: string; minutes: number }>;
+            bodyMetrics?: {
+              wingspan_cm?: number | null;
+              standing_reach_cm?: number | null;
+              body_fat_pct?: number | null;
+            };
           })
         : null;
     } catch {
@@ -53,11 +64,31 @@ function buildPayload() {
     };
   });
 
+  const activeGoals = (goals.gymGoals ?? []).map((goal) => {
+    const exerciseName = exerciseLookup.get(goal.exerciseId)?.name ?? goal.exerciseId;
+    return `${exerciseName}: ${goal.weightKg} kg × ${goal.targetReps} Reps`;
+  });
+
+  const injuryExerciseNames = (goals.injuryExerciseIds ?? [])
+    .map((id) => exerciseLookup.get(id)?.name)
+    .filter((name): name is string => Boolean(name));
+
   return {
-    position: profile?.profile?.favorite_position ?? "sg",
-    playStyle: profile?.playStyle ?? "",
+    position: profileCache?.profile?.favorite_position ?? "sg",
+    playStyle: profileCache?.playStyle ?? "",
     level: getProgressionState().level,
     mesocyclePhase: goals.mesocyclePhase,
+    profile: {
+      heightCm: profileCache?.profile?.height_cm ?? null,
+      weightKg: profileCache?.profile?.weight_kg ?? null,
+      bodyFatPct: profileCache?.bodyMetrics?.body_fat_pct ?? null,
+      wingspanCm: profileCache?.bodyMetrics?.wingspan_cm ?? null,
+      standingReachCm: profileCache?.bodyMetrics?.standing_reach_cm ?? null,
+      fullName: profileCache?.profile?.full_name ?? null,
+    },
+    weekAvailability: profileCache?.weekConfig ?? undefined,
+    activeGoals,
+    injuryExerciseNames,
     recentSessions,
     recentGames: games.map((g) => ({
       date: g.date,

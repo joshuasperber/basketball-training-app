@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
+import PwaInstallBanner from "@/components/PwaInstallBanner";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
@@ -35,6 +36,7 @@ export default async function RootLayout({
       <body>
         <ServiceWorkerRegister />
         <div className="app-shell">{children}</div>
+        <PwaInstallBanner />
         <BottomNav isAuthenticated={isAuthenticated} />
       </body>
     </html>

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { loadGameStats } from "@/lib/game-stats";
 import { saveGameStatAndSync } from "@/lib/services/game-stats-sync";
+import { deleteGamePhoto, getGamePhotoUrl, uploadGamePhoto } from "@/lib/game-photo-storage";
 
 function toNullableNumber(value: string) {
   const parsed = Number(value);
@@ -29,6 +30,11 @@ export default function GameTrackPage() {
   const [notes, setNotes] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [photoPath, setPhotoPath] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -44,6 +50,7 @@ export default function GameTrackPage() {
           setRebounds(entry.rebounds != null ? String(entry.rebounds) : "");
           setSteals(entry.steals != null ? String(entry.steals) : "");
           setNotes(entry.notes ?? "");
+          setPhotoPath(entry.photoPath ?? null);
           setSaved(false);
           return;
         }
@@ -57,10 +64,63 @@ export default function GameTrackPage() {
       setRebounds("");
       setSteals("");
       setNotes("");
+      setPhotoPath(null);
+      setPhotoUrl(null);
       setSaved(false);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [editId, paramDate, paramContext]);
+
+  useEffect(() => {
+    if (!photoPath) {
+      setPhotoUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void getGamePhotoUrl(photoPath).then((url) => {
+      if (!cancelled) setPhotoUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [photoPath]);
+
+  const handlePhotoSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setPhotoBusy(true);
+    setPhotoError(null);
+    try {
+      const targetId = editId ?? `pending-${Date.now()}`;
+      const newPath = await uploadGamePhoto(targetId, file);
+      if (photoPath) {
+        await deleteGamePhoto(photoPath).catch(() => undefined);
+      }
+      setPhotoPath(newPath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Foto-Upload fehlgeschlagen.";
+      setPhotoError(message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!photoPath) return;
+    setPhotoBusy(true);
+    setPhotoError(null);
+    try {
+      await deleteGamePhoto(photoPath);
+      setPhotoPath(null);
+      setPhotoUrl(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Foto konnte nicht entfernt werden.";
+      setPhotoError(message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
 
   const modeBadge = useMemo(
     () => (resolvedContext === "game" ? "Spieltag" : "Spieltraining"),
@@ -156,6 +216,45 @@ export default function GameTrackPage() {
             />
           </div>
 
+          <div className="mt-4">
+            <label className="input-label">Foto (Live-Tafel / Score)</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handlePhotoSelected}
+              className="hidden"
+            />
+            {photoUrl ? (
+              <div className="mt-2 overflow-hidden rounded-2xl border border-white/10">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoUrl} alt="Game Score" className="block max-h-72 w-full object-cover" />
+              </div>
+            ) : (
+              <div className="mt-2 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-4 text-center text-xs text-faint">
+                Noch kein Foto hochgeladen.
+              </div>
+            )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={photoBusy}
+                className="btn btn-ghost btn-sm"
+              >
+                {photoBusy ? "Lädt …" : photoPath ? "Foto ändern" : "Foto hinzufügen"}
+              </button>
+              {photoPath ? (
+                <button type="button" onClick={() => void handleRemovePhoto()} disabled={photoBusy} className="btn btn-ghost btn-sm">
+                  Entfernen
+                </button>
+              ) : null}
+            </div>
+            {photoError ? <p className="mt-1 text-xs text-rose-300">{photoError}</p> : null}
+            <p className="mt-1 text-[11px] text-faint">Bild wird komprimiert (max. 1600 px) und verschlüsselt in deinem Konto gespeichert.</p>
+          </div>
+
           <button
             type="button"
             disabled={saving}
@@ -173,6 +272,7 @@ export default function GameTrackPage() {
                 rebounds: toNullableNumber(rebounds),
                 steals: toNullableNumber(steals),
                 notes: notes.trim() || undefined,
+                photoPath: photoPath ?? null,
               }).finally(() => {
                 setSaving(false);
                 setSaved(true);
