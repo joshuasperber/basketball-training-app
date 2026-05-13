@@ -4,7 +4,9 @@ import {
   MANUAL_DAY_WORKOUTS_KEY,
   type DailyPlanMap,
 } from "@/lib/activity-calendar";
+import { GAME_STATS_KEY } from "@/lib/game-stats";
 import { getExerciseHistoryMap, getWorkoutSessions } from "@/lib/session-storage";
+import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
 import { SessionDatabase } from "@/lib/session-types";
 
 const EXERCISE_HISTORY_KEY = "bt.exercise-history.v1";
@@ -13,6 +15,7 @@ const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
 const XP_HISTORY_KEY = "bt.xp-history.v1";
 const XP_PROGRESSION_KEY = "bt.progression.v1";
 const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
+const PERFORMANCE_TIPS_KEY = "bt.performance-tips.v1";
 
 type RemoteProgress = {
   sessions: SessionDatabase;
@@ -23,6 +26,9 @@ type RemoteProgress = {
   xpHistory: string | null;
   xpProgression: string | null;
   hiddenAutoWorkoutsMap: Record<string, string[]>;
+  performanceTips: string | null;
+  gameStats: string | null;
+  trainingGoals: string | null;
 };
 
 function readLocalDailyPlanMap(): DailyPlanMap {
@@ -65,6 +71,9 @@ export function buildLocalProgressSnapshot(): RemoteProgress {
     xpHistory: readRawString(XP_HISTORY_KEY),
     xpProgression: readRawString(XP_PROGRESSION_KEY),
     hiddenAutoWorkoutsMap: readLocalJsonMap<Record<string, string[]>>(HIDDEN_AUTO_WORKOUTS_KEY, {}),
+    performanceTips: readRawString(PERFORMANCE_TIPS_KEY),
+    gameStats: readRawString(GAME_STATS_KEY),
+    trainingGoals: readRawString(TRAINING_GOALS_STORAGE_KEY),
   };
 }
 
@@ -84,6 +93,16 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   }
   if (remote.xpProgression) {
     window.localStorage.setItem(XP_PROGRESSION_KEY, remote.xpProgression);
+  }
+  if (remote.performanceTips) {
+    window.localStorage.setItem(PERFORMANCE_TIPS_KEY, remote.performanceTips);
+  }
+  if (remote.gameStats) {
+    window.localStorage.setItem(GAME_STATS_KEY, remote.gameStats);
+  }
+  if (remote.trainingGoals) {
+    window.localStorage.setItem(TRAINING_GOALS_STORAGE_KEY, remote.trainingGoals);
+    window.dispatchEvent(new Event("bt:training-goals-updated"));
   }
 }
 

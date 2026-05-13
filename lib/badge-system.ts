@@ -27,6 +27,8 @@ type BadgeStats = {
   basketballSubcategoryCounts: Record<string, number>;
   gymSubcategoryCounts: Record<string, number>;
   homeSubcategoryCounts: Record<string, number>;
+  gameSessions: number;
+  recoveryWorkouts: number;
 };
 
 function toDateKey(date: Date) {
@@ -95,6 +97,11 @@ export function computeBadgeStats(sessions: WorkoutSessionEntry[], level: number
     basketballSubcategoryCounts: countBySubcategory(sessions, "Basketball"),
     gymSubcategoryCounts: countBySubcategory(sessions, "Gym"),
     homeSubcategoryCounts: countBySubcategory(sessions, "Home"),
+    gameSessions: sessions.filter((session) => {
+      const sub = (session.workoutSubcategory ?? "").toLowerCase();
+      return sub === "spiel" || sub === "spieltraining";
+    }).length,
+    recoveryWorkouts: sessions.filter((session) => session.workoutCategory === "Regeneration").length,
   };
 }
 
@@ -131,6 +138,36 @@ export function buildPlayerBadges(stats: BadgeStats) {
       category: "Allgemein",
       value: stats.level,
       target: 10,
+    }),
+    buildThresholdBadge({
+      id: "game-ready",
+      name: "Game Ready",
+      description: "Tracke 5 Spiel-/Spieltraining-Einheiten.",
+      emoji: "🏟️",
+      tier: "Silver",
+      category: "Basketball",
+      value: stats.gameSessions,
+      target: 5,
+    }),
+    buildThresholdBadge({
+      id: "recovery-pro",
+      name: "Recovery Pro",
+      description: "Schließe 10 Regenerationseinheiten ab.",
+      emoji: "🧊",
+      tier: "Gold",
+      category: "Allgemein",
+      value: stats.recoveryWorkouts,
+      target: 10,
+    }),
+    buildThresholdBadge({
+      id: "grind-100",
+      name: "Century Grind",
+      description: "Schließe 100 Workouts all-time ab.",
+      emoji: "💯",
+      tier: "Legend",
+      category: "Allgemein",
+      value: stats.allTimeWorkouts,
+      target: 100,
     }),
     buildThresholdBadge({
       id: "weekly-merchant",

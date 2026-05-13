@@ -27,14 +27,80 @@ import { appendWorkoutXpEntry } from "@/lib/level-system";
 
 import {
   MANUAL_DAY_WORKOUTS_KEY,
+  dayHasRegenerationCoverage,
   readManualDayDisabledMap,
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
 import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { getTipsForWorkoutContext, loadPerformanceTips, type PerformanceTip } from "@/lib/performance-tips";
+import { countTrackedSetsInLogs } from "@/lib/workout-session-metrics";
+import WorkoutTimer from "@/components/WorkoutTimer";
+import {
+  applyGymGoalsAfterSession,
+  formatGymGoalSummary,
+  getActiveGymGoalForExercise,
+  loadTrainingGoalsBundle,
+} from "@/lib/training-goals";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 const MOBILE_EXERCISE_PREVIEW_COUNT = 8;
+
+const METRIC_KEYS_BY_WORKOUT_SPORT: Partial<Record<WorkoutPlan["sport"], MetricKey[]>> = {
+  Gym: ["weight", "reps"],
+  Basketball: ["reps", "time", "makes", "misses", "tries", "points", "distance"],
+  Home: ["reps", "time", "weight", "completed"],
+  Regeneration: ["time", "intensity", "distance", "reps", "completed"],
+};
+
+function filterMetricKeysForSport(sport: WorkoutPlan["sport"], keys: MetricKey[]): MetricKey[] {
+  const allow = METRIC_KEYS_BY_WORKOUT_SPORT[sport];
+  if (!allow) return keys;
+  const next = keys.filter((key) => allow.includes(key));
+  return next.length > 0 ? next : keys;
+}
+
+function newManualDayWorkoutId(editingId: string | null): string {
+  if (editingId) return editingId;
+  return `manual-day-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const DEFAULT_MANUAL_TITLE = "Manuelles Workout";
+
+/**
+ * Leitet einen sinnvollen Workout-Titel aus den ausgewählten Übungen ab.
+ * - 1 Übung: Übungsname.
+ * - Alle aus einer Subcategory: "{Subcategory} Fokus" oder "{Subcategory} Komplett" ab 4 Übungen.
+ * - 2 Subcategories: "{Sub1} + {Sub2}".
+ * - 3+ Subcategories: "{Category} Mix (n Übungen)".
+ */
+function deriveSmartWorkoutTitle(
+  category: "Basketball" | "Gym" | "Home" | "Regeneration",
+  exercises: ReturnType<typeof loadExercises>,
+): string {
+  if (exercises.length === 0) return DEFAULT_MANUAL_TITLE;
+  if (exercises.length === 1) return exercises[0].name;
+
+  const subcatCounts = new Map<string, number>();
+  exercises.forEach((exercise) => {
+    const sub = exercise.subcategory?.trim() || category;
+    subcatCounts.set(sub, (subcatCounts.get(sub) ?? 0) + 1);
+  });
+  const sortedSubs = [...subcatCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const subcategories = sortedSubs.map(([sub]) => sub);
+
+  if (subcategories.length === 1) {
+    const sub = subcategories[0];
+    if (exercises.length >= 4) return `${sub} Komplett`;
+    return `${sub} Fokus`;
+  }
+
+  if (subcategories.length === 2) {
+    return `${subcategories[0]} + ${subcategories[1]}`;
+  }
+
+  return `${category} Mix (${exercises.length} Übungen)`;
+}
 
 type ManualDayWorkout = {
   id: string;
@@ -43,7 +109,10 @@ type ManualDayWorkout = {
   subcategory: string;
   notes: string;
   exerciseIds: string[];
+  basketballMode?: "basketball_training" | "game_training" | "game";
 };
+
+type BasketballMode = "basketball_training" | "game_training" | "game";
 
 function loadHistory(): CompletedWorkoutHistoryEntry[] {
   const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
@@ -159,6 +228,34 @@ function buildExerciseSets(exercise: ReturnType<typeof loadExercises>[number]) {
   });
 }
 
+function buildBasketballWarmupExerciseIds(params: {
+  exercises: ReturnType<typeof loadExercises>;
+  minutes: number;
+}) {
+  const preferredOrder = ["Handles", "Shooting", "Finishing"];
+  const pool = params.exercises.filter(
+    (exercise) =>
+      exercise.category === "Basketball" &&
+      preferredOrder.includes(exercise.subcategory),
+  );
+  const sorted = [...pool].sort((left, right) => {
+    const leftIdx = preferredOrder.indexOf(left.subcategory);
+    const rightIdx = preferredOrder.indexOf(right.subcategory);
+    if (leftIdx !== rightIdx) return leftIdx - rightIdx;
+    return left.name.localeCompare(right.name);
+  });
+
+  let total = 0;
+  const selected: string[] = [];
+  sorted.forEach((exercise) => {
+    if (selected.length >= 8) return;
+    if (total >= params.minutes && selected.length >= 3) return;
+    selected.push(exercise.id);
+    total += Math.max(5, exercise.durationMin || 10);
+  });
+  return selected;
+}
+
 function WorkoutsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -180,8 +277,9 @@ function WorkoutsPageContent() {
   const trainingWorkouts = useMemo(() => loadWorkouts(), []);
   const trainingExercises = useMemo(() => loadExercises(), []);
   const [manualWorkout, setManualWorkout] = useState<WorkoutPlan | null>(null);
-  const [manualTitle, setManualTitle] = useState("Manuelles Workout");
+  const [manualTitle, setManualTitle] = useState("");
   const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home" | "Regeneration">("Basketball");
+  const [manualBasketballMode, setManualBasketballMode] = useState<BasketballMode>("basketball_training");
   const [manualSubcategory, setManualSubcategory] = useState("");
   const [manualSearch, setManualSearch] = useState("");
   const [manualTemplateWorkoutId, setManualTemplateWorkoutId] = useState("");
@@ -196,6 +294,8 @@ function WorkoutsPageContent() {
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
   const [pendingManualEntry, setPendingManualEntry] = useState<ManualDayWorkout | null>(null);
   const [pendingStartImmediately, setPendingStartImmediately] = useState(false);
+  const [performanceTips, setPerformanceTips] = useState<PerformanceTip[]>([]);
+  const [showTipsReminder, setShowTipsReminder] = useState(false);
   const [customSubcategoriesByCategory, setCustomSubcategoriesByCategory] = useState<Record<"Basketball" | "Gym" | "Home" | "Regeneration", string[]>>({
     Basketball: [],
     Gym: [],
@@ -206,6 +306,17 @@ function WorkoutsPageContent() {
   useEffect(() => {
     setIsClientReady(true);
     void pullProgressFromCloud();
+  }, []);
+
+  useEffect(() => {
+    const refreshTips = () => setPerformanceTips(loadPerformanceTips());
+    refreshTips();
+    window.addEventListener("storage", refreshTips);
+    window.addEventListener("focus", refreshTips);
+    return () => {
+      window.removeEventListener("storage", refreshTips);
+      window.removeEventListener("focus", refreshTips);
+    };
   }, []);
 
   useEffect(() => {
@@ -414,6 +525,14 @@ function WorkoutsPageContent() {
       return `${exercise.name} ${exercise.subcategory}`.toLowerCase().includes(query);
     });
   }, [manualCategory, manualSearch, manualSubcategory, trainingExercises]);
+
+  const previewAutoTitle = useMemo(() => {
+    const selected = selectedManualExerciseIds
+      .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
+      .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise));
+    if (selected.length === 0) return "";
+    return deriveSmartWorkoutTitle(manualCategory, selected);
+  }, [manualCategory, selectedManualExerciseIds, trainingExercises]);
   const visibleManualExercisePool = useMemo(
     () =>
       showAllManualExercises
@@ -450,7 +569,21 @@ function WorkoutsPageContent() {
   }, [overrideStorageKey]);
 
   useEffect(() => {
+    if (manualParam !== "1" || manualWorkoutIdParam) return;
+    setManualTitle("");
+    setManualCategory("Basketball");
+    setManualBasketballMode("basketball_training");
+    setManualSubcategory("");
+    setManualSearch("");
+    setManualNotes("");
+    setSelectedManualExerciseIds([]);
+    setManualTemplateWorkoutId("");
+    setManualWorkout(null);
+  }, [manualParam, manualWorkoutIdParam, dateKey]);
+
+  useEffect(() => {
     void manualStorageVersion;
+    if (manualParam === "1" && !manualWorkoutIdParam) return;
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
     if (!raw) return;
     try {
@@ -467,7 +600,7 @@ function WorkoutsPageContent() {
       // noop
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateKey, manualStorageVersion, manualWorkoutIdParam]);
+  }, [dateKey, manualParam, manualStorageVersion, manualWorkoutIdParam]);
 
   useEffect(() => {
     const parsed = parseWorkoutProgress(
@@ -502,7 +635,17 @@ function WorkoutsPageContent() {
   );
   const currentSet = currentExercise?.sets[safeSetIndex] ?? { targetKg: 0, targetReps: 0 };
   const currentLogKey = buildSetLogKey(safeExerciseIndex, safeSetIndex);
-  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "", misses: "", completed: false };
+  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "", misses: "", completed: false, rpe: "" };
+
+  const lastSetCompletedAtIso = useMemo(() => {
+    let best = "";
+    for (const log of Object.values(progress.logs)) {
+      if (log?.completedAtIso && log.completedAtIso > best) {
+        best = log.completedAtIso;
+      }
+    }
+    return best || undefined;
+  }, [progress.logs]);
 
   const exerciseMeta = useMemo(() => {
     const lookup = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
@@ -510,14 +653,52 @@ function WorkoutsPageContent() {
   }, [trainingExercises, workoutForExecution.exercises]);
   
   const currentExerciseMeta = exerciseMeta[safeExerciseIndex];
-  const currentMetricOptions = (currentExerciseMeta?.metricKeys?.length ? currentExerciseMeta.metricKeys : ["reps"]) as MetricKey[];
+  const [trainingGoalsSnap, setTrainingGoalsSnap] = useState(0);
+  useEffect(() => {
+    const handler = () => setTrainingGoalsSnap((value) => value + 1);
+    window.addEventListener("bt:training-goals-updated", handler);
+    return () => window.removeEventListener("bt:training-goals-updated", handler);
+  }, []);
+
+  const gymGoalHint = useMemo(() => {
+    void trainingGoalsSnap;
+    if (!isGymWorkout || !currentExerciseMeta?.id) return null;
+    const bundle = loadTrainingGoalsBundle();
+    if (bundle.injuryExerciseIds.includes(currentExerciseMeta.id)) {
+      return { kind: "injury" as const };
+    }
+    const goal = getActiveGymGoalForExercise(currentExerciseMeta.id);
+    return goal ? { kind: "goal" as const, goal } : null;
+  }, [isGymWorkout, currentExerciseMeta?.id, trainingGoalsSnap]);
+
+  const rawMetricOptions = (currentExerciseMeta?.metricKeys?.length ? currentExerciseMeta.metricKeys : ["reps"]) as MetricKey[];
+  const currentMetricOptions = filterMetricKeysForSport(workoutForExecution.sport, rawMetricOptions);
   const activeMetric = selectedMetricByExercise[safeExerciseIndex] ?? currentMetricOptions[0];
   const tracksTriesAndMakes = !isGymWorkout && currentMetricOptions.includes("tries") && currentMetricOptions.includes("makes");
+  const usesCompletedToggle = currentMetricOptions.includes("completed");
 
   const workoutNotes = useMemo(() => {
     const fromCatalog = customWorkoutFromCatalog ? trainingWorkouts.find((workout) => workout.id === customWorkoutFromCatalog.id)?.notes : null;
     return fromCatalog ?? null;
   }, [customWorkoutFromCatalog, trainingWorkouts]);
+
+  const currentBasketballMode: BasketballMode = useMemo(() => {
+    if (workoutForExecution.sport !== "Basketball") return "basketball_training";
+    const sub = workoutForExecution.subcategory.trim().toLowerCase();
+    if (sub === "spiel") return "game";
+    if (sub === "spieltraining") return "game_training";
+    return "basketball_training";
+  }, [workoutForExecution.sport, workoutForExecution.subcategory]);
+
+  const activePerformanceTips = useMemo(
+    () =>
+      getTipsForWorkoutContext({
+        tips: performanceTips,
+        basketballMode: currentBasketballMode,
+        subcategory: workoutForExecution.subcategory,
+      }),
+    [currentBasketballMode, performanceTips, workoutForExecution.subcategory],
+  );
 
   const hasSetStarted = (exerciseIndex: number, setIndex: number) => {
     const key = buildSetLogKey(exerciseIndex, setIndex);
@@ -657,7 +838,7 @@ function WorkoutsPageContent() {
       title: generated.name,
       sport: "Regeneration",
       subcategory: generated.subcategory,
-      notes: `Auto erstellt: ${generated.notes}`,
+      notes: generated.notes,
       exerciseIds: generated.exerciseIds,
     };
   };
@@ -709,6 +890,7 @@ function WorkoutsPageContent() {
     ];
 
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
+    window.dispatchEvent(new Event("bt:plan-updated"));
 
     const disabledMap = readManualDayDisabledMap();
     if (disabledMap[dateKey]) {
@@ -737,15 +919,24 @@ function WorkoutsPageContent() {
     router.push("/Weekly-Workout");
   };
   const saveManualWorkoutForDay = (startImmediately: boolean) => {
-    if (selectedManualExerciseIds.length <= 0) return;
+    const isBasketball = manualCategory === "Basketball";
+    const isStructuredBasketball = isBasketball && manualBasketballMode !== "basketball_training";
+    const generatedIds = isStructuredBasketball
+      ? buildBasketballWarmupExerciseIds({
+          exercises: trainingExercises,
+          minutes: manualBasketballMode === "game" ? 60 : 30,
+        })
+      : [];
+    const sourceExerciseIds = isStructuredBasketball ? generatedIds : selectedManualExerciseIds;
+    if (sourceExerciseIds.length <= 0) return;
     const selectedExercises = expandExercisesWithFamily({
-      selectedExerciseIds: selectedManualExerciseIds,
+      selectedExerciseIds: sourceExerciseIds,
       category: manualCategory,
-      subcategory: manualSubcategory || undefined,
+      subcategory: isStructuredBasketball ? undefined : manualSubcategory || undefined,
       exercises: trainingExercises,
     });
 
-    const selectedOrder = new Map(selectedManualExerciseIds.map((id, index) => [id, index]));
+    const selectedOrder = new Map(sourceExerciseIds.map((id, index) => [id, index]));
     const orderedExerciseIds = selectedExercises
       .sort((left, right) => {
         const leftIndex = selectedOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
@@ -755,16 +946,38 @@ function WorkoutsPageContent() {
       })
       .map((exercise) => exercise.id);
 
+    const trimmedManualTitle = manualTitle.trim();
+    const userProvidedTitle =
+      trimmedManualTitle.length > 0 && trimmedManualTitle !== DEFAULT_MANUAL_TITLE
+        ? trimmedManualTitle
+        : "";
+    const autoDerivedTitle = deriveSmartWorkoutTitle(manualCategory, selectedExercises);
+
     const nextEntry: ManualDayWorkout = {
-      id: manualWorkoutIdParam ?? `manual-day-${Date.now()}`,
-      title: manualTitle.trim() || "Manuelles Workout",
+      id: newManualDayWorkoutId(manualWorkoutIdParam),
+      title:
+        isStructuredBasketball
+          ? manualBasketballMode === "game"
+            ? "Spiel Warmup"
+            : "Spieltraining Warmup"
+          : userProvidedTitle || autoDerivedTitle,
       sport: manualCategory,
-      subcategory: manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Keine Zeit",
+      subcategory:
+        isStructuredBasketball
+          ? manualBasketballMode === "game"
+            ? "Spiel"
+            : "Spieltraining"
+          : manualSubcategory.trim() || selectedExercises[0]?.subcategory || "Keine Zeit",
       notes: manualNotes.trim(),
       exerciseIds: orderedExerciseIds,
+      basketballMode: isBasketball ? manualBasketballMode : undefined,
     };
 
     if (manualCategory !== "Regeneration") {
+      if (dayHasRegenerationCoverage(dateKey)) {
+        persistManualWorkoutForDay(nextEntry, startImmediately, "none");
+        return;
+      }
       setPendingManualEntry(nextEntry);
       setPendingStartImmediately(startImmediately);
       setShowRecoveryPrompt(true);
@@ -793,6 +1006,9 @@ function WorkoutsPageContent() {
   }
 
   setManualCategory(entry.sport); // jetzt typ-sicher: kein "Rest" mehr möglich
+  if (entry.sport === "Basketball") {
+    setManualBasketballMode(entry.basketballMode ?? "basketball_training");
+  }
   setManualSubcategory(entry.subcategory);
   setManualTitle(entry.title);
   setSelectedManualExerciseIds(entry.exerciseIds);
@@ -846,6 +1062,7 @@ function WorkoutsPageContent() {
         },
       };
       window.localStorage.setItem("profile_cache_v4", JSON.stringify(parsed));
+      window.dispatchEvent(new Event("bt:plan-updated"));
     } catch {
       // noop
     }
@@ -878,46 +1095,24 @@ function WorkoutsPageContent() {
   };
 
   const startWorkout = () => {
-    persistProgress({ ...progress, status: "in_progress" });
+    if (activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball") {
+      setShowTipsReminder(true);
+      return;
+    }
+    persistProgress({
+      ...progress,
+      status: "in_progress",
+      startedAtIso: progress.startedAtIso ?? new Date().toISOString(),
+    });
   };
-    const completeWorkout = () => {
-    const completedProgress: WorkoutProgress = { ...progress, status: "completed" };
+  const completeWorkout = () => {
+    const completedProgress: WorkoutProgress = {
+      ...progress,
+      status: "completed",
+      endedAtIso: new Date().toISOString(),
+    };
     persistProgress(completedProgress);
 
-    const totals = Object.values(completedProgress.logs).reduce(
-      (accumulator, setLog) => {
-        const reps = Number(setLog.reps) || 0;
-        const makes = Number(setLog.makes) || 0;
-        const tries = Number(setLog.tries) || 0;
-        const weight = Number(setLog.weight) || 0;
-        const completedFlag = setLog.completed ?? true;
-        const effectiveReps = completedFlag ? (makes > 0 ? makes : reps) : 0;
-
-        if ((effectiveReps > 0 || weight > 0 || tries > 0) && completedFlag) {
-          accumulator.totalSets += 1;
-        }
-
-        accumulator.totalReps += effectiveReps;
-        accumulator.totalVolumeKg += effectiveReps * weight;
-
-        return accumulator;
-      },
-      { totalSets: 0, totalReps: 0, totalVolumeKg: 0 },
-    );
-
-    const historyEntry: CompletedWorkoutHistoryEntry = {
-      id: `${completedProgress.date}-${completedProgress.workoutId}`,
-      date: completedProgress.date,
-      workoutId: completedProgress.workoutId,
-      title: completedProgress.title,
-      sport: completedProgress.sport,
-      subcategory: completedProgress.subcategory,
-      totalSets: totals.totalSets,
-      totalReps: totals.totalReps,
-      totalVolumeKg: totals.totalVolumeKg,
-    };
-
-    persistHistoryEntry(historyEntry);
     const nowIso = new Date().toISOString();
     const sessionLogs = workoutForExecution.exercises.flatMap((exercise, exerciseIndex) => {
       const exerciseDef = trainingExercises.find((item) => item.name === exercise.name);
@@ -945,8 +1140,27 @@ function WorkoutsPageContent() {
         };
       });
     });
+
+    const historyEntry: CompletedWorkoutHistoryEntry = {
+      id: `${completedProgress.date}-${completedProgress.workoutId}`,
+      date: completedProgress.date,
+      workoutId: completedProgress.workoutId,
+      title: completedProgress.title,
+      sport: completedProgress.sport,
+      subcategory: completedProgress.subcategory,
+      totalSets: countTrackedSetsInLogs(sessionLogs),
+      totalReps: sessionLogs.reduce((sum, log) => sum + Math.max(0, log.completedValue ?? log.made ?? 0), 0),
+      totalVolumeKg: sessionLogs.reduce(
+        (sum, log) =>
+          sum + Math.max(0, log.completedValue ?? log.made ?? 0) * Math.max(0, log.weightKg ?? 0),
+        0,
+      ),
+    };
+
+    persistHistoryEntry(historyEntry);
+
     if (sessionLogs.length > 0) {
-      appendWorkoutSession({
+      const sessionEntry = {
         id: `ws-${Date.now()}-${completedProgress.workoutId}`,
         dateISO: nowIso,
         workoutId: completedProgress.workoutId,
@@ -954,21 +1168,39 @@ function WorkoutsPageContent() {
         workoutCategory: completedProgress.sport,
         workoutSubcategory: completedProgress.subcategory,
         logs: sessionLogs,
-      });
+      };
+      appendWorkoutSession(sessionEntry);
+      if (completedProgress.sport === "Gym") {
+        applyGymGoalsAfterSession(sessionEntry);
+      }
     }
-        let achievedSets = 0;
+    let achievedSets = 0;
     let totalSets = 0;
+    let completedSetCount = 0;
+    const completedExercises = new Set<number>();
     workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {
+      const exerciseDef = trainingExercises.find((item) => item.name === exercise.name);
+      const usesCompletionFlag = Boolean(exerciseDef?.metricKeys.includes("completed"));
       exercise.sets.forEach((set, setIndex) => {
         totalSets += 1;
         const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
         const reps = Number(log?.reps) || 0;
         const makes = Number(log?.makes) || 0;
         const weight = Number(log?.weight) || 0;
+        const tries = Number(log?.tries) || 0;
+        const misses = Number(log?.misses) || 0;
         const setCompleted = log?.completed ?? true;
         const effectiveReps = makes > 0 ? makes : reps;
         const repsMet = effectiveReps >= set.targetReps;
         const weightMet = set.targetKg <= 0 || weight >= set.targetKg;
+        const completionCounted = usesCompletionFlag && log?.completed === true;
+        if (
+          setCompleted &&
+          (effectiveReps > 0 || weight > 0 || tries > 0 || misses > 0 || makes > 0 || completionCounted)
+        ) {
+          completedSetCount += 1;
+          completedExercises.add(exerciseIndex);
+        }
         if (setCompleted && repsMet && weightMet) {
           achievedSets += 1;
         }
@@ -976,8 +1208,50 @@ function WorkoutsPageContent() {
     });
 
     const qualityScore = totalSets > 0 ? achievedSets / totalSets : 0;
-    const exerciseXp = achievedSets * 12;
-    const workoutXp = 40 + Math.round(qualityScore * 60);
+    const completedMinutes = workoutForExecution.exercises.reduce((sum, workoutExercise, exerciseIndex) => {
+      const meta = exerciseMeta[exerciseIndex];
+      const exerciseDef = trainingExercises.find((item) => item.name === workoutExercise.name);
+      const usesCompletionFlag = Boolean(exerciseDef?.metricKeys.includes("completed"));
+      const anyCompleted = workoutExercise.sets.some((_, setIndex) => {
+        const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
+        const reps = Number(log?.reps) || 0;
+        const makes = Number(log?.makes) || 0;
+        const weight = Number(log?.weight) || 0;
+        const tries = Number(log?.tries) || 0;
+        const misses = Number(log?.misses) || 0;
+        return (
+          (log?.completed ?? true) &&
+          (reps > 0 ||
+            makes > 0 ||
+            weight > 0 ||
+            tries > 0 ||
+            misses > 0 ||
+            (usesCompletionFlag && log?.completed === true))
+        );
+      });
+      if (!anyCompleted) return sum;
+      return sum + Math.max(1, meta?.durationMin ?? 8);
+    }, 0);
+    const targetMakes = workoutForExecution.exercises.reduce((sum, _, exerciseIndex) => {
+      const meta = exerciseMeta[exerciseIndex];
+      return sum + Math.max(0, meta?.targetByMetric?.makes ?? 0);
+    }, 0);
+    const actualMakes = workoutForExecution.exercises.reduce((sum, exercise, exerciseIndex) => {
+      return (
+        sum +
+        exercise.sets.reduce((inner, _, setIndex) => {
+          const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
+          return inner + (Number(log?.makes) || 0);
+        }, 0)
+      );
+    }, 0);
+    const percentFactor = targetMakes > 0 ? Math.min(1.5, Math.max(0.5, actualMakes / targetMakes)) : 1;
+    const durationFactor = Math.min(2, Math.max(1, completedMinutes / 20));
+    const completedExerciseCount = Math.min(completedExercises.size, completedSetCount);
+    const completedWorkoutCount = completedExerciseCount > 0 ? 1 : 0;
+    const boundedWorkoutCount = Math.min(completedWorkoutCount, completedExerciseCount, completedSetCount);
+    const exerciseXp = Math.round(completedExerciseCount * 12 * durationFactor);
+    const workoutXp = boundedWorkoutCount > 0 ? Math.round((20 + qualityScore * 30) * percentFactor) : 0;
     const regenerationEntries = loadHistory().filter((entry) => entry.sport === "Regeneration").slice(-7);
     const regenerationLoad = regenerationEntries.reduce((sum, entry) => sum + Math.max(1, entry.totalSets || 1), 0);
     const recoveryMultiplier = Math.min(1.25, 1 + regenerationLoad / 50);
@@ -991,8 +1265,8 @@ function WorkoutsPageContent() {
       exerciseXp,
       workoutXp,
       totalXp,
-      achievedSets,
-      totalSets,
+      achievedSets: Math.min(achievedSets, completedSetCount),
+      totalSets: Math.max(1, completedSetCount),
       qualityScore,
     });
 
@@ -1035,10 +1309,20 @@ function WorkoutsPageContent() {
       }
     }
 
+    const nowIso = new Date().toISOString();
+    const updatedLog = { ...currentLog, completedAtIso: nowIso };
+    const updatedLogs = { ...progress.logs, [currentLogKey]: updatedLog };
     const isLastSetInExercise = safeSetIndex === currentExercise.sets.length - 1;
     const isLastExercise = safeExerciseIndex === workoutForExecution.exercises.length - 1;
 
-    if (isLastExercise && (isLastSetInExercise)) {
+    if (isLastExercise && isLastSetInExercise) {
+      const next: WorkoutProgress = {
+        ...progress,
+        logs: updatedLogs,
+        status: "completed",
+        endedAtIso: nowIso,
+      };
+      persistProgress(next);
       completeWorkout();
       return;
     }
@@ -1046,29 +1330,49 @@ function WorkoutsPageContent() {
     if (isLastSetInExercise) {
       persistProgress({
         ...progress,
+        logs: updatedLogs,
         exerciseIndex: safeExerciseIndex + 1,
         setIndex: 0,
         status: "in_progress",
+        startedAtIso: progress.startedAtIso ?? nowIso,
       });
       return;
     }
 
     persistProgress({
       ...progress,
+      logs: updatedLogs,
       setIndex: safeSetIndex + 1,
       status: "in_progress",
+      startedAtIso: progress.startedAtIso ?? nowIso,
     });
   };
 
   if (!isClientReady) {
-    return <main className="min-h-screen bg-black p-6 pb-24 text-white">Workouts werden geladen...</main>;
+    return <main className="app-container">Workouts werden geladen…</main>;
   }
 
   return (
-        <main className="min-h-screen bg-black p-6 pb-24 text-white">
-      <h1 className="text-2xl font-bold">Workouts</h1>
-      <p className="mt-2 text-zinc-400">Hier planst und startest du dein Training</p>
-      <p className="mt-1 text-xs text-emerald-300">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
+    <main className="app-container animate-in">
+      <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="page-eyebrow">Training</p>
+          <h1 className="page-title">Workout</h1>
+          <p className="page-subtitle">Hier planst und startest du dein Training.</p>
+          <p className="mt-1 text-xs text-emerald-300">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
+        </div>
+        <Link href="/tips" className="btn btn-ghost btn-sm">Tipps &amp; Notizen</Link>
+      </header>
+      {activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball" ? (
+        <section className="mt-3 rounded-xl border border-cyan-700 bg-cyan-950/30 p-3">
+          <p className="text-xs uppercase tracking-wide text-cyan-300">Aktive Fokus-Tipps</p>
+          <ul className="mt-1 list-inside list-disc text-sm text-cyan-100">
+            {activePerformanceTips.slice(0, 4).map((tip) => (
+              <li key={tip.id}>{tip.title}: {tip.content}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {manualParam !== "1" ? (
 
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -1127,6 +1431,9 @@ function WorkoutsPageContent() {
               onChange={(event) => {
                 const nextCategory = event.target.value as "Basketball" | "Gym" | "Home" | "Regeneration";
                 setManualCategory(nextCategory);
+                if (nextCategory === "Basketball") {
+                  setManualBasketballMode("basketball_training");
+                }
                 setManualSubcategory("");
                 setManualTemplateWorkoutId("");
                 setSelectedManualExerciseIds([]);
@@ -1138,6 +1445,22 @@ function WorkoutsPageContent() {
               <option value="Home">Home</option>
               <option value="Regeneration">Regeneration</option>
             </select>
+            {manualCategory === "Basketball" ? (
+              <select
+                value={manualBasketballMode}
+                onChange={(event) => setManualBasketballMode(event.target.value as BasketballMode)}
+                className="w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+              >
+                <option value="basketball_training">Basketball-Training</option>
+                <option value="game_training">Spieltraining (30 Min Warmup)</option>
+                <option value="game">Spiel (60 Min Warmup)</option>
+              </select>
+            ) : null}
+            {manualCategory === "Basketball" && manualBasketballMode !== "basketball_training" ? (
+              <p className="sm:col-span-2 text-xs text-emerald-300">
+                Warmup wird automatisch erstellt: Handles + Shooting + Finishing.
+              </p>
+            ) : (
             <select
               value={manualSubcategory}
               onChange={(event) => setManualSubcategory(event.target.value)}
@@ -1150,7 +1473,9 @@ function WorkoutsPageContent() {
                 </option>
               ))}
             </select>
+            )}
           </div>
+          {manualCategory === "Basketball" && manualBasketballMode !== "basketball_training" ? null : (
           <select
             value={manualTemplateWorkoutId}
             onChange={(event) => applyTemplateWorkout(event.target.value)}
@@ -1163,12 +1488,18 @@ function WorkoutsPageContent() {
               </option>
             ))}
           </select>
+          )}
           <input
             value={manualTitle}
             onChange={(event) => setManualTitle(event.target.value)}
             className="mt-3 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
-            placeholder="Workout-Name"
+            placeholder={previewAutoTitle ? `Auto: ${previewAutoTitle}` : "Workout-Name (leer = Auto-Name)"}
           />
+          {previewAutoTitle && (!manualTitle.trim() || manualTitle.trim() === DEFAULT_MANUAL_TITLE) ? (
+            <p className="mt-1 text-xs text-emerald-300">
+              ✨ Auto-Name wird verwendet: <span className="font-semibold">{previewAutoTitle}</span>
+            </p>
+          ) : null}
           <textarea
             value={manualNotes}
             onChange={(event) => setManualNotes(event.target.value)}
@@ -1176,6 +1507,7 @@ function WorkoutsPageContent() {
             placeholder="Notizen"
             rows={2}
           />
+          {manualCategory === "Basketball" && manualBasketballMode !== "basketball_training" ? null : (
           <>
             <input
               value={manualSearch}
@@ -1223,6 +1555,7 @@ function WorkoutsPageContent() {
               </div>
             ) : null}
           </>
+          )}
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -1304,10 +1637,37 @@ function WorkoutsPageContent() {
 
           {currentExercise ? (
             <article className="rounded-xl border border-zinc-700 bg-zinc-950 p-4">
+              <div className="mb-4">
+                <WorkoutTimer
+                  startedAtIso={progress.startedAtIso}
+                  lastSetCompletedAtIso={lastSetCompletedAtIso}
+                  status={progress.status}
+                />
+              </div>
               <p className="text-xs uppercase tracking-wide text-zinc-400">
                 Exercise {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
               </p>
               <h3 className="mt-1 text-xl font-semibold">{currentExercise.name}</h3>
+              {currentExerciseMeta?.videoUrl ? (
+                <a
+                  href={currentExerciseMeta.videoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-1 rounded-full border border-cyan-500/50 bg-cyan-950/30 px-3 py-1 text-xs text-cyan-100 hover:bg-cyan-900/40"
+                >
+                  ▶ Drill-Video ansehen
+                </a>
+              ) : null}
+              {gymGoalHint?.kind === "injury" ? (
+                <p className="mt-2 rounded-lg border border-amber-600/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-100">
+                  Übung für automatische Progression pausiert — weiter trainieren, aber keine Ziel-Zählung.
+                </p>
+              ) : null}
+              {gymGoalHint?.kind === "goal" ? (
+                <p className="mt-2 rounded-lg border border-violet-600/50 bg-violet-950/40 px-3 py-2 text-xs text-violet-100">
+                  Aktives Ziel: {formatGymGoalSummary(gymGoalHint.goal)}
+                </p>
+              ) : null}
               {currentExerciseMeta?.notes ? <p className="mt-1 text-xs text-zinc-500">{currentExerciseMeta.notes}</p> : null}
               <p className="text-sm text-zinc-400">
                 Satz {safeSetIndex + 1}/{currentExercise.sets.length}
@@ -1365,7 +1725,7 @@ function WorkoutsPageContent() {
                       />
                     </label>
                   </>
-                ) : (
+                ) : !usesCompletedToggle ? (
                   <label className="text-sm text-zinc-300">
                     {isGymWorkout ? "Reps" : `Wert (${activeMetric}${activeMetric === "time" ? currentExerciseMeta?.timeUnit === "seconds" ? " in Sek." : " in Min." : ""})`}
                     <input
@@ -1375,18 +1735,66 @@ function WorkoutsPageContent() {
                       inputMode="numeric"
                     />
                   </label>
-                )}
-                {currentMetricOptions.includes("completed") ? (
-                  <label className="flex items-center gap-2 text-sm text-zinc-300">
-                    <input
-                      type="checkbox"
-                      checked={currentLog.completed === true}
-                      onChange={(event) => updateCompletionLog(event.target.checked)}
-                    />
-                    Geschafft?
-                  </label>
+                ) : null}
+                {usesCompletedToggle ? (
+                  <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3">
+                    <p className="text-sm text-zinc-300">Geschafft?</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateCompletionLog(true)}
+                        className={`rounded-lg px-4 py-3 text-base font-semibold ${currentLog.completed ? "bg-emerald-600 text-white" : "border border-zinc-600 bg-black text-zinc-200"}`}
+                      >
+                        Ja
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateCompletionLog(false)}
+                        className={`rounded-lg px-4 py-3 text-base font-semibold ${currentLog.completed === false ? "bg-rose-600 text-white" : "border border-zinc-600 bg-black text-zinc-200"}`}
+                      >
+                        Nein
+                      </button>
+                    </div>
+                  </div>
                 ) : null}
               </div>
+
+              {!isRestDay ? (
+                <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
+                  <div className="flex items-baseline justify-between">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Anstrengung (RPE)</p>
+                    <p className="text-sm font-semibold text-cyan-200 tabular-nums">
+                      {currentLog.rpe ? `${currentLog.rpe}/10` : "—"}
+                    </p>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    step={1}
+                    value={currentLog.rpe ? Number(currentLog.rpe) : 0}
+                    onChange={(event) =>
+                      persistProgress({
+                        ...progress,
+                        logs: {
+                          ...progress.logs,
+                          [currentLogKey]: {
+                            ...currentLog,
+                            rpe: event.target.value === "0" ? "" : event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    className="mt-2 w-full accent-cyan-400"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
+                    <span>locker</span>
+                    <span>moderat</span>
+                    <span>schwer</span>
+                    <span>maximal</span>
+                  </div>
+                </div>
+              ) : null}
 
               {!isGymWorkout && currentMetricOptions.length > 0 && !tracksTriesAndMakes ? (
                 <div className="mt-3">
@@ -1420,7 +1828,7 @@ function WorkoutsPageContent() {
                 <p className="mt-1">
                   Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksTriesAndMakes ? `${parseNonNegative(currentLog.tries)} Tries • ${currentLog.makes || 0} Makes • ${Math.max(0, parseNonNegative(currentLog.tries) - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0}${activeMetric === "time" ? ` ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}` : ""}`}
                 </p>
-                {currentMetricOptions.includes("completed") ? <p className="mt-1">Geschafft: {currentLog.completed ? "Ja" : "Nein"}</p> : null}
+                {usesCompletedToggle ? <p className="mt-1">Geschafft: {currentLog.completed ? "Ja" : "Nein"}</p> : null}
               </div>
               {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
 
@@ -1481,6 +1889,42 @@ function WorkoutsPageContent() {
           ← Zurück zum Weekly Plan
         </Link>
       </div>
+      {showTipsReminder ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-cyan-600 bg-zinc-900 p-4">
+            <h3 className="text-lg font-semibold text-cyan-200">Fokus vor dem Start</h3>
+            <p className="mt-1 text-sm text-zinc-300">
+              Lies deine Notizen kurz durch, dann starte konzentriert.
+            </p>
+            <ul className="mt-3 max-h-64 space-y-2 overflow-auto text-sm text-zinc-200">
+              {activePerformanceTips.map((tip) => (
+                <li key={`modal-${tip.id}`} className="rounded-lg border border-zinc-700 bg-zinc-950 p-2">
+                  <strong>{tip.title}:</strong> {tip.content}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                className="w-full rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-200"
+                onClick={() => setShowTipsReminder(false)}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold"
+                onClick={() => {
+                  setShowTipsReminder(false);
+                  persistProgress({ ...progress, status: "in_progress" });
+                }}
+              >
+                Jetzt starten
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showRecoveryPrompt && pendingManualEntry ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-md rounded-2xl border border-cyan-600 bg-zinc-900 p-4">
@@ -1532,7 +1976,7 @@ function WorkoutsPageContent() {
 
 export default function WorkoutsPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-black p-6 pb-24 text-white">Workouts werden geladen...</main>}>
+    <Suspense fallback={<main className="app-container">Workouts werden geladen…</main>}>
       <WorkoutsPageContent />
     </Suspense>
   );

@@ -1,12 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { type Category } from "@/lib/training-data";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
+import BasketballCoachingCard from "@/components/BasketballCoachingCard";
+import GameStatsSearchPanel from "@/components/GameStatsSearchPanel";
+import GameTrainingInsights from "@/components/GameTrainingInsights";
+import GymGoalsManager from "@/components/GymGoalsManager";
 import TopSubTabs from "@/components/TopSubTabs";
+import PageHeader from "@/components/PageHeader";
+import TrendChart, { type TrendPoint } from "@/components/TrendChart";
+import { buildBasketballCoachingPlan } from "@/lib/basketball-coaching";
+import { downloadTrainingCsv } from "@/lib/export-training-csv";
 import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { loadGameStats } from "@/lib/game-stats";
+import { getProgressionState } from "@/lib/level-system";
+import { countTrackedSetsInLogs, logCountsAsTrackedSet } from "@/lib/workout-session-metrics";
 
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home" | "Regeneration";
@@ -101,8 +113,9 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
 
   const sessionHistory = getTrackedWorkoutSessions().flatMap((session) => {
-    const totalSets = session.logs.filter((log) => log.completedValue !== null).length;
-    const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? 0), 0);
+    if (session.workoutId === "single-exercise-session") return [];
+    const totalSets = countTrackedSetsInLogs(session.logs);
+    const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? log.made ?? 0), 0);
     const workout = workoutLookup.get(session.workoutId);
     const fallbackExercise = session.logs.map((log) => exerciseLookup.get(log.exerciseId)).find(Boolean);
     const resolvedSport =
@@ -127,8 +140,8 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
 
       const current = acc[normalized] ?? { sets: 0, reps: 0 };
       acc[normalized] = {
-        sets: current.sets + (log.completedValue !== null ? 1 : 0),
-        reps: current.reps + (log.completedValue ?? 0),
+        sets: current.sets + (logCountsAsTrackedSet(log) ? 1 : 0),
+        reps: current.reps + (log.completedValue ?? log.made ?? 0),
       };
       return acc;
     }, {});
@@ -169,7 +182,7 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
 }
 
 function getTrackedWorkoutSessions() {
-  return getWorkoutSessions().filter((session) => session.workoutId !== "single-exercise-session");
+  return getWorkoutSessions();
 }
 
 function filterSessionsByRange<T extends { dateISO: string }>(sessions: T[], range: StatsRange) {
@@ -332,41 +345,21 @@ function pieGradient(slices: CategorySlice[]) {
   return `conic-gradient(${segments.join(", ")})`;
 }
 
-function TrendChart({ points }: { points: number[] }) {
-  if (points.length === 0) return null;
-  const max = Math.max(...points, 1);
-  const width = 240;
-  const height = 72;
-  const step = points.length > 1 ? width / (points.length - 1) : width;
-  const linePoints = points
-    .map((value, index) => `${index * step},${height - (value / max) * (height - 8) - 4}`)
-    .join(" ");
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-28 w-full rounded bg-zinc-900">
-      <line x1="0" y1={height - 2} x2={width} y2={height - 2} stroke="#52525b" strokeWidth="1" />
-      <line x1="2" y1="0" x2="2" y2={height} stroke="#52525b" strokeWidth="1" />
-      <polyline fill="none" stroke="#38bdf8" strokeWidth="3" points={linePoints} />
-      <text x="8" y="10" fill="#d4d4d8" fontSize="9">Y-Achse: Zeit in Sekunden</text>
-      <text x={width - 100} y={height - 6} fill="#d4d4d8" fontSize="9">X-Achse: Session Nummer</text>
-    </svg>
-  );
-}
-
 function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) {
   return (
-    <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-      <h2 className="text-lg font-semibold">{title}</h2>
+    <section className="app-card">
+      <p className="section-eyebrow">Verteilung</p>
+      <h2 className="section-title mt-1">{title}</h2>
       <div className="mt-4 flex items-center gap-4">
-        <div className="h-28 w-28 rounded-full border border-zinc-700" style={{ background: pieGradient(slices) }} />
-        <ul className="space-y-2 text-sm text-zinc-300">
+        <div className="h-28 w-28 rounded-full border border-white/10" style={{ background: pieGradient(slices) }} />
+        <ul className="space-y-1.5 text-sm text-strong">
           {slices.length === 0 ? (
-            <li className="text-zinc-500">Noch keine Daten vorhanden.</li>
+            <li className="text-muted">Noch keine Daten vorhanden.</li>
           ) : (
             slices.map((slice) => (
               <li key={slice.label} className="flex items-center gap-2">
-                <span className="inline-block h-3 w-3 rounded-full" style={{ background: slice.color }} />
-                <span>{slice.label}: <strong>{slice.value}</strong></span>
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: slice.color }} />
+                <span className="text-muted">{slice.label}: <strong className="text-strong">{slice.value}</strong></span>
               </li>
             ))
           )}
@@ -404,21 +397,29 @@ export default function StatsPage() {
     gymGoals: false,
   });
   const [username, setUsername] = useState("Champion");
+  const [gameStats, setGameStats] = useState(() => loadGameStats());
 
 useEffect(() => {
-  try {
-    const cached = window.localStorage.getItem("profile_cache_v4");
-    if (!cached) return;
-    const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
-    const nextName = parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
-    setUsername(nextName);
-  } catch {
-    // noop
-  }
-}, []);
+    try {
+      const cached = window.localStorage.getItem("profile_cache_v4");
+      if (!cached) return;
+      const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
+      const nextName = parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
+      const timer = window.setTimeout(() => setUsername(nextName), 0);
+      return () => window.clearTimeout(timer);
+    } catch {
+      return undefined;
+    }
+  }, []);
 
 useEffect(() => {
-    void pullProgressFromCloud();
+    void pullProgressFromCloud().then(() => setGameStats(loadGameStats()));
+  }, []);
+
+  useEffect(() => {
+    const onGameStatsUpdate = () => setGameStats(loadGameStats());
+    window.addEventListener("bt:game-stats-updated", onGameStatsUpdate);
+    return () => window.removeEventListener("bt:game-stats-updated", onGameStatsUpdate);
   }, []);
 
   useEffect(() => {
@@ -430,6 +431,7 @@ useEffect(() => {
         workoutName: session.workoutName,
         logs: session.logs,
       })));
+      setGameStats(loadGameStats());
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -519,6 +521,31 @@ useEffect(() => {
   }, [filteredSessions]);
 
   const totalMinutesTrained = filteredSessions.reduce((sum, session) => sum + session.logs.length * 4, 0);
+  const filteredGameStats = useMemo(() => {
+    if (range === "all") return gameStats;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    if (range === "weekly") start.setDate(start.getDate() - 6);
+    if (range === "monthly") start.setDate(start.getDate() - 29);
+    return gameStats.filter((entry) => new Date(entry.date) >= start);
+  }, [gameStats, range]);
+
+  const gameTotals = useMemo(
+    () =>
+      filteredGameStats.reduce(
+        (acc, entry) => ({
+          games: acc.games + (entry.context === "game" ? 1 : 0),
+          gameTrainings: acc.gameTrainings + (entry.context === "game_training" ? 1 : 0),
+          points: acc.points + (entry.points ?? 0),
+          assists: acc.assists + (entry.assists ?? 0),
+          rebounds: acc.rebounds + (entry.rebounds ?? 0),
+          steals: acc.steals + (entry.steals ?? 0),
+          minutes: acc.minutes + (entry.minutes ?? 0),
+        }),
+        { games: 0, gameTrainings: 0, points: 0, assists: 0, rebounds: 0, steals: 0, minutes: 0 },
+      ),
+    [filteredGameStats],
+  );
 
   const basketballShotSummary = useMemo(() => {
     const exercises = loadExercises();
@@ -556,52 +583,149 @@ useEffect(() => {
     setOpenSections((current) => ({ ...current, [key]: !current[key] }));
   };
 
+  const basketballCoachingPlan = useMemo(() => {
+    void history.length;
+    void sessionDetails.length;
+    void gameStats.length;
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem("profile_cache_v4");
+      const parsed = raw
+        ? (JSON.parse(raw) as { profile?: { favorite_position?: string | null }; playStyle?: string })
+        : null;
+      return buildBasketballCoachingPlan({
+        sessions: getWorkoutSessions(),
+        position: parsed?.profile?.favorite_position ?? "sg",
+        playStyle: parsed?.playStyle ?? "",
+        level: getProgressionState().level,
+      });
+    } catch {
+      return null;
+    }
+  }, [history, sessionDetails, gameStats]);
+
   return (
-    <main className="min-h-screen bg-black p-6 pb-24 text-white">
-      <h1 className="text-2xl font-bold">Statistiken</h1>
-      <p className="mt-2 text-zinc-400">Langfristige Auswertung deiner abgeschlossenen Workouts</p>
-      <TopSubTabs items={[{ label: "Stats", href: "/stats" }, { label: "Level", href: "/level" }]} />
-      <p className="mt-1 text-sm text-cyan-300">{username}, deine Daten zeigen klaren Fortschritt – bleib im Rhythmus.</p>
-      <div className="mt-4 inline-flex rounded-lg border border-zinc-700 bg-zinc-900 p-1 text-sm">
-        {[
-          { id: "all", label: "All Time" },
-          { id: "monthly", label: "Monthly" },
-          { id: "weekly", label: "Weekly" },
-        ].map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => setRange(option.id as StatsRange)}
-            className={`rounded-md px-3 py-1 ${range === option.id ? "bg-cyan-600 text-white" : "text-zinc-300"}`}
-          >
-            {option.label}
-          </button>
-        ))}
+    <main className="app-container animate-in">
+      <PageHeader
+        eyebrow={`Hi ${username}`}
+        title="Statistiken"
+        subtitle="Langfristige Auswertung deiner abgeschlossenen Workouts und Spiele."
+        actions={
+          <>
+            <button type="button" onClick={() => downloadTrainingCsv()} className="btn btn-ghost btn-sm">
+              CSV Export
+            </button>
+            <Link href="/review" className="btn btn-outline btn-sm">
+              Wochen-Review
+            </Link>
+          </>
+        }
+      />
+      <div className="mt-3">
+        <TopSubTabs
+          items={[
+            { label: "Stats", href: "/stats" },
+            { label: "Level", href: "/level" },
+            { label: "Review", href: "/review" },
+          ]}
+        />
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Workouts</p><p className="mt-2 text-3xl font-bold">{filteredHistory.length}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Abgeschlossene Exercises</p><p className="mt-2 text-3xl font-bold">{totalCompletedExercises}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Sätze gesamt</p><p className="mt-2 text-3xl font-bold">{totalSets}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Reps gesamt</p><p className="mt-2 text-3xl font-bold">{totalReps}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"><p className="text-xs uppercase tracking-wide text-zinc-500">Trainierte Minuten</p><p className="mt-2 text-3xl font-bold">{totalMinutesTrained}</p></div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 "><p className="text-xs uppercase tracking-wide text-zinc-500">Volumen gesamt (kg)</p><p className="mt-2 text-3xl font-bold">{totalVolume}</p></div>
+      <div className="mt-4">
+        <div className="segmented">
+          {[
+            { id: "all", label: "All Time" },
+            { id: "monthly", label: "Monthly" },
+            { id: "weekly", label: "Weekly" },
+          ].map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setRange(option.id as StatsRange)}
+              className={`segmented__btn ${range === option.id ? "segmented__btn--active" : ""}`}
+              aria-pressed={range === option.id}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <h2 className="text-lg font-semibold">Basketball Wurfquoten (aggregiert)</h2>
+      <div className="grid-stats mt-6">
+        <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{filteredHistory.length}</p></div>
+        <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{totalCompletedExercises}</p></div>
+        <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{totalSets}</p></div>
+        <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{totalReps}</p></div>
+        <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{totalMinutesTrained}</p></div>
+        <div className="stat-tile"><p className="stat-tile__label">Volumen (kg)</p><p className="stat-tile__value">{totalVolume}</p></div>
+      </div>
+      <section className="mt-4 app-card--accent-violet">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="section-eyebrow">Game Tracking</p>
+            <h2 className="section-title mt-1">Spiel-Stats</h2>
+            <p className="text-xs text-muted">Summen für den gewählten Zeitraum · Einträge aus „Spiel tracken“</p>
+          </div>
+          <p className="text-xs font-medium text-faint">{filteredGameStats.length} Einträge</p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { label: "Spiele", value: gameTotals.games },
+            { label: "Spieltraining", value: gameTotals.gameTrainings },
+            { label: "Minuten", value: gameTotals.minutes },
+            { label: "Punkte Σ", value: gameTotals.points },
+          ].map((card) => (
+            <div key={card.label} className="stat-tile">
+              <p className="stat-tile__label">{card.label}</p>
+              <p className="stat-tile__value">{card.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {[
+            { label: "Assists Σ", value: gameTotals.assists },
+            { label: "Rebounds Σ", value: gameTotals.rebounds },
+            { label: "Steals Σ", value: gameTotals.steals },
+          ].map((row) => (
+            <div key={row.label} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+              <span className="text-sm text-muted">{row.label}</span>
+              <span className="text-lg font-semibold tabular-nums text-strong">{row.value}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 border-t border-white/10 pt-4">
+          <GameStatsSearchPanel entries={filteredGameStats} variant="full" />
+        </div>
+      </section>
+
+      <div className="mt-6">
+        <GameTrainingInsights />
+      </div>
+
+      <GymGoalsManager />
+
+      {basketballCoachingPlan?.recommendations.length ? (
+        <BasketballCoachingCard
+          recommendations={basketballCoachingPlan.recommendations}
+          windowDays={basketballCoachingPlan.windowDays}
+        />
+      ) : null}
+
+      <section className="mt-6 app-card">
+        <p className="section-eyebrow">Wurfquoten</p>
+        <h2 className="section-title mt-1">Basketball aggregiert</h2>
         <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
           {[
-            { label: "FreeThrow Quote", value: basketballShotSummary.freeThrows },
-            { label: "2 Pointer Quote", value: basketballShotSummary.twoPointers },
-            { label: "3 Pointer Quote", value: basketballShotSummary.threePointers },
+            { label: "Free Throws", value: basketballShotSummary.freeThrows },
+            { label: "2 Pointer", value: basketballShotSummary.twoPointers },
+            { label: "3 Pointer", value: basketballShotSummary.threePointers },
           ].map((item) => {
             const pct = item.value.attempts > 0 ? Math.round((item.value.made / item.value.attempts) * 100) : 0;
             return (
-              <div key={item.label} className="rounded-lg border border-zinc-700 bg-zinc-950 p-3">
-                <p className="text-zinc-400">{item.label}</p>
-                <p className="text-xl font-semibold">{pct}%</p>
-                <p className="text-xs text-zinc-500">{item.value.made}/{item.value.attempts}</p>
+              <div key={item.label} className="stat-tile">
+                <p className="stat-tile__label">{item.label}</p>
+                <p className="stat-tile__value">{pct}<span className="ml-1 text-sm font-medium text-muted">%</span></p>
+                <p className="stat-tile__sub">{item.value.made}/{item.value.attempts}</p>
               </div>
             );
           })}
@@ -609,59 +733,63 @@ useEffect(() => {
       </section>
 
       <div className="mt-6 space-y-4">
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-xl font-semibold">Kategorien Vergleich</h2>
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
-            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
-              <p className="text-sm text-zinc-400">Basketball</p>
-              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Basketball")?.value ?? 0}</p>
-              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+        <section className="app-card">
+          <p className="section-eyebrow">Vergleich</p>
+          <h2 className="section-title mt-1">Kategorien</h2>
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="stat-tile text-center">
+              <p className="stat-tile__label">Basketball</p>
+              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Basketball")?.value ?? 0}</p>
+              <p className="stat-tile__sub">Exercises</p>
             </div>
-            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
-              <p className="text-sm text-zinc-400">Gym</p>
-              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Gym")?.value ?? 0}</p>
-              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            <div className="stat-tile text-center">
+              <p className="stat-tile__label">Gym</p>
+              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Gym")?.value ?? 0}</p>
+              <p className="stat-tile__sub">Exercises</p>
             </div>
-            <div className="col-span-2 rounded-xl border border-zinc-700 bg-zinc-950 p-4 md:row-span-2 md:col-span-1">
-              <h3 className="text-sm font-semibold text-center">Gesamtverteilung</h3>
+            <div className="col-span-2 stat-tile md:row-span-2 md:col-span-1">
+              <p className="stat-tile__label text-center">Gesamtverteilung</p>
               <div className="mt-3 flex justify-center">
-                <div className="h-36 w-36 rounded-full border border-zinc-700" style={{ background: pieGradient(sportSlices) }} />
+                <div className="h-36 w-36 rounded-full border border-white/10" style={{ background: pieGradient(sportSlices) }} />
               </div>
-              <div className="mt-3 space-y-1 text-xs text-zinc-300">
+              <div className="mt-3 space-y-1 text-xs text-strong">
                 {sportSlices.map((slice) => (
-                  <p key={`center-${slice.label}`}>{slice.label}: <span className="font-semibold text-white">{slice.value}</span></p>
+                  <p key={`center-${slice.label}`} className="text-muted">{slice.label}: <span className="font-semibold text-strong">{slice.value}</span></p>
                 ))}
               </div>
             </div>
-            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
-              <p className="text-sm text-zinc-400">Home</p>
-              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Home")?.value ?? 0}</p>
-              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            <div className="stat-tile text-center">
+              <p className="stat-tile__label">Home</p>
+              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Home")?.value ?? 0}</p>
+              <p className="stat-tile__sub">Exercises</p>
             </div>
-            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-center">
-              <p className="text-sm text-zinc-400">Regeneration</p>
-              <p className="mt-1 text-3xl font-bold">{sportSlices.find((slice) => slice.label === "Regeneration")?.value ?? 0}</p>
-              <p className="text-xs text-zinc-500">Exercises im Zeitraum</p>
+            <div className="stat-tile text-center">
+              <p className="stat-tile__label">Regeneration</p>
+              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Regeneration")?.value ?? 0}</p>
+              <p className="stat-tile__sub">Exercises</p>
             </div>
           </div>
         </section>
         <div className="grid gap-4 lg:grid-cols-2">
-        <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball ?? []} />
-        <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym ?? []} />
-        <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home ?? []} />
-        <PieCard title="Regeneration Unterkategorien" slices={subcategoryBySport.Regeneration ?? []} />
+          <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball ?? []} />
+          <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym ?? []} />
+          <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home ?? []} />
+          <PieCard title="Regeneration Unterkategorien" slices={subcategoryBySport.Regeneration ?? []} />
         </div>
       </div>
 
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <button type="button" onClick={() => toggleSection("basketballQuotes")} className="w-full text-left text-lg font-semibold">Basketball-Quoten je Übung</button>
+      <section className="mt-6 app-card">
+        <button type="button" onClick={() => toggleSection("basketballQuotes")} className="flex w-full items-center justify-between text-left">
+          <span className="section-title">Basketball-Quoten je Übung</span>
+          <span className="chip">{openSections.basketballQuotes ? "−" : "+"}</span>
+        </button>
         {openSections.basketballQuotes ? (
-          basketballStats.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine Basketball-Übungsdaten vorhanden.</p> : (
+          basketballStats.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Basketball-Übungsdaten vorhanden.</p> : (
             <div className="mt-3 space-y-2">
               {basketballStats.map((entry) => (
-                <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                  <p className="font-medium">{entry.exerciseName}</p>
-                  <p className="mt-1 text-sm text-zinc-300">Quote: <strong>{entry.quote ?? 0}%</strong> • Makes: {entry.made} • Tries: {entry.attempts} • Misses: {entry.misses}</p>
+                <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="font-semibold text-strong">{entry.exerciseName}</p>
+                  <p className="mt-1 text-sm text-muted">Quote: <strong className="text-strong">{entry.quote ?? 0}%</strong> · Makes: {entry.made} · Tries: {entry.attempts} · Misses: {entry.misses}</p>
                 </div>
               ))}
             </div>
@@ -669,36 +797,48 @@ useEffect(() => {
         ) : null}
       </section>
 
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <button type="button" onClick={() => toggleSection("timeExercises")} className="w-full text-left text-lg font-semibold">Zeitbasierte Basketball-Übungen</button>
+      <section className="mt-6 app-card">
+        <button type="button" onClick={() => toggleSection("timeExercises")} className="flex w-full items-center justify-between text-left">
+          <span className="section-title">Zeitbasierte Basketball-Übungen</span>
+          <span className="chip">{openSections.timeExercises ? "−" : "+"}</span>
+        </button>
         {openSections.timeExercises ? (
-          timedTrends.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine zeitbasierten Verläufe vorhanden.</p> : (
+          timedTrends.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine zeitbasierten Verläufe vorhanden.</p> : (
             <div className="mt-3 space-y-3">
-              {timedTrends.map((trend) => (
-                <div key={trend.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                  <p className="text-sm font-semibold">{trend.exerciseName} <span className="text-zinc-400">({trend.subcategory})</span></p>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Letzt: {trend.points[trend.points.length - 1]} s • Best: {Math.max(...trend.points)} s • Ø: {Math.round(trend.points.reduce((sum, point) => sum + point, 0) / trend.points.length)} s
-                  </p>
-                  <div className="mt-2"><TrendChart points={trend.points} /></div>
-                </div>
-              ))}
+              {timedTrends.map((trend) => {
+                const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({
+                  label: `S${index + 1}`,
+                  value,
+                }));
+                return (
+                  <div key={trend.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
+                    <p className="mt-1 text-xs text-muted">
+                      Letzt: {trend.points[trend.points.length - 1]} s · Best: {Math.max(...trend.points)} s · Ø: {Math.round(trend.points.reduce((sum, point) => sum + point, 0) / trend.points.length)} s
+                    </p>
+                    <div className="mt-2"><TrendChart points={chartPoints} yLabel="Sekunden" /></div>
+                  </div>
+                );
+              })}
             </div>
           )
         ) : null}
       </section>
 
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <button type="button" onClick={() => toggleSection("gymGoals")} className="w-full text-left text-lg font-semibold">Gym Ziele je Exercise</button>
+      <section className="mt-6 app-card">
+        <button type="button" onClick={() => toggleSection("gymGoals")} className="flex w-full items-center justify-between text-left">
+          <span className="section-title">Gym Ziele je Exercise</span>
+          <span className="chip">{openSections.gymGoals ? "−" : "+"}</span>
+        </button>
         {openSections.gymGoals ? (
-          gymGoals.length === 0 ? <p className="mt-3 text-sm text-zinc-500">Noch keine Gym-Daten vorhanden.</p> : (
+          gymGoals.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Gym-Daten vorhanden.</p> : (
             <div className="mt-3 space-y-2">
               {gymGoals.map((entry) => (
-                <div key={entry.exerciseId} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-sm">
-                  <p className="font-medium">{entry.exerciseName}</p>
-                  <p className="text-zinc-300">Ø Gewicht {entry.avgWeightKg} kg • Ø Reps {entry.avgReps} • Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
+                <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <p className="font-semibold text-strong">{entry.exerciseName}</p>
+                  <p className="text-muted">Ø Gewicht {entry.avgWeightKg} kg · Ø Reps {entry.avgReps} · Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
                   <p className="text-emerald-300">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
-                  <p className="mt-1 text-xs text-zinc-400">{entry.progressionHint}</p>
+                  <p className="mt-1 text-xs text-faint">{entry.progressionHint}</p>
                 </div>
               ))}
             </div>
@@ -706,29 +846,32 @@ useEffect(() => {
         ) : null}
       </section>
 
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <button type="button" onClick={() => toggleSection("history")} className="w-full text-left text-xl font-semibold">Historie</button>
+      <section className="mt-6 app-card">
+        <button type="button" onClick={() => toggleSection("history")} className="flex w-full items-center justify-between text-left">
+          <span className="section-title">Historie</span>
+          <span className="chip">{openSections.history ? "−" : "+"}</span>
+        </button>
         {openSections.history ? (
           <div className="mt-4 space-y-3">
             {([
               ["Basketball-Historie", historyBuckets.Basketball],
               ["Gym-Historie", historyBuckets.Gym],
-              ["Home-workout-Historie", historyBuckets.Home],
+              ["Home-Workout-Historie", historyBuckets.Home],
               ["Regeneration-Historie", historyBuckets.Regeneration],
             ] as const).map(([title, bucket]) => (
-              <div key={title} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                <p className="font-semibold">{title}</p>
+              <div key={title} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="font-semibold text-strong">{title}</p>
                 <div className="mt-2 space-y-2">
-                  {bucket.length === 0 ? <p className="text-sm text-zinc-500">Keine Einträge.</p> : bucket.map((entry) => (
+                  {bucket.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : bucket.map((entry) => (
                     <button
                       type="button"
                       key={entry.id}
                       onClick={() => setSelectedSessionId(entry.id)}
-                      className="block w-full rounded-lg border border-zinc-700 bg-black/30 p-3 text-left text-sm"
+                      className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
                     >
-                      <p className="font-semibold">{entry.title}</p>
-                      <p className="text-zinc-400">{new Date(entry.dateISO).toLocaleString("de-DE")} • Übungen: {entry.exerciseCount}</p>
-                      <p className="text-zinc-300">Gesamtwert: {entry.totalValue}</p>
+                      <p className="font-semibold text-strong">{entry.title}</p>
+                      <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
+                      <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
                     </button>
                   ))}
                 </div>
@@ -739,15 +882,16 @@ useEffect(() => {
       </section>
 
       {selectedSession ? (
-        <section className="mt-6 rounded-2xl border border-cyan-800 bg-cyan-950/20 p-4">
-          <h2 className="text-lg font-semibold">Workout-Details: {selectedSession.workoutName}</h2>
-          <p className="mt-1 text-xs text-cyan-200">{new Date(selectedSession.dateISO).toLocaleString("de-DE")}</p>
+        <section className="mt-6 app-card--accent-cyan">
+          <p className="section-eyebrow">Workout-Details</p>
+          <h2 className="section-title mt-1">{selectedSession.workoutName}</h2>
+          <p className="mt-1 text-xs text-muted">{new Date(selectedSession.dateISO).toLocaleString("de-DE")}</p>
           <div className="mt-3 space-y-2">
             {selectedSession.logs.map((log, index) => (
-              <article key={`${selectedSession.id}-${log.exerciseId}-${index}`} className="rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-sm">
-                <p className="font-medium">{exerciseLookup.get(log.exerciseId) ?? log.exerciseId}</p>
-                <p className="text-zinc-300">
-                  Reps/Wert: {log.completedValue ?? "-"} • Gewicht: {log.weightKg ?? "-"} kg • Tries: {log.attempts ?? "-"} • Makes: {log.made ?? "-"} • Misses: {log.misses ?? "-"}
+              <article key={`${selectedSession.id}-${log.exerciseId}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                <p className="font-semibold text-strong">{exerciseLookup.get(log.exerciseId) ?? log.exerciseId}</p>
+                <p className="text-muted">
+                  Reps/Wert: {log.completedValue ?? "-"} · Gewicht: {log.weightKg ?? "-"} kg · Tries: {log.attempts ?? "-"} · Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"}
                 </p>
               </article>
             ))}

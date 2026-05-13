@@ -1,13 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { useState } from "react";
 
 type SportsNewsItem = {
   title: string;
   source: string;
   date: string;
   url: string;
+  status?: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  hasResult?: boolean;
 };
 
 type SportsNewsPayload = {
@@ -27,7 +31,7 @@ function formatDate(value: string) {
 }
 
 async function fetchNewsFromEndpoint(endpoint: string) {
-  const response = await fetch(endpoint, { cache: "no-store" });
+  const response = await fetch(endpoint);
   const contentType = response.headers.get("content-type") ?? "";
 
   if (!contentType.includes("application/json")) {
@@ -90,53 +94,85 @@ export default function SportsNewsSection() {
   };
 
   return (
-    <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-      <h2 className="text-lg font-semibold">Sport-News</h2>
-      <p className="mt-1 text-sm text-zinc-400">
-        Lade aktuelle Basketball-Spiele von API-Sports.
-      </p>
+    <section className="relative mt-6 overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-900/40 p-5 shadow-xl shadow-black/25 ring-1 ring-white/[0.04] backdrop-blur-md">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_0%_0%,rgba(16,185,129,0.07),transparent)]"
+      />
 
-      <button
-        type="button"
-        onClick={loadNews}
-        className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-        disabled={loading}
-      >
-        {loading ? "News werden geladen..." : "Sport-News laden"}
-      </button>
-      <Link
-        href="/sports-news"
-        className="ml-3 inline-block rounded-xl border border-zinc-600 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
-      >
-        Vollständige News-Seite
-      </Link>
+      <div className="relative space-y-0.5">
+        <h2 className="text-base font-bold tracking-tight text-white">NBA · Kurzüberblick</h2>
+        <p className="text-xs text-zinc-600">Ball Dont Lie · ~15&nbsp;Min Cache</p>
+      </div>
 
-      {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
-      {warning ? <p className="mt-3 text-sm text-amber-300">{warning}</p> : null}
+      <div className="relative mt-5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={loadNews}
+          disabled={loading}
+          className="rounded-xl bg-gradient-to-b from-emerald-600 to-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-950/35 ring-1 ring-emerald-400/15 transition hover:from-emerald-500 hover:to-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? "Laden…" : "Aktualisieren"}
+        </button>
+        <Link
+          href="/sports-news"
+          className="inline-flex items-center rounded-xl border border-white/10 bg-zinc-800/50 px-4 py-2.5 text-sm font-semibold text-zinc-200 ring-1 ring-white/[0.04] transition hover:border-emerald-500/25 hover:bg-emerald-950/25 hover:text-emerald-50"
+        >
+          Ergebnisse
+        </Link>
+        <Link
+          href="/sports-news/upcoming"
+          className="inline-flex items-center rounded-xl border border-cyan-500/25 bg-cyan-950/35 px-4 py-2.5 text-sm font-semibold text-cyan-100 ring-1 ring-cyan-500/15 transition hover:border-cyan-400/40 hover:bg-cyan-950/55"
+        >
+          Kommende
+        </Link>
+      </div>
 
-      {!error && news.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">Noch keine Live-News verfügbar.</p>
-      ) : null}
+      {error ?
+        <p className="relative mt-4 rounded-xl border border-red-500/25 bg-red-950/40 p-3 text-sm leading-relaxed text-red-100 ring-1 ring-red-500/10">
+          {error}
+        </p>
+      : null}
+      {warning ?
+        <p className="relative mt-4 rounded-xl border border-amber-500/25 bg-amber-950/35 p-3 text-sm leading-relaxed text-amber-100 ring-1 ring-amber-500/10">
+          {warning}
+        </p>
+      : null}
 
-      {news.length > 0 ? (
-        <ul className="mt-4 space-y-3">
+      {!error && news.length === 0 ?
+        <p className="relative mt-4 text-sm text-zinc-500">Noch keine Daten geladen.</p>
+      : null}
+
+      {news.length > 0 ?
+        <ul className="relative mt-5 space-y-3">
           {news.map((item) => (
-            <li key={`${item.title}-${item.date}`} className="rounded-xl bg-zinc-950 p-3">
-              <a
-                href={item.url}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-blue-300 hover:text-blue-200"
-              >
+            <li
+              key={`${item.title}-${item.date}-${item.status ?? ""}`}
+              className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-zinc-900/70 to-zinc-950/90 p-4 ring-1 ring-white/[0.03] transition hover:border-white/[0.1]"
+            >
+              <a href={item.url} target="_blank" rel="noreferrer" className="font-semibold text-zinc-100 underline decoration-emerald-500/35 underline-offset-2 hover:decoration-emerald-400/60">
                 {item.title}
               </a>
-              <p className="mt-1 text-xs text-zinc-500">
+              {!item.hasResult ?
+                <p className="mt-2 text-xs font-medium text-cyan-300/95">
+                  {item.status ? `${item.status} · ` : ""}
+                  Kommend
+                </p>
+              : item.homeScore != null && item.awayScore != null ?
+                <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-emerald-950/25 px-3 py-1 ring-1 ring-emerald-500/10">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-500/75">FT</span>
+                  <span className="tabular-nums text-sm font-bold text-emerald-100">
+                    {item.homeScore} : {item.awayScore}
+                  </span>
+                </div>
+              : <p className="mt-2 text-xs font-medium text-emerald-200/80">Ergebnis vorhanden</p>}
+              <p className="mt-2 text-xs leading-relaxed text-zinc-600">
                 {item.source} · {formatDate(item.date)}
               </p>
             </li>
           ))}
         </ul>
-      ) : null}
+      : null}
     </section>
   );
 }

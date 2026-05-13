@@ -1,25 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   MessageBanner,
-  ResultGameCard,
   SectionHeading,
   SportsNewsPageTitle,
   SportsNewsRefreshButton,
   SportsNewsSegmentNav,
   SportsNewsShell,
+  UpcomingGameCard,
 } from "@/components/sports-news/SportsNewsChrome";
-
-type SportsNewsTopScorer = {
-  name: string;
-  pts: number;
-  reb: number;
-  ast: number;
-  teamAbbr: string;
-};
 
 type SportsNewsItem = {
   title: string;
@@ -33,7 +25,6 @@ type SportsNewsItem = {
   hasResult: boolean;
   status: string;
   gameId?: number | null;
-  topScorers?: SportsNewsTopScorer[];
   statsLink?: string;
 };
 
@@ -51,13 +42,13 @@ function formatDate(value: string) {
   return parsed.toLocaleString("de-DE");
 }
 
-export default function SportsNewsPage() {
+export default function SportsNewsUpcomingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [news, setNews] = useState<SportsNewsItem[]>([]);
+  const [upcoming, setUpcoming] = useState<SportsNewsItem[]>([]);
 
-  const loadNews = async () => {
+  const load = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -66,63 +57,60 @@ export default function SportsNewsPage() {
       const payload = (await response.json()) as SportsNewsPayload;
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "Fehler beim Laden der Sport-News.");
+        throw new Error(payload.error ?? "Fehler beim Laden.");
       }
 
-      setNews(payload.items ?? []);
+      const list =
+        payload.upcomingItems?.length ?
+          payload.upcomingItems
+        : (payload.items ?? []).filter((item) => !item.hasResult);
+
+      setUpcoming(list);
       setWarning(payload.warning ?? null);
-    } catch (newsError) {
-      setError(newsError instanceof Error ? newsError.message : "Unbekannter Fehler beim Laden.");
-      setNews([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unbekannter Fehler beim Laden.");
+      setUpcoming([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void loadNews();
+    void load();
   }, []);
-
-  const upcomingGames = useMemo(() => news.filter((item) => !item.hasResult), [news]);
-  const finishedGames = useMemo(() => news.filter((item) => item.hasResult), [news]);
 
   return (
     <SportsNewsShell>
-      <SportsNewsSegmentNav trailing={<SportsNewsRefreshButton loading={loading} onClick={() => void loadNews()} />} />
+      <SportsNewsSegmentNav trailing={<SportsNewsRefreshButton loading={loading} onClick={() => void load()} />} />
 
-      <SportsNewsPageTitle title="NBA Sports Hub" />
+      <SportsNewsPageTitle title="Kommende Spiele" tone="cyan" />
 
       {warning ? <MessageBanner variant="warning">{warning}</MessageBanner> : null}
       {error ? <MessageBanner variant="error">{error}</MessageBanner> : null}
 
-      {finishedGames.length === 0 && upcomingGames.length > 0 && !loading ?
+      {upcoming.length === 0 && !loading ?
         <MessageBanner variant="info">
-          Nur kommende Spiele —{" "}
-          <Link href="/sports-news/upcoming" className="text-cyan-300 underline-offset-2 hover:underline">
-            Kalender
+          Nichts im Fenster.{" "}
+          <Link href="/sports-news" className="text-emerald-300 underline-offset-2 hover:underline">
+            Ergebnisse
           </Link>
-          .
         </MessageBanner>
       : null}
 
-      {news.length === 0 && !loading ? <MessageBanner variant="info">Keine Daten im Zeitfenster.</MessageBanner> : null}
-
-      {finishedGames.length > 0 ?
+      {upcoming.length > 0 ?
         <>
-          <SectionHeading accent="emerald" title="Ergebnisse" />
+          <SectionHeading accent="cyan" title="Spielplan" />
           <div className="mt-4 grid gap-3">
-            {finishedGames.map((item) => (
-              <ResultGameCard
-                key={`${item.title}-${item.date}-${item.gameId ?? ""}`}
+            {upcoming.map((item) => (
+              <UpcomingGameCard
+                key={`${item.title}-${item.date}-${item.gameId ?? ""}-up`}
                 title={item.title}
                 source={item.source}
                 dateLabel={formatDate(item.date)}
+                status={item.status}
+                highlightsUrl={item.url}
                 homeScore={item.homeScore}
                 awayScore={item.awayScore}
-                highlightsUrl={item.url}
-                statsLink={item.statsLink}
-                topScorers={item.topScorers}
-                gameId={item.gameId}
               />
             ))}
           </div>

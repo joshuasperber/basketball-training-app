@@ -15,10 +15,14 @@ type ProgressRecord = {
   xpHistory: string | null;
   xpProgression: string | null;
   hiddenAutoWorkoutsMap: Record<string, string[]>;
+  performanceTips: string | null;
+  gameStats: string | null;
+  trainingGoals: string | null;
 };
 
 type ProgressRow = {
   email: string;
+  user_id?: string | null;
   sessions: SessionDatabase | null;
   daily_plan_map: DailyPlanMap | null;
   manual_day_workouts_map: Record<string, unknown[]> | null;
@@ -27,7 +31,12 @@ type ProgressRow = {
   profile_cache: string | null;
   xp_history: string | null;
   xp_progression: string | null;
+  performance_tips: string | null;
+  game_stats: string | null;
+  training_goals: string | null;
 };
+
+type AuthedUser = { id: string; email: string };
 
 const emptySessions: SessionDatabase = { workoutSessions: [], exerciseHistory: {} };
 
@@ -45,10 +54,13 @@ function getDefaultProgress(): ProgressRecord {
     xpHistory: null,
     xpProgression: null,
     hiddenAutoWorkoutsMap: {},
+    performanceTips: null,
+    gameStats: null,
+    trainingGoals: null,
   };
 }
 
-async function getRequestUserEmail(request: NextRequest): Promise<string | null> {
+async function getRequestUser(request: NextRequest): Promise<AuthedUser | null> {
   const accessToken = request.cookies.get("sb-access-token")?.value;
   if (!accessToken || !supabaseUrl || !supabaseAnonKey) return null;
 
@@ -61,8 +73,11 @@ async function getRequestUserEmail(request: NextRequest): Promise<string | null>
   });
 
   if (!response.ok) return null;
-  const user = (await response.json()) as { email?: string };
-  return user.email?.trim().toLowerCase() ?? null;
+  const user = (await response.json()) as { id?: string; email?: string };
+  const id = user.id?.trim();
+  const email = user.email?.trim().toLowerCase();
+  if (!id || !email) return null;
+  return { id, email };
 }
 
 function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
@@ -77,40 +92,50 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
     xpHistory: row.xp_history ?? null,
     xpProgression: row.xp_progression ?? null,
     hiddenAutoWorkoutsMap: row.hidden_auto_workouts_map ?? {},
+    performanceTips: row.performance_tips ?? null,
+    gameStats: row.game_stats ?? null,
+    trainingGoals: row.training_goals ?? null,
   };
 }
 
-async function readProgressFromSupabase(email: string): Promise<ProgressRecord | null> {
+async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecord | null> {
   if (!isSupabaseConfigured()) return null;
 
-  const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
-  url.searchParams.set("email", `eq.${email}`);
-  url.searchParams.set("select", "*");
-  url.searchParams.set("limit", "1");
+  const tryFetch = async (filter: string): Promise<ProgressRow[] | null> => {
+    const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
+    url.searchParams.set("select", "*");
+    url.searchParams.set("limit", "1");
+    url.searchParams.set(...(filter.split("=", 2) as [string, string]));
 
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      apikey: supabaseServiceRoleKey!,
-      Authorization: `Bearer ${supabaseServiceRoleKey!}`,
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-  });
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        apikey: supabaseServiceRoleKey!,
+        Authorization: `Bearer ${supabaseServiceRoleKey!}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as ProgressRow[];
+  };
 
-  if (!response.ok) return null;
-  const rows = (await response.json()) as ProgressRow[];
-  return mapRowToProgressRecord(rows[0] ?? null);
+  let rows = await tryFetch(`user_id=eq.${user.id}`);
+  if (!rows || rows.length === 0) {
+    rows = await tryFetch(`email=eq.${user.email}`);
+  }
+  return mapRowToProgressRecord(rows?.[0] ?? null);
 }
 
-async function writeProgressToSupabase(email: string, payload: ProgressRecord): Promise<boolean> {
+async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
 
   const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
-  url.searchParams.set("on_conflict", "email");
+  url.searchParams.set("on_conflict", "user_id");
 
   const row: ProgressRow = {
-    email,
+    email: user.email,
+    user_id: user.id,
     sessions: payload.sessions ?? emptySessions,
     daily_plan_map: payload.dailyPlanMap ?? {},
     manual_day_workouts_map: payload.manualDayWorkoutsMap ?? {},
@@ -119,6 +144,9 @@ async function writeProgressToSupabase(email: string, payload: ProgressRecord): 
     profile_cache: payload.profileCache ?? null,
     xp_history: payload.xpHistory ?? null,
     xp_progression: payload.xpProgression ?? null,
+    performance_tips: payload.performanceTips ?? null,
+    game_stats: payload.gameStats ?? null,
+    training_goals: payload.trainingGoals ?? null,
   };
 
   const response = await fetch(url.toString(), {
@@ -133,7 +161,25 @@ async function writeProgressToSupabase(email: string, payload: ProgressRecord): 
     cache: "no-store",
   });
 
-  return response.ok;
+  if (response.ok) return true;
+
+  // Fallback: ältere Datenbanken ohne user_id-Spalte – Upsert über email.
+  const legacyUrl = new URL(`${supabaseUrl}/rest/v1/user_progress`);
+  legacyUrl.searchParams.set("on_conflict", "email");
+  const legacyRow: ProgressRow = { ...row };
+  delete legacyRow.user_id;
+  const legacyResponse = await fetch(legacyUrl.toString(), {
+    method: "POST",
+    headers: {
+      apikey: supabaseServiceRoleKey!,
+      Authorization: `Bearer ${supabaseServiceRoleKey!}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify(legacyRow),
+    cache: "no-store",
+  });
+  return legacyResponse.ok;
 }
 
 export async function GET(request: NextRequest) {
@@ -141,12 +187,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
-  const email = await getRequestUserEmail(request);
-  if (!email) {
+  const user = await getRequestUser(request);
+  if (!user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const progress = await readProgressFromSupabase(email);
+  const progress = await readProgressFromSupabase(user);
   return NextResponse.json(progress ?? getDefaultProgress());
 }
 
@@ -155,8 +201,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "supabase_not_configured" }, { status: 500 });
   }
 
-  const email = await getRequestUserEmail(request);
-  if (!email) {
+  const user = await getRequestUser(request);
+  if (!user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -165,7 +211,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
   }
 
-  const ok = await writeProgressToSupabase(email, payload);
+  const ok = await writeProgressToSupabase(user, payload);
   if (!ok) {
     return NextResponse.json({ error: "write_failed" }, { status: 500 });
   }

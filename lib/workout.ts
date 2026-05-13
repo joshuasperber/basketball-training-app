@@ -27,6 +27,10 @@ export type SetLog = {
   makes?: string;
   misses?: string;
   completed?: boolean;
+  /** Rate of Perceived Exertion (RPE) 1–10 */
+  rpe?: string;
+  /** ISO timestamp wann der Satz abgeschlossen wurde (für Pausen-Timer). */
+  completedAtIso?: string;
 };
 
 export type WorkoutProgress = {
@@ -39,6 +43,10 @@ export type WorkoutProgress = {
   exerciseIndex: number;
   setIndex: number;
   logs: Record<string, SetLog>;
+  /** ISO-Zeitpunkt, an dem der User auf "Workout starten" geklickt hat. */
+  startedAtIso?: string;
+  /** ISO-Zeitpunkt, an dem das Workout abgeschlossen wurde. */
+  endedAtIso?: string;
 };
 
 export type CompletedWorkoutHistoryEntry = {

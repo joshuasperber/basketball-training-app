@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SportsNewsSection from "@/components/SportsNewsSection";
+import PageHeader from "@/components/PageHeader";
+import CoachInsight from "@/components/CoachInsight";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildPlayerBadges, computeBadgeStats, type PlayerBadge } from "@/lib/badge-system";
 import { getLevelFromXp, getProgressionState } from "@/lib/level-system";
@@ -18,6 +20,7 @@ import {
 } from "@/lib/workout";
 import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap } from "@/lib/activity-calendar";
 import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { loadPerformanceTips } from "@/lib/performance-tips";
 
 const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
 
@@ -52,6 +55,22 @@ const PLAYER_QUOTES = [
   "Some people want it to happen, some wish it would happen, others make it happen. — Michael Jordan",
   "If you’re afraid to fail, then you’re probably going to fail. — Kobe Bryant",
 ];
+const DASHBOARD_LAST_LEVEL_KEY = "bt.dashboard.last-level.v1";
+
+const SPORT_COLOR: Record<SportType, string> = {
+  Basketball: "rgba(255, 122, 24, 0.8)",
+  Gym: "rgba(168, 85, 247, 0.85)",
+  Home: "rgba(34, 211, 238, 0.85)",
+  Regeneration: "rgba(34, 197, 94, 0.85)",
+  Rest: "rgba(148, 163, 184, 0.7)",
+};
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 0) return "P";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+}
 
 export default function DashboardPage({ forceProfileSetup = false }: { forceProfileSetup?: boolean }) {
   const dateKey = useMemo(() => getTodayDateKey(), []);
@@ -65,7 +84,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
   const [todayLabel, setTodayLabel] = useState<string | null>(null);
   const [plannedTags, setPlannedTags] = useState<string[]>([]);
-  const [todaySport, setTodaySport] = useState(todayWorkout.sport);
+  const [todaySport, setTodaySport] = useState<SportType>(todayWorkout.sport);
   const [todaySubcategory, setTodaySubcategory] = useState(todayWorkout.subcategory);
   const [hasWorkoutPlanned, setHasWorkoutPlanned] = useState(true);
   const [showAllBadges, setShowAllBadges] = useState(false);
@@ -75,6 +94,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   const [weeklyCompleted, setWeeklyCompleted] = useState(0);
   const [streakDays, setStreakDays] = useState(0);
   const [weeklyPlannedCount, setWeeklyPlannedCount] = useState(0);
+  const [dashboardTips, setDashboardTips] = useState<string[]>([]);
+  const [levelPopup, setLevelPopup] = useState<string | null>(null);
 
   useEffect(() => {
     const refreshTodayData = () => {
@@ -124,17 +145,36 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     const interval = window.setInterval(refreshTodayData, 3000);
     window.addEventListener("focus", refreshTodayData);
     window.addEventListener("storage", refreshTodayData);
+    window.addEventListener("bt:plan-updated", refreshTodayData);
     return () => {
       window.clearTimeout(timer);
       window.clearInterval(interval);
       window.removeEventListener("focus", refreshTodayData);
       window.removeEventListener("storage", refreshTodayData);
+      window.removeEventListener("bt:plan-updated", refreshTodayData);
     };
   }, [dateKey, fallbackProgress, todayWorkout.sport, todayWorkout.subcategory]);
 
   useEffect(() => {
     void pullProgressFromCloud();
   }, []);
+
+  useEffect(() => {
+    const progression = getProgressionState();
+    const currentLevel = getLevelFromXp(progression.totalXp).level;
+    const previousRaw = window.localStorage.getItem(DASHBOARD_LAST_LEVEL_KEY);
+    const previousLevel = previousRaw ? Number(previousRaw) : currentLevel;
+    let popupTimer: number | undefined;
+    if (Number.isFinite(previousLevel) && currentLevel > previousLevel) {
+      popupTimer = window.setTimeout(() => {
+        setLevelPopup(`🎉 Level Up! Du bist jetzt Level ${currentLevel}.`);
+      }, 0);
+    }
+    window.localStorage.setItem(DASHBOARD_LAST_LEVEL_KEY, String(currentLevel));
+    return () => {
+      if (popupTimer !== undefined) window.clearTimeout(popupTimer);
+    };
+  }, [weeklyCompleted]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -174,6 +214,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         return tags.includes("Gym") || tags.includes("Trainingstag") || tags.includes("Home-Workout");
       }).length;
       setWeeklyPlannedCount(plannedCount);
+      const tips = loadPerformanceTips().filter((tip) => tip.active).slice(0, 6).map((tip) => `${tip.title}: ${tip.content}`);
+      setDashboardTips(tips);
     }, 0);
 
     return () => window.clearTimeout(timer);
@@ -196,146 +238,231 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     };
   }, [visibleBadges]);
 
+  const greetingHour = new Date().getHours();
+  const greeting =
+    greetingHour < 5 ? "Gute Nacht" : greetingHour < 11 ? "Guten Morgen" : greetingHour < 18 ? "Hi" : "Guten Abend";
+
   return (
-    <main className="min-h-screen bg-black p-6 pb-24 text-white">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
-      <p className="mt-2 text-zinc-400">Übersicht über dein Training, {username}</p>
+    <main className="app-container animate-in">
+      <PageHeader
+        eyebrow={`${greeting} • ${weekdayLabel}`}
+        title={`${greeting}, ${username}`}
+        subtitle="Dein heutiger Trainingsplan auf einen Blick."
+        actions={<div className="avatar-bubble">{getInitials(username)}</div>}
+      />
+
       {forceProfileSetup ? (
-        <section className="mt-4 rounded-2xl border border-amber-700 bg-amber-950/40 p-4">
-          <p className="text-sm text-amber-200">
-            Bitte vervollständige zuerst dein Profil (Name + Username), damit Weekly & Auto-Plan sauber funktionieren.
+        <section className="mt-5 app-card--accent-violet">
+          <p className="text-sm text-strong">
+            Vervollständige zuerst dein Profil (Name + Username), damit Weekly &amp; Auto-Plan sauber funktionieren.
           </p>
-          <Link
-            href="/profile?setup=1"
-            className="mt-3 inline-block rounded-lg border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-900/40"
-          >
+          <Link href="/profile?setup=1" className="btn btn-violet btn-sm mt-3">
             Zum Profil
           </Link>
         </section>
       ) : null}
 
-      {!isCompleted && hasWorkoutPlanned ? (
-        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
-            Heutiges Workout • {weekdayLabel}
-          </p>
-          <h2 className="mt-2 text-xl font-semibold">{todayLabel ?? todayWorkout.title}</h2>
-          <p className="text-sm text-zinc-400">Sport: {todaySport}</p>
-          <p className="text-sm text-zinc-400">Unterkategorie: {todaySubcategory}</p>
-          {plannedTags.length > 0 ? (
-            <p className="mt-2 text-xs text-zinc-300">Geplant heute: {plannedTags.join(", ")}</p>
-          ) : null}
+      {/* Hero: today's workout */}
+      <section className="mt-6">
+        {!isCompleted && hasWorkoutPlanned ? (
+          <article className="app-card--brand">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="section-eyebrow">Heutiges Workout</p>
+                <h2 className="mt-1 text-2xl font-extrabold tracking-tight">
+                  {todayLabel ?? todayWorkout.title}
+                </h2>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="chip chip-active">{todaySport}</span>
+                  <span className="chip">{todaySubcategory}</span>
+                  {plannedTags.length > 0 ? (
+                    <span className="chip chip-info">{plannedTags.join(" · ")}</span>
+                  ) : null}
+                </div>
+              </div>
+              <span
+                aria-hidden
+                className="hidden h-12 w-12 shrink-0 rounded-2xl sm:block"
+                style={{
+                  background: `linear-gradient(135deg, ${SPORT_COLOR[todaySport]}, rgba(255,255,255,0.05))`,
+                  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.1)",
+                }}
+              />
+            </div>
 
-          <p className="mt-4 text-sm text-zinc-300">
-            {isInProgress
-              ? "Workout begonnen. Du kannst direkt weitermachen."
-              : "Workout noch offen. Starte jetzt deine Einheit."}
-          </p>
+            <p className="mt-4 text-sm text-muted">
+              {isInProgress
+                ? "Workout läuft – fortsetzen und Sätze loggen."
+                : "Bereit? Starte jetzt deine Einheit."}
+            </p>
 
-          <Link
-            href="/workouts"
-            className="mt-4 inline-block rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
-          >
-            {isInProgress ? "Workout fortsetzen" : "Workout starten"}
-          </Link>
-        </section>
-      ) : !isCompleted ? (
-        <section className="mt-6 rounded-2xl border border-indigo-800 bg-indigo-950/40 p-4">
-          <h2 className="text-lg font-semibold text-indigo-200">Heute ist kein Workout geplant</h2>
-          <p className="mt-1 text-sm text-indigo-100">
-            Wenn du Zeit hast, starte trotzdem eine kurze Session – schon 10–20 Minuten machen einen Unterschied.
-          </p>
-          <Link
-            href="/workouts"
-            className="mt-4 inline-block rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-          >
-            Trotzdem trainieren
-          </Link>
-        </section>
-      ) : (
-        <section className="mt-6 rounded-2xl border border-green-800 bg-green-950/50 p-4">
-          <h2 className="text-lg font-semibold text-green-300">Heutiges Workout erledigt ✅</h2>
-          <p className="mt-1 text-sm text-green-200">
-            Stark! Das Workout für heute wird deshalb nicht mehr im Dashboard angezeigt.
-          </p>
-        </section>
-      )}
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Link href="/workouts" className="btn btn-primary">
+                {isInProgress ? "Workout fortsetzen" : "Workout starten"}
+              </Link>
+              <Link href="/Weekly-Workout" className="btn btn-ghost">
+                Weekly öffnen
+              </Link>
+            </div>
+          </article>
+        ) : !isCompleted ? (
+          <article className="app-card--accent-violet">
+            <p className="section-eyebrow">Heute</p>
+            <h2 className="mt-1 text-xl font-bold">Kein Workout geplant</h2>
+            <p className="mt-2 text-sm text-muted">
+              Schon 10–20 Minuten machen einen Unterschied. Starte eine kleine Session.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href="/workouts" className="btn btn-violet">
+                Trotzdem trainieren
+              </Link>
+              <Link href="/Weekly-Workout" className="btn btn-ghost">
+                Woche planen
+              </Link>
+            </div>
+          </article>
+        ) : (
+          <article className="app-card--accent-emerald">
+            <p className="section-eyebrow">Heute</p>
+            <h2 className="mt-1 text-xl font-bold text-strong">Workout erledigt ✅</h2>
+            <p className="mt-2 text-sm text-muted">
+              Stark! Das Workout für heute wird nicht mehr im Dashboard angezeigt.
+            </p>
+          </article>
+        )}
+      </section>
 
-      <section className="mt-6 grid gap-3 sm:grid-cols-2">
-        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Workouts (7 Tage)</p>
-          <p className="mt-2 text-3xl font-bold">{weeklyCompleted}</p>
+      {/* Tips */}
+      <section className="mt-4 app-card--accent-cyan">
+        <div className="flex items-center justify-between">
+          <h3 className="section-title">Meine Notizen</h3>
+          <Link href="/tips" className="btn btn-ghost btn-xs">Öffnen</Link>
+        </div>
+        {dashboardTips.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">Keine aktiven Tipps.</p>
+        ) : (
+          <ul className="mt-3 space-y-1.5 text-sm text-strong">
+            {dashboardTips.map((tip, index) => (
+              <li key={`db-tip-${index}`} className="flex gap-2">
+                <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
+                <span>{tip}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Stats grid */}
+      <section className="grid-stats mt-6">
+        <article className="stat-tile">
+          <p className="stat-tile__label">Workouts · 7 Tage</p>
+          <p className="stat-tile__value">{weeklyCompleted}</p>
         </article>
-        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Aktuelle Streak</p>
-          <p className="mt-2 text-3xl font-bold">{streakDays} Tage</p>
+        <article className="stat-tile">
+          <p className="stat-tile__label">Aktuelle Streak</p>
+          <p className="stat-tile__value">
+            {streakDays}
+            <span className="ml-1 text-sm font-medium text-muted">Tage</span>
+          </p>
         </article>
-        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Geplante Workouts (Woche)</p>
-          <p className="mt-2 text-3xl font-bold">{weeklyPlannedCount}</p>
+        <article className="stat-tile">
+          <p className="stat-tile__label">Plan · Woche</p>
+          <p className="stat-tile__value">{weeklyPlannedCount}</p>
         </article>
-        <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Erfüllungsquote (Woche)</p>
-          <p className="mt-2 text-3xl font-bold">{completionRate}%</p>
+        <article className="stat-tile">
+          <p className="stat-tile__label">Erfüllungsquote</p>
+          <p className="stat-tile__value">
+            {completionRate}
+            <span className="ml-1 text-sm font-medium text-muted">%</span>
+          </p>
         </article>
       </section>
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+
+      {levelPopup ? (
+        <div className="mt-4 app-card--accent-emerald">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-strong">{levelPopup}</p>
+            <button type="button" className="btn btn-ghost btn-xs" onClick={() => setLevelPopup(null)}>
+              Schließen
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Badges */}
+      <section className="mt-6 app-card">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-semibold">Badges (wie im Level)</h3>
+          <div>
+            <p className="section-eyebrow">Auszeichnungen</p>
+            <h3 className="section-title">Badges</h3>
+          </div>
           <button
             type="button"
             onClick={() => setShowAllBadges((current) => !current)}
-            className="rounded-lg border border-zinc-600 px-3 py-1 text-xs"
+            className="btn btn-ghost btn-xs"
           >
             {showAllBadges ? "Nur erreichte" : "Alle Badges"}
           </button>
         </div>
-        <div className="mt-3 space-y-3">
+        <div className="mt-4 space-y-4">
           {(Object.keys(badgeSections) as Array<keyof typeof badgeSections>).map((section) =>
             badgeSections[section].length > 0 ? (
               <div key={`badge-section-${section}`}>
-                <p className="mb-2 text-xs uppercase tracking-wide text-zinc-400">{section} Badges</p>
+                <p className="section-eyebrow mb-2">{section}</p>
                 <div className="flex flex-wrap gap-2">
                   {badgeSections[section].map((badge) => (
                     <button
                       key={badge.id}
                       type="button"
                       onClick={() => setSelectedBadge(badge)}
-                      className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-100 hover:bg-zinc-800"
+                      className="chip hover:bg-white/10"
                     >
-                      {badge.emoji} {badge.name} • {badge.tier}
+                      <span className="text-base">{badge.emoji}</span>
+                      <span>{badge.name}</span>
+                      <span className="text-faint">· {badge.tier}</span>
                     </button>
                   ))}
                 </div>
               </div>
             ) : null,
           )}
+          {visibleBadges.length === 0 ? (
+            <p className="text-sm text-muted">Noch keine Badges. Starte ein Workout, um dein erstes Badge freizuschalten.</p>
+          ) : null}
         </div>
       </section>
-      <section className="mt-6 rounded-2xl border border-indigo-800 bg-indigo-950/30 p-4">
-        <p className="text-xs uppercase tracking-wide text-indigo-300">Motivation</p>
-        <p className="mt-2 text-sm text-indigo-100">“{quoteOfTheDay}”</p>
+
+      {/* Quote */}
+      <section className="mt-4 app-card--accent-violet">
+        <p className="section-eyebrow">Motivation des Tages</p>
+        <p className="mt-2 text-base italic text-strong">“{quoteOfTheDay}”</p>
       </section>
 
+      <div className="mt-6">
+        <CoachInsight />
+      </div>
+
       <SportsNewsSection />
+
       {selectedBadge ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-4">
+          <div className="w-full max-w-md app-card">
             <div className="flex items-start justify-between gap-3">
-              <h3 className="text-lg font-semibold">
-                {selectedBadge.emoji} {selectedBadge.name}
+              <h3 className="text-lg font-bold">
+                <span className="mr-1 text-xl">{selectedBadge.emoji}</span>
+                {selectedBadge.name}
               </h3>
               <button
                 type="button"
                 onClick={() => setSelectedBadge(null)}
-                className="rounded-lg border border-zinc-600 px-2 py-1 text-xs"
+                className="btn btn-ghost btn-xs"
               >
                 Schließen
               </button>
             </div>
-            <p className="mt-2 text-sm text-zinc-300">{selectedBadge.description}</p>
-            <p className="mt-2 text-xs text-zinc-400">Fortschritt: {selectedBadge.progressText}</p>
-            <p className="mt-1 text-xs text-zinc-400">
+            <p className="mt-3 text-sm text-strong">{selectedBadge.description}</p>
+            <p className="mt-2 text-xs text-muted">Fortschritt: {selectedBadge.progressText}</p>
+            <p className="mt-1 text-xs text-muted">
               Status: {selectedBadge.unlocked ? "Badge erhalten ✅" : "Noch nicht erreicht"}
             </p>
           </div>

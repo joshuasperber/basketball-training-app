@@ -23,9 +23,12 @@ export default function LoginPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    setErrorCode(params.get("error_code"));
-    const next = params.get("next");
-    setNextPath(next && next.startsWith("/") ? next : null);
+    const timer = window.setTimeout(() => {
+      setErrorCode(params.get("error_code"));
+      const next = params.get("next");
+      setNextPath(next && next.startsWith("/") ? next : null);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const urlError = useMemo(() => {
@@ -108,62 +111,68 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-black px-4 text-white">
-      <div className="w-full max-w-md space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-        <h1 className="text-2xl font-semibold">Login</h1>
-        <p className="text-sm text-zinc-400">Melde dich per 8-stelligem E-Mail-Code an.</p>
-
-        {urlError ? <p className="rounded-lg border border-red-700 bg-red-950/40 px-3 py-2 text-sm text-red-200">{urlError}</p> : null}
-
-        <p className="text-xs text-zinc-500">
-          Falls du weiterhin nur einen Link statt eines Codes erhältst, passe in Supabase die Email-Template auf OTP-Token an.
+    <main className="flex min-h-screen items-center justify-center px-4">
+      <div className="w-full max-w-md app-card animate-in">
+        <div className="flex items-center gap-3">
+          <div className="avatar-bubble" aria-hidden>🏀</div>
+          <div>
+            <p className="page-eyebrow">Welcome back</p>
+            <h1 className="text-2xl font-extrabold tracking-tight">Anmelden</h1>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-muted">
+          Melde dich per 8-stelligem E-Mail-Code an. Sicher und ohne Passwort.
         </p>
 
+        {urlError ? (
+          <p className="mt-4 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+            {urlError}
+          </p>
+        ) : null}
+
         {!codeSent ? (
-          <form onSubmit={sendCode} className="space-y-4">
-            <label className="block space-y-2">
-              <span className="text-sm text-zinc-300">E-Mail</span>
+          <form onSubmit={sendCode} className="mt-5 space-y-3">
+            <div>
+              <label className="input-label" htmlFor="login-email">E-Mail</label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 required
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none ring-green-500 focus:ring-2"
+                className="input"
                 placeholder="you@example.com"
               />
-            </label>
+            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-xl bg-green-600 px-4 py-2 font-semibold text-white transition hover:bg-green-500 disabled:opacity-70"
-            >
-              {loading ? "Sende..." : "Code anfordern"}
+            <button type="submit" disabled={loading} className="btn btn-primary btn-block">
+              {loading ? "Sende…" : "Code anfordern"}
             </button>
           </form>
         ) : (
-          <form onSubmit={verifyCode} className="space-y-4">
-            <label className="block space-y-2">
-              <span className="text-sm text-zinc-300">Bestätigungscode</span>
+          <form onSubmit={verifyCode} className="mt-5 space-y-3">
+            <div>
+              <label className="input-label" htmlFor="login-otp">Bestätigungscode</label>
               <input
+                id="login-otp"
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 value={otpCode}
                 onChange={(event) => setOtpCode(normalizeCodeInput(event.target.value))}
                 required
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 tracking-[0.3em] outline-none ring-green-500 focus:ring-2"
+                className="input text-center text-lg font-semibold tracking-[0.4em]"
                 maxLength={8}
                 placeholder="12345678"
               />
-            </label>
+            </div>
 
             <button
               type="submit"
               disabled={loading || otpCode.length !== 8}
-              className="w-full rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-500 disabled:opacity-70"
+              className="btn btn-cyan btn-block"
             >
-              {loading ? "Prüfe..." : "Code bestätigen"}
+              {loading ? "Prüfe…" : "Code bestätigen"}
             </button>
 
             <button
@@ -174,14 +183,22 @@ export default function LoginPage() {
                 setOtpCode("");
                 setMessage(null);
               }}
-              className="w-full rounded-xl border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+              className="btn btn-ghost btn-block"
             >
               Andere E-Mail verwenden
             </button>
           </form>
         )}
 
-        {message ? <p className="text-sm text-zinc-300">{message}</p> : null}
+        {message ? (
+          <p className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-strong">
+            {message}
+          </p>
+        ) : null}
+
+        <p className="mt-5 text-xs text-faint">
+          Tipp: Falls du nur einen Link statt eines Codes erhältst, in Supabase die Email-Template auf OTP-Token umstellen.
+        </p>
       </div>
     </main>
   );

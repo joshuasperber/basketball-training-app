@@ -570,19 +570,22 @@ function TrainingPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
+    <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
         <header>
-          <h1 className="text-2xl font-bold">Training</h1>
-          <p className="mt-2 text-zinc-400">Workouts und Exercises in einem Bereich</p>
-          <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
+          <p className="page-eyebrow">Bibliothek</p>
+          <h1 className="page-title">Training</h1>
+          <p className="page-subtitle">Workouts und Exercises in einem Bereich.</p>
+          <div className="mt-3">
+            <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
+          </div>
           {completionMessage ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-700 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-300">
-              <span>{completionMessage} Du bist wieder auf der Training-Startseite.</span>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 app-card--accent-emerald">
+              <span className="text-sm text-strong">{completionMessage} Du bist wieder auf der Training-Startseite.</span>
               <button
                 type="button"
                 onClick={() => router.replace("/training")}
-                className="rounded-lg border border-emerald-500/60 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-800/30"
+                className="btn btn-ghost btn-xs"
               >
                 Hinweis schließen
               </button>
@@ -727,8 +730,8 @@ export default function TrainingPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-          <p className="text-sm text-zinc-300">Lade Training …</p>
+        <main className="app-container">
+          <p className="text-sm text-muted">Lade Training …</p>
         </main>
       }
     >

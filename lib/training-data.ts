@@ -9,11 +9,17 @@ export type Exercise = {
   category: Category;
   subcategory: string;
   notes?: string;
+  /** Optional: Progressions-Schritte (sonst aus Übungsname abgeleitet). */
+  progressionModality?: "barbell" | "dumbbell" | "machine" | "cable" | "bodyweight";
   metricKeys: MetricKey[];
   targetByMetric?: Partial<Record<MetricKey, number>>;
   setTargetsByMetric?: Partial<Record<MetricKey, number>>[];
   trackingType: "reps" | "weight";
   targetValue?: number;
+  /** Optional URL zu einem Demo-/Drill-Video (YouTube, Vimeo etc.). */
+  videoUrl?: string;
+  /** Optional: empfohlene Pausenzeit in Sekunden zwischen Sätzen. */
+  restSeconds?: number;
 };
 
 export type MetricKey =
@@ -64,20 +70,48 @@ export const exerciseSubcategoriesByCategory: Record<Category, string[]> = {
 };
 
 export const defaultExercises: Exercise[] = [
-  { id: "ex-0", name: "Pound Dribbles", durationMin: 10, category: "Basketball", subcategory: "Handles", notes: "Ball tief und schnell", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80 },
-  { id: "ex-1", name: "Cone Handles", durationMin: 12, category: "Basketball", subcategory: "Handles", notes: "Low and fast", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80 },
-  { id: "ex-10", name: "Cone Drills", durationMin: 10, category: "Basketball", subcategory: "Handles", notes: "Richtungswechsel", metricKeys: ["reps", "time"], targetByMetric: { reps: 40, time: 60 }, trackingType: "reps", targetValue: 40 },
-  { id: "ex-2", name: "Mikan Finishes", durationMin: 12, category: "Basketball", subcategory: "Finishing", notes: "Beidseitig abschließen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 80, makes: 60 }, trackingType: "reps", targetValue: 60 },
-  { id: "ex-3", name: "Shooting 1", durationMin: 18, category: "Basketball", subcategory: "Shooting", notes: "Nur swishes zhlen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 100, makes: 80 }, trackingType: "reps", targetValue: 80 },
-  { id: "ex-4", name: "Shooting 2", durationMin: 20, category: "Basketball", subcategory: "Shooting", notes: "Spot-up 5 Spots", metricKeys: ["tries", "makes"], targetByMetric: { tries: 120, makes: 90 }, trackingType: "reps", targetValue: 90 },
-  { id: "ex-5", name: "Bench Press", durationMin: 15, category: "Gym", subcategory: "Oberkörper", notes: "Kontrollierte Exzentrik", metricKeys: ["weight", "reps"], targetByMetric: { weight: 70, reps: 8 }, trackingType: "weight", targetValue: 70 },
-  { id: "ex-6", name: "Barbell Row", durationMin: 15, category: "Gym", subcategory: "Arme", notes: "Schulterblätter aktiv", metricKeys: ["weight", "reps"], targetByMetric: { weight: 60, reps: 10 }, trackingType: "weight", targetValue: 60 },
-  { id: "ex-7", name: "Back Squat", durationMin: 18, category: "Gym", subcategory: "Beine", notes: "Tiefe sauber halten", metricKeys: ["weight", "reps"], targetByMetric: { weight: 90, reps: 6 }, trackingType: "weight", targetValue: 90 },
-  { id: "ex-8", name: "Cable Crunch", durationMin: 10, category: "Gym", subcategory: "Core", notes: "Rumpfspannung", metricKeys: ["weight", "reps"], targetByMetric: { weight: 35, reps: 15 }, trackingType: "weight", targetValue: 35 },
-  { id: "ex-9", name: "Dead Bug", durationMin: 10, category: "Home", subcategory: "Recovery", notes: "Langsam und kontrolliert", metricKeys: ["reps", "time"], targetByMetric: { reps: 20, time: 45 }, trackingType: "reps", targetValue: 20 },
-  { id: "ex-regen-1", name: "Box Breathing", durationMin: 8, category: "Regeneration", subcategory: "Meditation", notes: "4-4-4-4 Atmung", metricKeys: ["time", "intensity"], targetByMetric: { time: 8, intensity: 5 }, trackingType: "reps", targetValue: 8 },
-  { id: "ex-regen-2", name: "Hip Mobility Flow", durationMin: 12, category: "Regeneration", subcategory: "Mobilität & Dehnung", notes: "Ruhig und kontrolliert", metricKeys: ["time", "intensity"], targetByMetric: { time: 12, intensity: 6 }, trackingType: "reps", targetValue: 12 },
+  { id: "ex-0", name: "Pound Dribbles", durationMin: 10, category: "Basketball", subcategory: "Handles", notes: "Ball tief und schnell", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80, videoUrl: "https://www.youtube.com/results?search_query=pound+dribbles+drill", restSeconds: 30 },
+  { id: "ex-1", name: "Cone Handles", durationMin: 12, category: "Basketball", subcategory: "Handles", notes: "Low and fast", metricKeys: ["reps", "time"], targetByMetric: { reps: 80, time: 60 }, trackingType: "reps", targetValue: 80, videoUrl: "https://www.youtube.com/results?search_query=cone+handles+drill", restSeconds: 45 },
+  { id: "ex-10", name: "Cone Drills", durationMin: 10, category: "Basketball", subcategory: "Handles", notes: "Richtungswechsel", metricKeys: ["reps", "time"], targetByMetric: { reps: 40, time: 60 }, trackingType: "reps", targetValue: 40, videoUrl: "https://www.youtube.com/results?search_query=basketball+cone+drills", restSeconds: 60 },
+  { id: "ex-2", name: "Mikan Finishes", durationMin: 12, category: "Basketball", subcategory: "Finishing", notes: "Beidseitig abschließen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 80, makes: 60 }, trackingType: "reps", targetValue: 60, videoUrl: "https://www.youtube.com/results?search_query=mikan+drill", restSeconds: 30 },
+  { id: "ex-3", name: "Shooting 1", durationMin: 18, category: "Basketball", subcategory: "Shooting", notes: "Nur swishes zählen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 100, makes: 80 }, trackingType: "reps", targetValue: 80, videoUrl: "https://www.youtube.com/results?search_query=basketball+form+shooting", restSeconds: 30 },
+  { id: "ex-4", name: "Shooting 2", durationMin: 20, category: "Basketball", subcategory: "Shooting", notes: "Spot-up 5 Spots", metricKeys: ["tries", "makes"], targetByMetric: { tries: 120, makes: 90 }, trackingType: "reps", targetValue: 90, videoUrl: "https://www.youtube.com/results?search_query=spot+up+shooting+drill", restSeconds: 45 },
+  // Basketball – Handles (neu)
+  { id: "ex-bh-11", name: "Two-Ball Pound", durationMin: 10, category: "Basketball", subcategory: "Handles", notes: "Beide Bälle gleichzeitig tief dribbeln", metricKeys: ["reps", "time"], targetByMetric: { reps: 60, time: 60 }, trackingType: "reps", targetValue: 60, videoUrl: "https://www.youtube.com/results?search_query=two+ball+pound+dribble", restSeconds: 30 },
+  { id: "ex-bh-12", name: "In&Out Crossover Series", durationMin: 12, category: "Basketball", subcategory: "Handles", notes: "Schulter täuschen, schnelles Tempo", metricKeys: ["reps", "time"], targetByMetric: { reps: 50, time: 60 }, trackingType: "reps", targetValue: 50, videoUrl: "https://www.youtube.com/results?search_query=in+and+out+crossover+drill", restSeconds: 45 },
+  { id: "ex-bh-13", name: "Spider Dribble", durationMin: 8, category: "Basketball", subcategory: "Handles", notes: "Tief in Squat-Position, Bein gewechselt", metricKeys: ["reps", "time"], targetByMetric: { reps: 50, time: 30 }, trackingType: "reps", targetValue: 50, restSeconds: 30 },
+  // Basketball – Finishing (neu)
+  { id: "ex-bf-21", name: "Reverse Layups", durationMin: 12, category: "Basketball", subcategory: "Finishing", notes: "Beidseitig, Schulter durch", metricKeys: ["tries", "makes"], targetByMetric: { tries: 40, makes: 30 }, trackingType: "reps", targetValue: 30, videoUrl: "https://www.youtube.com/results?search_query=reverse+layup+drill", restSeconds: 30 },
+  { id: "ex-bf-22", name: "Floater Series", durationMin: 14, category: "Basketball", subcategory: "Finishing", notes: "Aus dem Lauf, beidhändig", metricKeys: ["tries", "makes"], targetByMetric: { tries: 60, makes: 36 }, trackingType: "reps", targetValue: 36, videoUrl: "https://www.youtube.com/results?search_query=floater+basketball+drill", restSeconds: 45 },
+  { id: "ex-bf-23", name: "Euro Step Finish", durationMin: 12, category: "Basketball", subcategory: "Finishing", notes: "Schrittfolge betonen, Ball schützen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 30, makes: 22 }, trackingType: "reps", targetValue: 22, videoUrl: "https://www.youtube.com/results?search_query=euro+step+drill", restSeconds: 45 },
+  // Basketball – Shooting (neu)
+  { id: "ex-bs-31", name: "Off-Dribble Pullup", durationMin: 18, category: "Basketball", subcategory: "Shooting", notes: "1-2 Dribbles, balanciert landen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 60, makes: 40 }, trackingType: "reps", targetValue: 40, videoUrl: "https://www.youtube.com/results?search_query=off+the+dribble+pullup+drill", restSeconds: 45 },
+  { id: "ex-bs-32", name: "Free Throws Cluster", durationMin: 10, category: "Basketball", subcategory: "Shooting", notes: "5er Cluster, Routine festigen", metricKeys: ["tries", "makes"], targetByMetric: { tries: 50, makes: 38 }, trackingType: "reps", targetValue: 38, videoUrl: "https://www.youtube.com/results?search_query=free+throw+routine", restSeconds: 20 },
+  { id: "ex-bs-33", name: "Catch & Shoot 5 Spots", durationMin: 18, category: "Basketball", subcategory: "Shooting", notes: "Game-Speed, ohne Auflandung", metricKeys: ["tries", "makes"], targetByMetric: { tries: 75, makes: 50 }, trackingType: "reps", targetValue: 50, videoUrl: "https://www.youtube.com/results?search_query=catch+and+shoot+drill", restSeconds: 30 },
+  // Basketball – Conditioning (neu)
+  { id: "ex-bc-41", name: "Suicide Sprints", durationMin: 10, category: "Basketball", subcategory: "Conditioning", notes: "4 Linien, full intensity", metricKeys: ["reps", "time"], targetByMetric: { reps: 6, time: 6 }, trackingType: "reps", targetValue: 6, restSeconds: 90 },
+  { id: "ex-bc-42", name: "Defensive Slides", durationMin: 8, category: "Basketball", subcategory: "Conditioning", notes: "Tief in Verteidigung, Hände aktiv", metricKeys: ["time", "reps"], targetByMetric: { time: 30, reps: 8 }, trackingType: "reps", targetValue: 8, restSeconds: 45 },
+  // Gym – Oberkörper / Arme / Beine (neu + bestehende)
+  { id: "ex-5", name: "Bench Press", durationMin: 15, category: "Gym", subcategory: "Oberkörper", notes: "Kontrollierte Exzentrik", progressionModality: "barbell", metricKeys: ["weight", "reps"], targetByMetric: { weight: 70, reps: 8 }, trackingType: "weight", targetValue: 70, videoUrl: "https://www.youtube.com/results?search_query=bench+press+form", restSeconds: 120 },
+  { id: "ex-6", name: "Barbell Row", durationMin: 15, category: "Gym", subcategory: "Arme", notes: "Schulterblätter aktiv", progressionModality: "barbell", metricKeys: ["weight", "reps"], targetByMetric: { weight: 60, reps: 10 }, trackingType: "weight", targetValue: 60, videoUrl: "https://www.youtube.com/results?search_query=barbell+row+form", restSeconds: 120 },
+  { id: "ex-7", name: "Back Squat", durationMin: 18, category: "Gym", subcategory: "Beine", notes: "Tiefe sauber halten", progressionModality: "barbell", metricKeys: ["weight", "reps"], targetByMetric: { weight: 90, reps: 6 }, trackingType: "weight", targetValue: 90, videoUrl: "https://www.youtube.com/results?search_query=back+squat+form", restSeconds: 180 },
+  { id: "ex-8", name: "Cable Crunch", durationMin: 10, category: "Gym", subcategory: "Core", notes: "Rumpfspannung", progressionModality: "cable", metricKeys: ["weight", "reps"], targetByMetric: { weight: 35, reps: 15 }, trackingType: "weight", targetValue: 35, videoUrl: "https://www.youtube.com/results?search_query=cable+crunch+form", restSeconds: 60 },
+  { id: "ex-g-51", name: "Pull Ups", durationMin: 10, category: "Gym", subcategory: "Arme", notes: "Volle ROM, kein Schwung", progressionModality: "bodyweight", metricKeys: ["reps", "weight"], targetByMetric: { reps: 8, weight: 0 }, trackingType: "reps", targetValue: 8, videoUrl: "https://www.youtube.com/results?search_query=pull+up+form", restSeconds: 120 },
+  { id: "ex-g-52", name: "Romanian Deadlift", durationMin: 15, category: "Gym", subcategory: "Beine", notes: "Hüfte schieben, Beine leicht gebeugt", progressionModality: "barbell", metricKeys: ["weight", "reps"], targetByMetric: { weight: 70, reps: 8 }, trackingType: "weight", targetValue: 70, videoUrl: "https://www.youtube.com/results?search_query=romanian+deadlift+form", restSeconds: 150 },
+  { id: "ex-g-53", name: "Overhead Press", durationMin: 12, category: "Gym", subcategory: "Oberkörper", notes: "Glutes anspannen, Core fest", progressionModality: "barbell", metricKeys: ["weight", "reps"], targetByMetric: { weight: 45, reps: 6 }, trackingType: "weight", targetValue: 45, videoUrl: "https://www.youtube.com/results?search_query=overhead+press+form", restSeconds: 120 },
+  { id: "ex-g-54", name: "Bulgarian Split Squat", durationMin: 12, category: "Gym", subcategory: "Beine", notes: "Knee tracking, kontrollierte Exzentrik", progressionModality: "dumbbell", metricKeys: ["weight", "reps"], targetByMetric: { weight: 16, reps: 10 }, trackingType: "weight", targetValue: 16, videoUrl: "https://www.youtube.com/results?search_query=bulgarian+split+squat", restSeconds: 90 },
+  { id: "ex-g-55", name: "Plank Walkout", durationMin: 8, category: "Gym", subcategory: "Core", notes: "Schulter über Handgelenk", progressionModality: "bodyweight", metricKeys: ["reps", "time"], targetByMetric: { reps: 10, time: 60 }, trackingType: "reps", targetValue: 10, videoUrl: "https://www.youtube.com/results?search_query=plank+walkout", restSeconds: 45 },
+  // Home
+  { id: "ex-9", name: "Dead Bug", durationMin: 10, category: "Home", subcategory: "Recovery", notes: "Langsam und kontrolliert", metricKeys: ["reps", "time"], targetByMetric: { reps: 20, time: 45 }, trackingType: "reps", targetValue: 20, videoUrl: "https://www.youtube.com/results?search_query=dead+bug+exercise", restSeconds: 30 },
+  { id: "ex-h-61", name: "Wall Sit", durationMin: 5, category: "Home", subcategory: "Conditioning", notes: "Hüfte parallel, halten", metricKeys: ["time"], targetByMetric: { time: 60 }, trackingType: "reps", targetValue: 60, videoUrl: "https://www.youtube.com/results?search_query=wall+sit", restSeconds: 60 },
+  { id: "ex-h-62", name: "Mountain Climbers", durationMin: 6, category: "Home", subcategory: "Conditioning", notes: "Schnell und kontrolliert", metricKeys: ["reps", "time"], targetByMetric: { reps: 40, time: 30 }, trackingType: "reps", targetValue: 40, videoUrl: "https://www.youtube.com/results?search_query=mountain+climbers", restSeconds: 45 },
+  { id: "ex-h-63", name: "Couch Stretch", durationMin: 6, category: "Home", subcategory: "Mobility", notes: "Hüftbeuger öffnen, je Seite", metricKeys: ["time"], targetByMetric: { time: 90 }, trackingType: "reps", targetValue: 90, videoUrl: "https://www.youtube.com/results?search_query=couch+stretch", restSeconds: 0 },
+  // Regeneration
+  { id: "ex-regen-1", name: "Box Breathing", durationMin: 8, category: "Regeneration", subcategory: "Meditation", notes: "4-4-4-4 Atmung", metricKeys: ["time", "intensity"], targetByMetric: { time: 8, intensity: 5 }, trackingType: "reps", targetValue: 8, videoUrl: "https://www.youtube.com/results?search_query=box+breathing+technique" },
+  { id: "ex-regen-2", name: "Hip Mobility Flow", durationMin: 12, category: "Regeneration", subcategory: "Mobilität & Dehnung", notes: "Ruhig und kontrolliert", metricKeys: ["time", "intensity"], targetByMetric: { time: 12, intensity: 6 }, trackingType: "reps", targetValue: 12, videoUrl: "https://www.youtube.com/results?search_query=hip+mobility+flow" },
   { id: "ex-regen-3", name: "Zone-2 Walk", durationMin: 20, category: "Regeneration", subcategory: "Leichte Ausdauer", notes: "Niedrige Belastung", metricKeys: ["time", "distance"], targetByMetric: { time: 20, distance: 2 }, trackingType: "reps", targetValue: 20 },
+  { id: "ex-regen-4", name: "Foam Rolling Beine", durationMin: 10, category: "Regeneration", subcategory: "Mobilität & Dehnung", notes: "Schwer-zugängliche Trigger 30s halten", metricKeys: ["time"], targetByMetric: { time: 10 }, trackingType: "reps", targetValue: 10, videoUrl: "https://www.youtube.com/results?search_query=foam+rolling+legs" },
+  { id: "ex-regen-5", name: "Shoulder CARs", durationMin: 8, category: "Regeneration", subcategory: "Mobilität & Dehnung", notes: "Vollständige Schulter-Kreise je Seite", metricKeys: ["reps", "time"], targetByMetric: { reps: 10, time: 8 }, trackingType: "reps", targetValue: 10, videoUrl: "https://www.youtube.com/results?search_query=shoulder+CARs+mobility" },
 ];
 
 export const defaultWorkouts: Workout[] = [
@@ -92,16 +126,6 @@ export const defaultWorkouts: Workout[] = [
   { id: "wo-regen-1", name: "Regeneration Atemfokus", category: "Regeneration", subcategory: "Meditation", notes: "Nach intensiven Tagen", level: 1, exerciseIds: ["ex-regen-1"] },
   { id: "wo-regen-2", name: "Regeneration Mobility", category: "Regeneration", subcategory: "Mobilität & Dehnung", notes: "Beweglichkeit", level: 1, exerciseIds: ["ex-regen-2"] },
   { id: "wo-regen-3", name: "Regeneration Cardio Light", category: "Regeneration", subcategory: "Leichte Ausdauer", notes: "Lockere Durchblutung", level: 1, exerciseIds: ["ex-regen-3"] },
-];
-
-export const weeklyWorkoutPlan: { day: WeekdayKey; label: string; workoutId: string }[] = [
-  { day: "monday", label: "Montag", workoutId: "wo-4" },
-  { day: "tuesday", label: "Dienstag", workoutId: "wo-2" },
-  { day: "wednesday", label: "Mittwoch", workoutId: "wo-6" },
-  { day: "thursday", label: "Donnerstag", workoutId: "wo-3" },
-  { day: "friday", label: "Freitag", workoutId: "wo-5" },
-  { day: "saturday", label: "Samstag", workoutId: "wo-3" },
-  { day: "sunday", label: "Sonntag", workoutId: "wo-7" },
 ];
 
 export function getWorkoutById(workoutId: string) {

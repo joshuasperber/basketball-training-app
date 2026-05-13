@@ -13,6 +13,7 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises } from "@/lib/training-storage";
 import { buildPlayerBadges, computeBadgeStats } from "@/lib/badge-system";
 import TopSubTabs from "@/components/TopSubTabs";
+import { loadGameStats } from "@/lib/game-stats";
 
 type DailyStreak = { current: number; best: number };
 
@@ -275,14 +276,38 @@ export default function LevelPage() {
     const stats = computeBadgeStats(sessions, weightedLevelData.level);
     return buildPlayerBadges(stats).unlocked;
   }, [weightedLevelData.level]);
+  const gameStatsSummary = useMemo(() => {
+    const entries = loadGameStats();
+    const points = entries.reduce((sum, entry) => sum + (entry.points ?? 0), 0);
+    const assists = entries.reduce((sum, entry) => sum + (entry.assists ?? 0), 0);
+    const rebounds = entries.reduce((sum, entry) => sum + (entry.rebounds ?? 0), 0);
+    const steals = entries.reduce((sum, entry) => sum + (entry.steals ?? 0), 0);
+    const recentLabels = [...entries]
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+      .map((e) => e.opponentLabel?.trim())
+      .filter(Boolean)
+      .slice(0, 4) as string[];
+    return { entries: entries.length, points, assists, rebounds, steals, recentLabels };
+  }, []);
 
 
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 pb-24 text-white">
-      <h1 className="text-2xl font-bold">Level</h1>
-      <p className="mt-2 text-zinc-400">Globales Level oben, darunter klare Skill-Level pro Bereich und Unterkategorie.</p>
-      <TopSubTabs items={[{ label: "Stats", href: "/stats" }, { label: "Level", href: "/level" }]} />
-      <p className="mt-1 text-sm text-cyan-300">Weiter so, {username} – jede Session zählt.</p>
+    <main className="app-container animate-in">
+      <header>
+        <p className="page-eyebrow">Progression</p>
+        <h1 className="page-title">Level</h1>
+        <p className="page-subtitle">Globales Level oben, darunter klare Skill-Level pro Bereich und Unterkategorie.</p>
+        <p className="mt-1 text-sm text-cyan-300">Weiter so, {username} – jede Session zählt.</p>
+      </header>
+      <div className="mt-3">
+        <TopSubTabs
+          items={[
+            { label: "Stats", href: "/stats" },
+            { label: "Level", href: "/level" },
+            { label: "Review", href: "/review" },
+          ]}
+        />
+      </div>
 
       {popupMessage ? (
         <div className="mt-4 rounded-2xl border border-cyan-500 bg-cyan-950/40 p-4">
@@ -393,6 +418,20 @@ export default function LevelPage() {
           </div>
         </section>
       ) : null}
+      <section className="mt-4 rounded-2xl border border-violet-600/40 bg-gradient-to-br from-violet-950/40 via-zinc-950 to-zinc-950 p-5">
+        <h3 className="text-lg font-semibold text-violet-100">Spiel-Level Kategorie</h3>
+        <p className="mt-2 text-sm text-zinc-300">
+          Getrackte Spiele/Spieltrainings: <strong>{gameStatsSummary.entries}</strong> • Punkte:{" "}
+          <strong>{gameStatsSummary.points}</strong> • Assists: <strong>{gameStatsSummary.assists}</strong> • Rebounds:{" "}
+          <strong>{gameStatsSummary.rebounds}</strong> • Steals: <strong>{gameStatsSummary.steals}</strong>
+        </p>
+        {gameStatsSummary.recentLabels.length > 0 ? (
+          <p className="mt-3 text-xs text-zinc-500">
+            Zuletzt:{" "}
+            <span className="text-zinc-300">{gameStatsSummary.recentLabels.join(" · ")}</span>
+          </p>
+        ) : null}
+      </section>
     </main>
   );
 }

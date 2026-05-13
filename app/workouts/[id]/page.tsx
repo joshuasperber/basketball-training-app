@@ -179,11 +179,11 @@ export default function WorkoutExecutionPage() {
 
   if (!workout) {
     return (
-      <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-        <div className="w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-lg font-semibold">Workout nicht gefunden.</p>
-          <Link href="/training" className="mt-3 inline-block text-indigo-300 underline">
-            Zurück zu Training
+      <main className="app-container">
+        <div className="app-card">
+          <p className="text-lg font-bold">Workout nicht gefunden.</p>
+          <Link href="/training" className="btn btn-ghost btn-sm mt-3">
+            ← Zurück zu Training
           </Link>
         </div>
       </main>
@@ -191,28 +191,29 @@ export default function WorkoutExecutionPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
+    <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
-        <header className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h1 className="text-2xl font-bold">{workout.name}</h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {workout.category} • {workout.subcategory} • Level {workout.level}
+        <header className="app-card--brand">
+          <p className="page-eyebrow">Workout</p>
+          <h1 className="page-title">{workout.name}</h1>
+          <p className="mt-2 text-sm text-muted">
+            {workout.category} · {workout.subcategory} · Level {workout.level}
           </p>
-          {workout.notes ? <p className="mt-1 text-xs text-zinc-500">Notizen: {workout.notes}</p> : null}
+          {workout.notes ? <p className="mt-1 text-xs text-faint">Notizen: {workout.notes}</p> : null}
         </header>
 
         <section className="space-y-3">
           {workoutExercises.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-700 p-4 text-zinc-400">
+            <p className="rounded-2xl border border-dashed border-white/15 p-4 text-muted">
               Dieses Workout enthält aktuell keine Exercises.
             </p>
           ) : (
             workoutExercises.map((exercise) => {
               const currentLog = getLog(exercise.id);
               return (
-                <article key={exercise.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-                  <h2 className="text-lg font-semibold">{exercise.name}</h2>
-                  <p className="mt-1 text-sm text-zinc-400">
+                <article key={exercise.id} className="app-card">
+                  <h2 className="section-title">{exercise.name}</h2>
+                  <p className="mt-1 text-sm text-muted">
                     Ziel:{" "}
                     {exercise.metricKeys
                       .map((metric) => {
@@ -220,14 +221,14 @@ export default function WorkoutExecutionPage() {
                         return value !== undefined ? `${metric}: ${value}` : null;
                       })
                       .filter((value): value is string => Boolean(value))
-                      .join(" • ") || "-"}
+                      .join(" · ") || "-"}
                   </p>
-                  {exercise.notes ? <p className="mt-1 text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
+                  {exercise.notes ? <p className="mt-1 text-xs text-faint">Notizen: {exercise.notes}</p> : null}
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     {exercise.metricKeys.map((metric) => (
-                      <label key={metric} className="block text-sm text-zinc-300">
-                        {metric}
+                      <div key={metric}>
+                        <label className="input-label">{metric}</label>
                         <input
                           type="number"
                           value={currentLog?.metricValues?.[metric] ?? ""}
@@ -240,9 +241,9 @@ export default function WorkoutExecutionPage() {
                             })
                           }
                           placeholder={metric}
-                          className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                          className="input"
                         />
-                      </label>
+                      </div>
                     ))}
                   </div>
                   {validateMetricValues(currentLog?.metricValues ?? {}) ? (
@@ -251,38 +252,33 @@ export default function WorkoutExecutionPage() {
                     </p>
                   ) : null}
 
-                  <label className="mt-3 block text-sm text-zinc-300">
-                    Notiz
+                  <div className="mt-3">
+                    <label className="input-label">Notiz</label>
                     <textarea
                       value={currentLog?.note ?? ""}
                       onChange={(event) => updateLog(exercise.id, { note: event.target.value })}
                       rows={2}
-                      className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+                      className="textarea"
                     />
-                  </label>
-
+                  </div>
                 </article>
               );
             })
           )}
         </section>
 
-        <button
-          type="button"
-          onClick={handleSaveWorkout}
-          className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold"
-        >
+        <button type="button" onClick={handleSaveWorkout} className="btn btn-primary btn-block">
           Workout speichern
         </button>
 
         {saved ? (
-          <p className="rounded-xl border border-emerald-600 bg-emerald-900/20 px-4 py-3 text-emerald-300">
+          <p className="app-card--accent-emerald text-sm">
             Session gespeichert (lokal im State). Nächster Schritt: Persistenz über DB.
           </p>
         ) : null}
 
-        <Link href="/training" className="text-sm text-indigo-300 underline">
-          Zurück zu Training
+        <Link href="/training" className="btn btn-ghost btn-sm self-start">
+          ← Zurück zu Training
         </Link>
       </div>
     </main>

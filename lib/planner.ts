@@ -24,12 +24,52 @@ export type DayConfig = {
 
 export type WeekConfig = Record<DayKey, DayConfig>;
 
+export type MesocyclePhase = "base" | "build" | "peak" | "deload";
+
 export type PlannerInput = {
   position: string;
   playStyle: string;
   weekConfig: WeekConfig;
   weeklyGoalSessions: number;
+  /** Optional: aktuelle Periodisierungs-Phase. */
+  mesocyclePhase?: MesocyclePhase;
 };
+
+export const PHASE_VOLUME_FACTOR: Record<MesocyclePhase, number> = {
+  base: 1.0,
+  build: 1.12,
+  peak: 0.92,
+  deload: 0.65,
+};
+
+export const PHASE_INTENSITY_HINT: Record<MesocyclePhase, "rest" | "recovery" | "light" | "medium" | "high"> = {
+  base: "medium",
+  build: "high",
+  peak: "high",
+  deload: "light",
+};
+
+function applyPhaseModifiers(
+  minutes: number,
+  intensity: PlannedDay["intensity"],
+  sessionType: PlannedDay["sessionType"],
+  phase: MesocyclePhase | undefined,
+): { minutes: number; intensity: PlannedDay["intensity"] } {
+  if (!phase || sessionType === "none" || sessionType === "recovery" || sessionType === "game") {
+    return { minutes, intensity };
+  }
+  const factor = PHASE_VOLUME_FACTOR[phase];
+  const nextMinutes = Math.max(0, Math.round((minutes * factor) / 5) * 5);
+  let nextIntensity: PlannedDay["intensity"] = intensity;
+  if (phase === "deload" && (intensity === "high" || intensity === "medium")) {
+    nextIntensity = "light";
+  } else if (phase === "peak" && intensity === "medium") {
+    nextIntensity = "high";
+  } else if (phase === "build" && intensity === "medium") {
+    nextIntensity = "high";
+  }
+  return { minutes: nextMinutes, intensity: nextIntensity };
+}
 
 export type PlannedDay = {
   day: DayKey;
@@ -67,41 +107,58 @@ function normalizeMinutes(mode: DayMode, minutes: number) {
 }
 
 export function buildWeeklyPlan(input: PlannerInput): PlannedDay[] {
+  const phase = input.mesocyclePhase;
+  const phaseSuffix = phase
+    ? ` · Phase: ${({ base: "Basis", build: "Aufbau", peak: "Peak", deload: "Deload" } as const)[phase]}`
+    : "";
+
   return DAYS.map((day) => {
     const config = input.weekConfig[day] ?? { mode: "unavailable", minutes: 0 };
-    const minutes = normalizeMinutes(config.mode, config.minutes);
+    const baseMinutes = normalizeMinutes(config.mode, config.minutes);
 
+    let raw: PlannedDay;
     switch (config.mode) {
       case "unavailable":
-        return { day, minutes: 0, intensity: "rest", sessionType: "none", reason: "Keine Zeit" };
+        raw = { day, minutes: 0, intensity: "rest", sessionType: "none", reason: "Keine Zeit" };
+        break;
       case "rest":
-        return { day, minutes: 0, intensity: "recovery", sessionType: "recovery", reason: "Keine Zeit: nur lockeres Auslaufen/Dehnung" };
+        raw = { day, minutes: 0, intensity: "recovery", sessionType: "recovery", reason: "Keine Zeit: nur lockeres Auslaufen/Dehnung" };
+        break;
       case "recovery":
-        return { day, minutes, intensity: "recovery", sessionType: "recovery", reason: "Aktive Regeneration" };
+        raw = { day, minutes: baseMinutes, intensity: "recovery", sessionType: "recovery", reason: "Aktive Regeneration" };
+        break;
       case "game_day":
-        return { day, minutes, intensity: "light", sessionType: "game", reason: "Spieltag: leichtes Warm-up" };
+        raw = { day, minutes: baseMinutes, intensity: "light", sessionType: "game", reason: "Spieltag: leichtes Warm-up" };
+        break;
       case "game_training":
-         return { day, minutes, intensity: "medium", sessionType: "game-training", reason: "Spieltraining: 15 Min vorab + 30 Min Nachgang" };
+        raw = { day, minutes: baseMinutes, intensity: "medium", sessionType: "game-training", reason: "Spieltraining: 15 Min vorab + 30 Min Nachgang" };
+        break;
       case "basketball_training":
-        return {
+        raw = {
           day,
-          minutes,
+          minutes: baseMinutes,
           intensity: "high",
           sessionType: "basketball",
-          reason: `${input.position.toUpperCase()} • ${input.playStyle}`,
+          reason: `${input.position.toUpperCase()} • ${input.playStyle}${phaseSuffix}`,
         };
+        break;
       case "gym":
-        return {
+        raw = {
           day,
-          minutes,
-          intensity: minutes >= 60 ? "high" : "medium",
+          minutes: baseMinutes,
+          intensity: baseMinutes >= 60 ? "high" : "medium",
           sessionType: "gym",
-          reason: "Gym-Fokus",
+          reason: `Gym-Fokus${phaseSuffix}`,
         };
+        break;
       case "custom":
       default:
-        return { day, minutes, intensity: "medium", sessionType: "custom", reason: "Benutzerdefiniert" };
+        raw = { day, minutes: baseMinutes, intensity: "medium", sessionType: "custom", reason: `Benutzerdefiniert${phaseSuffix}` };
+        break;
     }
+
+    const adjusted = applyPhaseModifiers(raw.minutes, raw.intensity, raw.sessionType, phase);
+    return { ...raw, minutes: adjusted.minutes, intensity: adjusted.intensity };
   });
 }
 

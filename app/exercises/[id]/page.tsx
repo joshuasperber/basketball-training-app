@@ -5,8 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
-import { appendExerciseHistory, getExerciseHistory } from "@/lib/session-storage";
+import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { appendWorkoutXpEntry } from "@/lib/level-system";
 
 type ExerciseSet = {
   id: string;
@@ -100,24 +101,79 @@ export default function ExerciseExecutionPage() {
     }
 
     const nowISO = new Date().toISOString();
+    let hasAnyCompleted = false;
+    let bestValue = 0;
+    const sessionLogs: Array<{
+      exerciseId: string;
+      completedValue: number | null;
+      note: string;
+      completed?: boolean;
+      made?: number | null;
+      attempts?: number | null;
+      misses?: number | null;
+      weightKg?: number | null;
+    }> = [];
+
     sets.forEach((set) => {
       const primaryMetric = exercise.metricKeys[0];
       const rawPrimaryValue = set.values[primaryMetric];
       const usesCompletionFlag = exercise.metricKeys.includes("completed");
       const isCompleted = usesCompletionFlag ? set.completed === true : true;
       const value = Number(rawPrimaryValue);
-      if (!Number.isFinite(value)) return;
+      if (!Number.isFinite(value) && !usesCompletionFlag) return;
       if (!isCompleted) return;
+      hasAnyCompleted = true;
+      const numericValue = Number.isFinite(value) ? value : 1;
+      bestValue = Math.max(bestValue, numericValue);
       appendExerciseHistory({
         id: `eh-${Date.now()}-${set.id}`,
         dateISO: nowISO,
         exerciseId: exercise.id,
-        value,
+        value: numericValue,
         note: sessionNote || undefined,
         source: "exercise",
       });
+      sessionLogs.push({
+        exerciseId: exercise.id,
+        completedValue: numericValue,
+        note: sessionNote || "",
+        completed: true,
+        made: getNumeric(set.values, "makes"),
+        attempts: getNumeric(set.values, "tries"),
+        misses: getNumeric(set.values, "misses"),
+        weightKg: getNumeric(set.values, "weight"),
+      });
 
     });
+    if (hasAnyCompleted) {
+      appendWorkoutSession({
+        id: `single-${Date.now()}-${exercise.id}`,
+        dateISO: nowISO,
+        workoutId: "single-exercise-session",
+        workoutName: `Einzel-Exercise: ${exercise.name}`,
+        workoutCategory: exercise.category,
+        workoutSubcategory: exercise.subcategory,
+        logs: sessionLogs.length > 0 ? sessionLogs : [{
+          exerciseId: exercise.id,
+          completedValue: bestValue || 1,
+          note: sessionNote || "",
+          completed: true,
+        }],
+      });
+
+      appendWorkoutXpEntry({
+        id: `xp-single-${Date.now()}-${exercise.id}`,
+        date: nowISO,
+        workoutId: "single-exercise-session",
+        workoutTitle: exercise.name,
+        exerciseXp: 18,
+        workoutXp: 0,
+        totalXp: 18,
+        achievedSets: 1,
+        totalSets: 1,
+        qualityScore: 1,
+      });
+    }
 
     await refreshHistory();
     setSaved(true);
@@ -136,11 +192,11 @@ export default function ExerciseExecutionPage() {
 
   if (!exercise) {
     return (
-      <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
-        <div className="w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-lg font-semibold">Exercise nicht gefunden.</p>
-          <Link href="/training" className="mt-3 inline-block text-indigo-300 underline">
-            Zurück zu Training
+      <main className="app-container">
+        <div className="app-card">
+          <p className="text-lg font-bold">Exercise nicht gefunden.</p>
+          <Link href="/training" className="btn btn-ghost btn-sm mt-3">
+            ← Zurück zu Training
           </Link>
         </div>
       </main>
@@ -148,14 +204,15 @@ export default function ExerciseExecutionPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-6 text-white">
+    <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
-        <header className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h1 className="text-2xl font-bold">{exercise.name}</h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {exercise.category} • {exercise.subcategory}
+        <header className="app-card--brand">
+          <p className="page-eyebrow">Exercise</p>
+          <h1 className="page-title">{exercise.name}</h1>
+          <p className="mt-2 text-sm text-muted">
+            {exercise.category} · {exercise.subcategory}
           </p>
-          <p className="mt-1 text-sm text-zinc-400">
+          <p className="mt-1 text-sm text-muted">
             Ziel:{" "}
             {exercise.metricKeys
               .map((metric) => {
@@ -163,33 +220,34 @@ export default function ExerciseExecutionPage() {
                 return target !== undefined ? `${metric}: ${target}` : null;
               })
               .filter((entry): entry is string => Boolean(entry))
-              .join(" • ") || "-"}
+              .join(" · ") || "-"}
           </p>
-          {exercise.notes ? <p className="mt-1 text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
+          {exercise.notes ? <p className="mt-1 text-xs text-faint">Notizen: {exercise.notes}</p> : null}
         </header>
 
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-lg font-semibold">Sets erfassen</h2>
+        <section className="app-card">
+          <p className="section-eyebrow">Sätze</p>
+          <h2 className="section-title mt-1">Sets erfassen</h2>
           <div className="mt-3 space-y-2">
             {sets.map((set, index) => (
-              <div key={set.id} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                <p className="text-sm font-semibold text-zinc-200">Satz {index + 1}</p>
+              <div key={set.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-sm font-semibold text-strong">Satz {index + 1}</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {exercise.metricKeys.map((metric) => (
-                    <label key={`${set.id}-${metric}`} className="block text-sm text-zinc-300">
-                      {metric}
+                    <div key={`${set.id}-${metric}`}>
+                      <label className="input-label">{metric}</label>
                       <input
                         type="number"
                         value={set.values[metric] ?? ""}
                         onChange={(event) => updateSetValue(set.id, metric, event.target.value)}
                         placeholder={metric}
-                        className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2"
+                        className="input"
                       />
-                    </label>
+                    </div>
                   ))}
                 </div>
                 {exercise.metricKeys.includes("completed") ? (
-                  <label className="mt-2 flex items-center gap-2 text-sm text-zinc-300">
+                  <label className="mt-2 flex items-center gap-2 text-sm text-strong">
                     <input
                       type="checkbox"
                       checked={set.completed === true}
@@ -210,49 +268,42 @@ export default function ExerciseExecutionPage() {
             onChange={(event) => setSessionNote(event.target.value)}
             placeholder="Notizen zur Session"
             rows={2}
-            className="mt-3 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+            className="textarea mt-3"
           />
 
-          <button
-            type="button"
-            onClick={addSet}
-            className="mt-3 rounded-xl border border-zinc-600 px-3 py-2 text-sm font-semibold text-zinc-200"
-          >
+          <button type="button" onClick={addSet} className="btn btn-ghost btn-sm mt-3">
             + Satz hinzufügen
           </button>
         </section>
 
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-lg font-semibold">Letzte 5 Einträge</h2>
+        <section className="app-card">
+          <p className="section-eyebrow">Verlauf</p>
+          <h2 className="section-title mt-1">Letzte 5 Einträge</h2>
           {history.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-400">Noch keine History vorhanden.</p>
+            <p className="mt-2 text-sm text-muted">Noch keine History vorhanden.</p>
           ) : (
-            <ul className="mt-2 space-y-1 text-sm text-zinc-300">
+            <ul className="mt-2 space-y-1 text-sm text-strong">
               {history.map((entry, index) => (
-                <li key={`${entry.dateISO}-${index}`}>
-                  {new Date(entry.dateISO).toLocaleDateString("de-DE")} • {entry.value}
+                <li key={`${entry.dateISO}-${index}`} className="text-muted">
+                  {new Date(entry.dateISO).toLocaleDateString("de-DE")} · <span className="text-strong">{entry.value}</span>
                 </li>
               ))}
             </ul>
           )}
         </section>
 
-        <button
-          type="button"
-          onClick={handleSaveExercise}
-          className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold"
-        >
+        <button type="button" onClick={handleSaveExercise} className="btn btn-primary btn-block">
           Exercise speichern
         </button>
 
         {saved ? (
-          <p className="rounded-xl border border-emerald-600 bg-emerald-900/20 px-4 py-3 text-emerald-300">
+          <p className="app-card--accent-emerald text-sm">
             Exercise-Session gespeichert (lokal im State).
           </p>
         ) : null}
 
-        <Link href="/training" className="text-sm text-indigo-300 underline">
-          Zurück zu Training
+        <Link href="/training" className="btn btn-ghost btn-sm self-start">
+          ← Zurück zu Training
         </Link>
       </div>
     </main>

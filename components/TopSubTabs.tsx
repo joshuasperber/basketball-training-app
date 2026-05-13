@@ -11,18 +11,14 @@ export default function TopSubTabs({ items }: TopSubTabsProps) {
   const pathname = usePathname();
 
   return (
-    <div className="mt-4 flex flex-wrap gap-4">
+    <div className="top-tabs">
       {items.map((item) => {
         const isActive = pathname === item.href;
         return (
           <Link
             key={item.href}
             href={item.href}
-            className={`inline-flex min-w-[180px] justify-center rounded-full border px-8 py-3 text-base font-semibold ${
-              isActive
-                ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
-                : "border-zinc-600 text-zinc-300"
-            }`}
+            className={`top-tabs__btn ${isActive ? "top-tabs__btn--active" : ""}`}
           >
             {item.label}
           </Link>

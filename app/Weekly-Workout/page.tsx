@@ -23,12 +23,19 @@ import {
 } from "@/lib/player-workout-engine";
 import {
   MANUAL_DAY_WORKOUTS_KEY,
+  storedRegenerationSignals,
   type PlannedWorkoutTag,
-  readDailyPlanMap,
   readManualDayDisabledMap,
   writeManualDayDisabledMap,
+  writeWeeklyRegenSlotMap,
 } from "@/lib/activity-calendar";
+import { weeklyRecoverySuggestionSlotVisible } from "@/lib/weekly-regeneration";
+import WeeklyBasketballCoach from "@/components/WeeklyBasketballCoach";
 import TopSubTabs from "@/components/TopSubTabs";
+import PageHeader from "@/components/PageHeader";
+import { buildBasketballCoachingPriorities } from "@/lib/basketball-coaching";
+import { getProgressionState } from "@/lib/level-system";
+import { loadTrainingGoalsBundle } from "@/lib/training-goals";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
 const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
@@ -113,6 +120,36 @@ type HiddenAutoWorkoutsMap = Record<string, string[]>;
 function buildAutoWorkoutId(dayIndex: (typeof weekdayOrder)[number], sport: string) {
   if (sport === "Regeneration") return `auto-weekly-recovery-${dayIndex}`;
   return `auto-weekly-${dayIndex}`;
+}
+
+function createManualEntryId(): string {
+  const random =
+    typeof globalThis !== "undefined" && typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `manual-day-${random}`;
+}
+
+function dedupeManualEntries(entries: ManualDayWorkout[]): ManualDayWorkout[] {
+  const seen = new Set<string>();
+  const out: ManualDayWorkout[] = [];
+  for (const entry of entries) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    out.push(entry);
+  }
+  return out;
+}
+
+function dedupeManualMap(map: Record<string, ManualDayWorkout[]>): Record<string, ManualDayWorkout[]> {
+  const out: Record<string, ManualDayWorkout[]> = {};
+  let changed = false;
+  for (const [key, entries] of Object.entries(map)) {
+    const cleaned = dedupeManualEntries(entries);
+    if (cleaned.length !== entries.length) changed = true;
+    out[key] = cleaned;
+  }
+  return changed ? out : map;
 }
 
 function readHiddenAutoWorkoutsMap(): HiddenAutoWorkoutsMap {
@@ -291,9 +328,11 @@ function selectBestWorkout(
   position: string,
   playStyle: string,
   lastAssignedSubcategoryByCategory: Partial<Record<Category, string>>,
+  basketballCoachingPriorities: string[] = [],
 ): SuggestedWorkout {
-  const targetWithExtra = targetMinutes;
-  const modeLabel = mode === "game-training" ? "Spieltraining (15 Min vorab + 30 Min danach)" : "Direktes Training";
+  const isGameMode = mode === "game_day" || mode === "game_training";
+  const targetWithExtra = isGameMode ? (mode === "game_day" ? 60 : 30) : targetMinutes;
+  const modeLabel = isGameMode ? (mode === "game_day" ? "Spieltag Warm-Up" : "Spieltraining Warm-Up") : "Direktes Training";
   if (mode === "recovery") {
     return buildRecoverySuggestion(day, exercises);
   }
@@ -302,7 +341,13 @@ function selectBestWorkout(
 
   const desiredCategory: Category =
     mode === "gym" ? "Gym" : "Basketball";
-  const focusProfile = getFocusProfile({ position, playStyle });
+  let focusProfile = getFocusProfile({ position, playStyle });
+  if (desiredCategory === "Basketball" && basketballCoachingPriorities.length > 0) {
+    focusProfile = {
+      ...focusProfile,
+      basketball: [...new Set([...basketballCoachingPriorities, ...focusProfile.basketball])],
+    };
+  }
 
   const categoryFreshness = freshnessMapByCategory[desiredCategory] ?? {};
   const subcategoryRank = (subcategory: string) => categoryFreshness[subcategory] ?? 0;
@@ -315,12 +360,14 @@ function selectBestWorkout(
       filteredByCategory.map((workout) => workout.subcategory),
     ),
   ];
-  const preferredSubcategory = pickSubcategoryForDay({
-    category: desiredCategory,
-    focusProfile,
-    usage: weeklySubcategoryUsage[desiredCategory] ?? {},
-    availableSubcategories,
-  });
+  const preferredSubcategory = isGameMode
+    ? "Warm-Up"
+    : pickSubcategoryForDay({
+        category: desiredCategory,
+        focusProfile,
+        usage: weeklySubcategoryUsage[desiredCategory] ?? {},
+        availableSubcategories,
+      });
   if (filteredByCategory.length === 0) {
     const generated = buildGeneratedWorkout({
       day,
@@ -476,13 +523,16 @@ export default function WeeklyWorkoutPage() {
   );
   const [plannedEntries, setPlannedEntries] = useState<PlannedUiEntry[] | null>(null);
   const [suggestionsByDay, setSuggestionsByDay] = useState<Record<DayKey, SuggestedWorkout> | null>(null);
+  /** Auto-Plan unabhängig von manuellen Einträgen (zeigt echtes Engine-Ergebnis). */
+  const [autoSuggestionsByDay, setAutoSuggestionsByDay] = useState<Record<DayKey, SuggestedWorkout> | null>(null);
   const [manualWorkoutsByDate, setManualWorkoutsByDate] = useState<Record<string, ManualDayWorkout[]>>({});
   const [selectedWorkoutByDay, setSelectedWorkoutByDay] = useState<Partial<Record<DayKey, string>>>({});
   const [manualVersion, setManualVersion] = useState(0);
-  const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
   const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
   const [hiddenAutoWorkoutsByDate, setHiddenAutoWorkoutsByDate] = useState<HiddenAutoWorkoutsMap>({});
   const [profileVersion, setProfileVersion] = useState(0);
+  /** Nur nach Mount gesetzt — vermeidet Hydration-Mismatch (localStorage vs. SSR-Default). */
+  const [mesocycleLabel, setMesocycleLabel] = useState<string | null>(null);
   const availableExercises = useMemo(() => loadExercises(), []);
   const sessions = getWorkoutSessions();
   const completedDateSet = new Set(sessions.map((session) => toLocalDateKey(new Date(session.dateISO))));
@@ -501,11 +551,13 @@ export default function WeeklyWorkoutPage() {
 
       try {
         const parsed = JSON.parse(raw) as ProfileLocalCache;
+        const mesocyclePhase = loadTrainingGoalsBundle().mesocyclePhase;
         const computed = buildWeeklyPlan({
           position: parsed.profile.favorite_position ?? "sg",
           playStyle: parsed.playStyle,
           weekConfig: parsed.weekConfig,
           weeklyGoalSessions: parsed.weeklyGoalSessions,
+          mesocyclePhase,
         });
 
         setPlannedEntries(computed);
@@ -539,23 +591,13 @@ export default function WeeklyWorkoutPage() {
         };
         const lastAssignedSubcategoryByCategory: Partial<Record<Category, string>> = {};
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
-        const manualByDate = rawManual ? (JSON.parse(rawManual) as Record<string, ManualDayWorkout[]>) : {};
+        const rawManualByDate = rawManual ? (JSON.parse(rawManual) as Record<string, ManualDayWorkout[]>) : {};
+        const manualByDate = dedupeManualMap(rawManualByDate);
+        if (manualByDate !== rawManualByDate) {
+          window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(manualByDate));
+        }
         const disabledMap = readManualDayDisabledMap();
-        computed.forEach((entry) => {
-          if (entry.minutes > 0) {
-            const date = toLocalDateKey(getDateForWeekday(weekdayOrder.find((idx) => dayByIndex[idx] === entry.day) ?? 1));
-            if (disabledMap[date]) delete disabledMap[date];
-          }
-        });
-        writeManualDayDisabledMap(disabledMap);
         const hiddenAutoMap = readHiddenAutoWorkoutsMap();
-        computed.forEach((entry) => {
-          if (entry.minutes > 0) {
-            const date = toLocalDateKey(getDateForWeekday(weekdayOrder.find((idx) => dayByIndex[idx] === entry.day) ?? 1));
-            if (hiddenAutoMap[date]) delete hiddenAutoMap[date];
-          }
-        });
-        writeHiddenAutoWorkoutsMap(hiddenAutoMap);
         setManualWorkoutsByDate(manualByDate);
         setDisabledManualDays(disabledMap);
         setHiddenAutoWorkoutsByDate(hiddenAutoMap);
@@ -585,45 +627,59 @@ export default function WeeklyWorkoutPage() {
           usedWorkoutIds.add(overrideWorkout.id);
           avoidSubcategories[overrideWorkout.category] = [overrideWorkout.subcategory];
         }
+        const coachingPriorities = buildBasketballCoachingPriorities(
+          sessions,
+          parsed.profile.favorite_position ?? "sg",
+          parsed.playStyle,
+          getProgressionState().level,
+        );
+
         const suggested = {} as Record<DayKey, SuggestedWorkout>;
+        const autoSuggested = {} as Record<DayKey, SuggestedWorkout>;
         computed.forEach((entry) => {
-          const nextSuggestion = manualByDay[entry.day]?.[0]
+          const autoPick = selectBestWorkout(
+            entry.sessionType,
+            entry.day,
+            entry.minutes,
+            workouts,
+            exercises,
+            exercisesById,
+            freshnessMapByCategory,
+            usedWorkoutIds,
+            weeklySubcategoryUsage,
+            avoidSubcategories,
+            parsed.profile.favorite_position ?? "sg",
+            parsed.playStyle,
+            lastAssignedSubcategoryByCategory,
+            coachingPriorities,
+          );
+
+          autoSuggested[entry.day] = autoPick;
+
+          const manualFirst = manualByDay[entry.day]?.[0];
+          suggested[entry.day] = manualFirst
             ? {
-                title: manualByDay[entry.day]?.[0]?.title ?? "Manuelles Workout",
+                title: manualFirst.title ?? "Manuelles Workout",
                 durationMin: entry.minutes,
-                notes: manualByDay[entry.day]?.[0]?.notes || "Manuell geplant.",
-                sport: manualByDay[entry.day]?.[0]?.sport ?? "Basketball",
-                subcategory: manualByDay[entry.day]?.[0]?.subcategory ?? "-",
-                exerciseIds: manualByDay[entry.day]?.[0]?.exerciseIds ?? [],
-                exercises: (manualByDay[entry.day]?.[0]?.exerciseIds ?? [])
+                notes: manualFirst.notes || "Manuell geplant.",
+                sport: manualFirst.sport ?? "Basketball",
+                subcategory: manualFirst.subcategory ?? "-",
+                exerciseIds: manualFirst.exerciseIds ?? [],
+                exercises: (manualFirst.exerciseIds ?? [])
                   .map((exerciseId) => exercisesById[exerciseId]?.name)
                   .filter((name): name is string => Boolean(name)),
               }
-            : selectBestWorkout(
-                entry.sessionType,
-                entry.day,
-                entry.minutes,
-                workouts,
-                exercises,
-                exercisesById,
-                freshnessMapByCategory,
-                usedWorkoutIds,
-                weeklySubcategoryUsage,
-                avoidSubcategories,
-                parsed.profile.favorite_position ?? "sg",
-                parsed.playStyle,
-                lastAssignedSubcategoryByCategory,
-              );
+            : autoPick;
 
-          suggested[entry.day] = nextSuggestion;
-          const category = nextSuggestion.sport as Category | undefined;
+          const usageSource = suggested[entry.day];
+          const category = usageSource.sport as Category | undefined;
           if (!category || (category !== "Basketball" && category !== "Gym" && category !== "Home")) return;
-          lastAssignedSubcategoryByCategory[category] = nextSuggestion.subcategory;
+          lastAssignedSubcategoryByCategory[category] = usageSource.subcategory;
         });
 
         if (overrideWorkout) {
           const todayKey = dayByIndex[todayIndex];
-          suggested[todayKey] = {
+          const overrideSuggestion = {
             workoutId: overrideWorkout.id,
             title: overrideWorkout.name,
             durationMin: computeWorkoutDuration(overrideWorkout, exercisesById),
@@ -631,12 +687,16 @@ export default function WeeklyWorkoutPage() {
             sport: overrideWorkout.category,
             subcategory: overrideWorkout.subcategory,
           };
+          suggested[todayKey] = overrideSuggestion;
+          autoSuggested[todayKey] = overrideSuggestion;
         }
 
         setSuggestionsByDay(suggested);
+        setAutoSuggestionsByDay(autoSuggested);
       } catch {
         setPlannedEntries(null);
         setSuggestionsByDay(null);
+        setAutoSuggestionsByDay(null);
         setManualWorkoutsByDate({});
       }
     }, 0);
@@ -655,11 +715,47 @@ export default function WeeklyWorkoutPage() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDailyPlanMap(readDailyPlanMap());
-    }, 0);
-    return () => window.clearTimeout(timer);
+    const labels: Record<string, string> = {
+      base: "Basis",
+      build: "Aufbau",
+      peak: "Peak",
+      deload: "Deload",
+    };
+    const syncMesocycle = () => {
+      const phase = loadTrainingGoalsBundle().mesocyclePhase ?? "build";
+      setMesocycleLabel(labels[phase] ?? phase);
+    };
+    syncMesocycle();
+    window.addEventListener("bt:training-goals-updated", syncMesocycle);
+    return () => window.removeEventListener("bt:training-goals-updated", syncMesocycle);
   }, []);
+
+  const regenSlotByDateKey = useMemo(() => {
+    if (!suggestionsByDay || !autoSuggestionsByDay) return {};
+    const out: Record<string, boolean> = {};
+    for (const day of weekdayOrder) {
+      const manualDateKey = toLocalDateKey(getDateForWeekday(day));
+      const dayManualEntries = manualWorkoutsByDate[manualDateKey] ?? [];
+      const hiddenCardIds = new Set(hiddenAutoWorkoutsByDate[manualDateKey] ?? []);
+      const isDayDisabled = disabledManualDays[manualDateKey] === true;
+      const headlineSuggested = suggestionsByDay[dayByIndex[day]] ?? null;
+      const autoSuggestedWorkout = autoSuggestionsByDay[dayByIndex[day]] ?? null;
+      out[manualDateKey] = weeklyRecoverySuggestionSlotVisible({
+        manualDateKey,
+        dayManualEntries,
+        isDayDisabled,
+        headlineSuggestedWorkout: headlineSuggested,
+        autoSuggestedWorkout,
+        hiddenCardIds,
+      });
+    }
+    return out;
+  }, [autoSuggestionsByDay, disabledManualDays, hiddenAutoWorkoutsByDate, manualWorkoutsByDate, suggestionsByDay]);
+
+  useEffect(() => {
+    if (!suggestionsByDay || !autoSuggestionsByDay) return;
+    writeWeeklyRegenSlotMap(regenSlotByDateKey);
+  }, [autoSuggestionsByDay, regenSlotByDateKey, suggestionsByDay]);
 
   const deleteManualWorkout = (dayIndex: (typeof weekdayOrder)[number], manualWorkoutId: string) => {
     const dateKey = toLocalDateKey(getDateForWeekday(dayIndex));
@@ -671,16 +767,13 @@ export default function WeeklyWorkoutPage() {
       const next = { ...parsed, [dateKey]: nextEntries };
       if (nextEntries.length === 0) {
         delete next[dateKey];
-        const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
+        const disabledMap = { ...readManualDayDisabledMap() };
+        delete disabledMap[dateKey];
         writeManualDayDisabledMap(disabledMap);
         setDisabledManualDays(disabledMap);
-        const hasCompleted = completedDateSet.has(dateKey);
-        if (isTodayOrFutureDate(dateKey) && !hasCompleted) {
-          syncNoTimeForDate(dateKey);
-          setDailyPlanMap(readDailyPlanMap());
-        }
       }
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(next));
+      window.dispatchEvent(new Event("bt:plan-updated"));
       setManualWorkoutsByDate(next);
       setManualVersion((current) => current + 1);
     } catch {
@@ -699,16 +792,23 @@ export default function WeeklyWorkoutPage() {
       const currentEntries = parsed[sourceDateKey] ?? [];
       const moving = currentEntries.find((entry) => entry.id === manualWorkoutId);
       if (!moving) return;
+
       parsed[sourceDateKey] = currentEntries.filter((entry) => entry.id !== manualWorkoutId);
       if (parsed[sourceDateKey].length === 0) {
         delete parsed[sourceDateKey];
-        const disabledMap = { ...readManualDayDisabledMap(), [sourceDateKey]: true };
+        const disabledMap = { ...readManualDayDisabledMap() };
+        delete disabledMap[sourceDateKey];
         writeManualDayDisabledMap(disabledMap);
         setDisabledManualDays(disabledMap);
-        syncNoTimeForDate(sourceDateKey);
-        setDailyPlanMap(readDailyPlanMap());
       }
-      parsed[targetDateKey] = [moving, ...(parsed[targetDateKey] ?? [])];
+
+      const existingTargetEntries = parsed[targetDateKey] ?? [];
+      const targetHasSameId = existingTargetEntries.some((entry) => entry.id === moving.id);
+      const movedEntry: ManualDayWorkout = targetHasSameId
+        ? { ...moving, id: createManualEntryId() }
+        : moving;
+      parsed[targetDateKey] = dedupeManualEntries([movedEntry, ...existingTargetEntries]);
+
       const disabledMap = readManualDayDisabledMap();
       if (disabledMap[targetDateKey]) {
         const nextDisabled = { ...disabledMap };
@@ -717,6 +817,7 @@ export default function WeeklyWorkoutPage() {
         setDisabledManualDays(nextDisabled);
       }
       window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+      window.dispatchEvent(new Event("bt:plan-updated"));
       setManualWorkoutsByDate(parsed);
       setManualVersion((current) => current + 1);
     } catch {
@@ -732,20 +833,33 @@ export default function WeeklyWorkoutPage() {
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
     const parsed = raw ? (JSON.parse(raw) as Record<string, ManualDayWorkout[]>) : {};
 
-    const moveStamp = `${dayIndex}-${selectedCard.id.replace(/[^a-z0-9-]/gi, "").toLowerCase()}`;
+    const isRecoveryCard = selectedCard.id.startsWith("recovery-") || selectedCard.sport === "Regeneration";
     const autoTitle = selectedCard.title.replace(/\s*\(.+\)\s*$/, "").trim();
-    const autoEntry: ManualDayWorkout = {
-      id: `manual-${targetDateKey}-${moveStamp}`,
-      title: autoTitle,
-      sport: (selectedCard.sport as ManualDayWorkout["sport"]) ?? "Basketball",
-      subcategory: selectedCard.subcategory,
-      notes: selectedCard.notes || "Aus Auto-Plan verschoben.",
-      exerciseIds: selectedCard.autoSuggestion?.exerciseIds ?? [],
-    };
-    parsed[targetDateKey] = [autoEntry, ...(parsed[targetDateKey] ?? [])];
-    window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+    const targetEntries = parsed[targetDateKey] ?? [];
 
-    if (!selectedCard.id.startsWith("recovery-")) {
+    const alreadyOnTarget = targetEntries.some(
+      (entry) =>
+        entry.title === autoTitle &&
+        entry.sport === ((selectedCard.sport as ManualDayWorkout["sport"]) ?? "Basketball") &&
+        entry.subcategory === selectedCard.subcategory,
+    );
+
+    if (!alreadyOnTarget) {
+      const autoEntry: ManualDayWorkout = {
+        id: createManualEntryId(),
+        title: autoTitle,
+        sport: (selectedCard.sport as ManualDayWorkout["sport"]) ?? "Basketball",
+        subcategory: selectedCard.subcategory,
+        notes: selectedCard.notes || "Aus Auto-Plan verschoben.",
+        exerciseIds: selectedCard.autoSuggestion?.exerciseIds ?? [],
+      };
+      parsed[targetDateKey] = dedupeManualEntries([autoEntry, ...targetEntries]);
+    }
+
+    window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+    window.dispatchEvent(new Event("bt:plan-updated"));
+
+    if (!isRecoveryCard) {
       hideAutoWorkoutCard(dayIndex, selectedCard.id);
       const sourceRecoveryCardId = `recovery-${sourceDateKey}`;
       const hiddenMap = readHiddenAutoWorkoutsMap();
@@ -754,17 +868,31 @@ export default function WeeklyWorkoutPage() {
       writeHiddenAutoWorkoutsMap(nextHidden);
       setHiddenAutoWorkoutsByDate(nextHidden);
 
-      const targetRecovery = buildRecoverySuggestion(dayByIndex[dayIndex], availableExercises);
-      const recoveryEntry: ManualDayWorkout = {
-        id: `manual-${targetDateKey}-recovery-${moveStamp}`,
-        title: targetRecovery.title,
-        sport: "Regeneration",
-        subcategory: targetRecovery.subcategory,
-        notes: targetRecovery.notes,
-        exerciseIds: targetRecovery.exerciseIds ?? [],
-      };
-      parsed[targetDateKey] = [...parsed[targetDateKey], recoveryEntry];
-      window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+      const targetHasRecovery = (parsed[targetDateKey] ?? []).some(
+        (entry) => entry.sport === "Regeneration",
+      );
+
+      if (!targetHasRecovery) {
+        const targetRecovery = buildRecoverySuggestion(dayByIndex[dayIndex], availableExercises);
+        const recoveryEntry: ManualDayWorkout = {
+          id: createManualEntryId(),
+          title: targetRecovery.title,
+          sport: "Regeneration",
+          subcategory: targetRecovery.subcategory,
+          notes: targetRecovery.notes,
+          exerciseIds: targetRecovery.exerciseIds ?? [],
+        };
+        parsed[targetDateKey] = dedupeManualEntries([...(parsed[targetDateKey] ?? []), recoveryEntry]);
+        window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+      }
+    }
+
+    const disabledMap = readManualDayDisabledMap();
+    if (disabledMap[targetDateKey]) {
+      const nextDisabled = { ...disabledMap };
+      delete nextDisabled[targetDateKey];
+      writeManualDayDisabledMap(nextDisabled);
+      setDisabledManualDays(nextDisabled);
     }
 
     setManualWorkoutsByDate(parsed);
@@ -779,6 +907,7 @@ export default function WeeklyWorkoutPage() {
         const parsed = JSON.parse(rawManual) as Record<string, ManualDayWorkout[]>;
         delete parsed[dateKey];
         window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
+        window.dispatchEvent(new Event("bt:plan-updated"));
         setManualWorkoutsByDate(parsed);
       } catch {
         // noop
@@ -797,7 +926,6 @@ export default function WeeklyWorkoutPage() {
     const hasCompleted = completedDateSet.has(dateKey);
     if (isTodayOrFutureDate(dateKey) && !hasCompleted) {
       syncNoTimeForDate(dateKey);
-      setDailyPlanMap(readDailyPlanMap());
     }
     setManualVersion((current) => current + 1);
   };
@@ -817,38 +945,51 @@ export default function WeeklyWorkoutPage() {
       writeManualDayDisabledMap(disabledMap);
       setDisabledManualDays(disabledMap);
       syncNoTimeForDate(dateKey);
-      setDailyPlanMap(readDailyPlanMap());
     }
     setSelectedWorkoutByDay((current) => ({ ...current, [dayByIndex[dayIndex]]: undefined }));
     setManualVersion((current) => current + 1);
   };
 
   return (
-    <main className="min-h-screen bg-black p-6 pb-24 text-white">
-      <h1 className="text-2xl font-bold">Weekly Workout Plan</h1>
-      <p className="mt-2 text-zinc-400">Alle Tage sind direkt bearbeitbar – inklusive heute.</p>
-      <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
-      <p className="mt-2 text-xs text-zinc-500">Wenn noch alles leer ist: zuerst im Profil Trainings-Tage und Schwerpunkte setzen.</p>
+    <main className="app-container animate-in">
+      <PageHeader
+        eyebrow={mesocycleLabel ? `Mesozyklus · ${mesocycleLabel}` : "Wochenplan"}
+        title="Weekly Workout"
+        subtitle="Alle Tage sind direkt bearbeitbar – inklusive heute."
+        actions={
+          <>
+            <Link href="/tips" className="btn btn-ghost btn-sm">Tipps &amp; Notizen</Link>
+            <Link href="/stats" className="btn btn-ghost btn-sm">Spiel-Stats</Link>
+          </>
+        }
+      />
+
+      <div className="mt-3">
+        <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
+      </div>
+
+      <p className="mt-3 text-xs text-faint">Tipp: Wenn noch alles leer ist, im Profil zuerst Trainings-Tage und Schwerpunkte setzen.</p>
+
+      <WeeklyBasketballCoach refreshKey={manualVersion + profileVersion} />
 
       <div className="mt-6 space-y-3">
         {orderedDays.map((day) => {
           const workout = WEEKLY_WORKOUT_PLAN[day];
           const profilePlan = plannedEntries?.find((entry) => entry.day === dayByIndex[day]) ?? null;
           const suggestedWorkout = suggestionsByDay?.[dayByIndex[day]] ?? null;
+          const autoSuggestedWorkout = autoSuggestionsByDay?.[dayByIndex[day]] ?? null;
           const manualDateKey = toLocalDateKey(getDateForWeekday(day));
           const dayManualEntries = manualWorkoutsByDate[manualDateKey] ?? [];
           const hiddenCardIds = new Set(hiddenAutoWorkoutsByDate[manualDateKey] ?? []);
           const isDayDisabled = disabledManualDays[manualDateKey] === true;
-          const plannedTags = dailyPlanMap[manualDateKey] ?? [];
           const hasManualWorkout = dayManualEntries.length > 0;
           const isRestDisplay = !hasManualWorkout && (isDayDisabled || (suggestedWorkout?.durationMin ?? 0) <= 0 || suggestedWorkout?.sport === "-");
                     const workoutCards: WorkoutCardItem[] = [];
           const shouldAddRecoveryCard =
             !isRestDisplay &&
-            suggestedWorkout?.sport !== "Regeneration" &&
-            !plannedTags.includes("Regeneration") &&
-            dayManualEntries[0]?.sport !== "Rest" &&
-            dayManualEntries[0]?.sport !== "Regeneration";
+            autoSuggestedWorkout?.sport !== "Regeneration" &&
+            !storedRegenerationSignals(manualDateKey) &&
+            dayManualEntries[0]?.sport !== "Rest";
           if (dayManualEntries.length > 0) {
             dayManualEntries.forEach((manualEntry) => {
               workoutCards.push({
@@ -861,18 +1002,21 @@ export default function WeeklyWorkoutPage() {
                 durationMin: profilePlan?.minutes ?? suggestedWorkout?.durationMin ?? 0,
               });
             });
-                              } else if (suggestedWorkout && !isDayDisabled && !hiddenCardIds.has(suggestedWorkout.workoutId ?? `auto-${day}`)) {
-            const autoWorkoutId = suggestedWorkout.workoutId ?? buildAutoWorkoutId(day, suggestedWorkout.sport);
-            workoutCards.push({
-              id: autoWorkoutId,
-              title: suggestedWorkout.title,
-              sport: suggestedWorkout.sport,
-              subcategory: suggestedWorkout.subcategory,
-              notes: suggestedWorkout.notes,
-              workoutId: autoWorkoutId,
-              autoSuggestion: suggestedWorkout.workoutId ? undefined : suggestedWorkout,
-              durationMin: suggestedWorkout.durationMin,
-            });
+          }
+          if (autoSuggestedWorkout && !isDayDisabled) {
+            const autoWorkoutId = autoSuggestedWorkout.workoutId ?? buildAutoWorkoutId(day, autoSuggestedWorkout.sport);
+            if (!hiddenCardIds.has(autoWorkoutId)) {
+              workoutCards.push({
+                id: autoWorkoutId,
+                title: autoSuggestedWorkout.title,
+                sport: autoSuggestedWorkout.sport,
+                subcategory: autoSuggestedWorkout.subcategory,
+                notes: autoSuggestedWorkout.notes,
+                workoutId: autoWorkoutId,
+                autoSuggestion: autoSuggestedWorkout.workoutId ? undefined : autoSuggestedWorkout,
+                durationMin: autoSuggestedWorkout.durationMin,
+              });
+            }
           }
           if (shouldAddRecoveryCard) {
             const recoverySuggestion = buildRecoverySuggestion(dayByIndex[day], availableExercises);
@@ -940,93 +1084,100 @@ export default function WeeklyWorkoutPage() {
             ? `/workouts?day=${day}&manual=1&manualWorkoutId=${selectedCard.manualWorkoutId}`
             : `/workouts?day=${day}&manual=1`;
 
+          const dateLabel = getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+
           return (
             <article
               key={day}
-              className={`rounded-2xl border p-4 ${day === todayIndex ? "border-green-700 bg-green-950/20" : "border-zinc-800 bg-zinc-900"}`}
+              className={day === todayIndex ? "app-card app-card--today" : "app-card"}
             >
-              {showTodayCompletionState && allCardsCompleted ? (
-                <p className="mb-2 inline-flex rounded-full border border-emerald-500 bg-emerald-500/20 px-2 py-1 text-xs font-semibold text-emerald-200">
-                  Alle Workouts erfüllt ✅
-                </p>
-              ) : null}
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">
-                  {weekdayNames[day]}{" "}
-                  <span className="text-xs text-zinc-400">
-                    • {getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
-                  </span>
-                </h3>
+              <header className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-eyebrow">{day === todayIndex ? "Heute" : dateLabel}</p>
+                  <h3 className="mt-1 text-lg font-bold tracking-tight">{weekdayNames[day]}</h3>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {showTodayCompletionState && allCardsCompleted ? (
+                    <span className="chip chip-success">Alle erledigt ✅</span>
+                  ) : null}
+                  {profilePlan ? (
+                    <span className="chip">{profilePlan.minutes} Min</span>
+                  ) : null}
+                </div>
+              </header>
 
-              </div>
-
-              <p className="mt-2 text-lg font-medium">{isRestDisplay ? "Frei / Kein Workout geplant" : suggestedWorkout?.title ?? workout.title}</p>
+              <p className="mt-3 text-base font-semibold text-strong">
+                {isRestDisplay ? "Frei · Kein Workout geplant" : selectedCard?.title ?? suggestedWorkout?.title ?? workout.title}
+              </p>
               {profilePlan ? (
-                <p className="mt-2 text-sm text-emerald-300">
-                  Profil-Plan: {profilePlan.sessionType} • {profilePlan.intensity} • {profilePlan.minutes} Min
+                <p className="mt-1 text-xs text-muted">
+                  Profil-Plan: <span className="text-strong">{profilePlan.sessionType}</span> · {profilePlan.intensity}
                 </p>
               ) : null}
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                {workoutCards.length > 0 && !isRestDisplay ? workoutCards.map((card) => (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() =>
-                      setSelectedWorkoutByDay((current) => ({
-                        ...current,
-                        [dayByIndex[day]]: card.id,
-                      }))
-                    }
-                    className={`rounded-xl border p-3 text-left ${
-                      (showTodayCompletionState &&
-                        ((card.manualWorkoutId && completedIdsForDate.has(card.manualWorkoutId)) ||
-                          (card.workoutId && completedIdsForDate.has(card.workoutId))))
-                        ? "border-emerald-500 bg-emerald-900/30"
-                        : selectedCardId === card.id
-                          ? "border-cyan-400 bg-cyan-950/30"
-                          : "border-zinc-700 bg-zinc-950/50"
-                    }`}
-                  >
-                    <p className="font-semibold text-zinc-100">
-                      {card.title}{" "}
-                      {(showTodayCompletionState &&
-                        ((card.manualWorkoutId && completedIdsForDate.has(card.manualWorkoutId)) ||
-                          (card.workoutId && completedIdsForDate.has(card.workoutId)))) ? (
-                        <span className="text-lg text-emerald-300">✅</span>
-                      ) : null}
-                    </p>
-                    <p className="text-xs text-zinc-400">{card.sport} • {card.subcategory}</p>
-                    <p className="text-xs text-zinc-500">{card.durationMin} Min</p>
-                  </button>
-                )) : (
-                  <p className="rounded-lg border border-zinc-700 bg-zinc-950/40 p-3 text-xs text-zinc-400">
-                    {isRestDisplay ? "Tag ist als Frei markiert. Versuche heute trotzdem eine kleine Aktivität 🙌" : "Kein Workout hinterlegt."}
+
+              <div className="mt-4 grid gap-2 md:grid-cols-2">
+                {workoutCards.length > 0 && !isRestDisplay ? workoutCards.map((card, cardIndex) => {
+                  const isDone = showTodayCompletionState &&
+                    ((card.manualWorkoutId && completedIdsForDate.has(card.manualWorkoutId)) ||
+                      (card.workoutId && completedIdsForDate.has(card.workoutId)));
+                  const isSelected = selectedCardId === card.id;
+                  return (
+                    <button
+                      key={`${day}-${card.id}-${cardIndex}`}
+                      type="button"
+                      onClick={() =>
+                        setSelectedWorkoutByDay((current) => ({
+                          ...current,
+                          [dayByIndex[day]]: card.id,
+                        }))
+                      }
+                      className={`rounded-2xl border p-3 text-left transition ${
+                        isDone
+                          ? "border-emerald-500/55 bg-emerald-500/10"
+                          : isSelected
+                            ? "border-orange-400/70 bg-orange-500/10"
+                            : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]"
+                      }`}
+                    >
+                      <p className="flex items-center gap-2 font-semibold text-strong">
+                        <span className="truncate">{card.title}</span>
+                        {isDone ? <span className="text-emerald-300">✅</span> : null}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">{card.sport} · {card.subcategory}</p>
+                      <p className="mt-0.5 text-xs text-faint">{card.durationMin} Min</p>
+                    </button>
+                  );
+                }) : (
+                  <p className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 text-xs text-muted">
+                    {isRestDisplay
+                      ? "Tag ist als Frei markiert. Versuche heute trotzdem eine kleine Aktivität 🙌"
+                      : "Kein Workout hinterlegt."}
                   </p>
                 )}
               </div>
+
               {selectedCard && !isRestDisplay ? (
-                <div className="mt-3 flex flex-wrap gap-2 rounded-lg border border-zinc-700 bg-zinc-950/50 p-2">
-                  <Link
-                    href={startHref}
-                    className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
-                  >
+                <div className="mt-3 flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/[0.02] p-2">
+                  {(selectedCard.subcategory === "Spiel" || selectedCard.subcategory === "Spieltraining") ? (
+                    <Link
+                      href={`/game-track?date=${manualDateKey}&context=${selectedCard.subcategory === "Spieltraining" ? "game_training" : "game"}`}
+                      className="btn btn-violet btn-xs"
+                    >
+                      Spiel tracken
+                    </Link>
+                  ) : null}
+                  <Link href={startHref} className="btn btn-primary btn-xs">
                     {showTodayCompletionState && isSelectedCardCompleted
                       ? "Workout ansehen"
                       : isSelectedCardInProgress
                         ? "Workout bearbeiten"
                         : "Workout starten"}
                   </Link>
-                  <Link
-                    href={editHref}
-                    className="rounded-lg border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-950"
-                  >
-                    Workout bearbeiten
+                  <Link href={editHref} className="btn btn-outline btn-xs">
+                    Bearbeiten
                   </Link>
-                  <Link
-                    href={`/workouts?day=${day}&manual=1`}
-                    className="rounded-lg border border-emerald-500 px-3 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-950"
-                  >
-                    Workout hinzufügen
+                  <Link href={`/workouts?day=${day}&manual=1`} className="btn btn-emerald btn-xs">
+                    Hinzufügen
                   </Link>
                   <button
                     type="button"
@@ -1037,9 +1188,9 @@ export default function WeeklyWorkoutPage() {
                       }
                       hideAutoWorkoutCard(day, selectedCard.id);
                     }}
-                    className="rounded-lg border border-rose-500 px-3 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-950"
+                    className="btn btn-danger-outline btn-xs"
                   >
-                    Workout löschen
+                    {selectedCard.manualWorkoutId ? "Löschen" : "Ausblenden"}
                   </button>
                   <button
                     type="button"
@@ -1050,40 +1201,50 @@ export default function WeeklyWorkoutPage() {
                       }
                       moveAutoWorkoutToTomorrow(day, selectedCard);
                     }}
-                    className="rounded-lg border border-cyan-500 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-950"
+                    className="btn btn-cyan btn-xs"
                   >
-                    Auf morgen schieben
+                    Auf morgen
                   </button>
                   <button
                     type="button"
                     onClick={() => disableDayAsNoTime(day)}
-                    className="rounded-lg border border-zinc-500 px-3 py-1 text-xs font-semibold text-zinc-200 hover:bg-zinc-800"
+                    className="btn btn-ghost btn-xs"
                   >
-                    Tag auf Keine Zeit
+                    Keine Zeit
                   </button>
                 </div>
               ) : null}
+
               {!selectedCard || isRestDisplay ? (
-                <div className="mt-3">
-                  <Link
-                    href={`/workouts?day=${day}&manual=1`}
-                    className="rounded-lg border border-emerald-500 px-3 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-950"
-                  >
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href={`/workouts?day=${day}&manual=1`} className="btn btn-emerald btn-xs">
                     Workout hinzufügen
                   </Link>
+                  {!isRestDisplay ? null : (
+                    <button
+                      type="button"
+                      onClick={() => disableDayAsNoTime(day)}
+                      className="btn btn-ghost btn-xs"
+                    >
+                      Frei bestätigen
+                    </button>
+                  )}
                 </div>
               ) : null}
 
               {selectedCard && !isRestDisplay ? (
-                <p className="mt-2 text-xs text-zinc-500">{selectedCard.notes}</p>
+                <p className="mt-3 text-xs text-faint">{selectedCard.notes}</p>
               ) : isRestDisplay ? (
-                <p className="mt-2 text-xs text-emerald-300">
+                <p className="mt-3 text-xs text-emerald-300">
                   {REST_QUOTES[(day + new Date().getDate()) % REST_QUOTES.length]}
                 </p>
               ) : (
-                <ul className="mt-3 list-inside list-disc text-sm text-zinc-300">
+                <ul className="mt-3 space-y-1 text-sm text-muted">
                   {workout.exercises.map((exercise) => (
-                    <li key={`${workout.id}-${exercise.name}`}>{exercise.name}</li>
+                    <li key={`${workout.id}-${exercise.name}`} className="flex gap-2">
+                      <span aria-hidden className="mt-1 h-1 w-1 shrink-0 rounded-full bg-white/30" />
+                      <span>{exercise.name}</span>
+                    </li>
                   ))}
                 </ul>
               )}
