@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import {
   buildWeeklyPlan,
   getDaysStartingToday,
+  getDefaultWeekConfig,
   getNextDateForDay,
   type DayKey,
   type DayMode,
@@ -12,12 +13,16 @@ import {
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { toLocalDateKey } from "@/lib/workout";
 import {
+  applyWeekConfigToCalendar,
   getCompletedWorkoutDateSet,
+  markDateAsManualOverride,
   readDailyPlanMap,
   readManualDayDisabledMap,
+  readManualPlanOverrides,
   type PlannedWorkoutTag,
   writeDailyPlanMap,
   writeManualDayDisabledMap,
+  writeManualPlanOverrides,
 } from "@/lib/activity-calendar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadExercises } from "@/lib/training-storage";
@@ -76,6 +81,8 @@ type ProfileLocalCache = {
     standing_reach_cm: number | null;
     body_fat_pct: number | null;
   };
+  /** yyyy-mm-dd Tage, die nicht per weekConfig überschrieben werden sollen. */
+  manualPlanOverrides?: string[];
 };
 
 type SupabaseAuthUser = {
@@ -86,18 +93,6 @@ type SupabaseAuthUser = {
 function getDefaultPlayStyle(position: string | null) {
   const safePosition = position ?? "sg";
   return PLAY_STYLE_BY_POSITION[safePosition]?.[0] ?? "Shooter";
-}
-
-function getDefaultWeekConfig(): WeekConfig {
-  return {
-    monday: { mode: "gym", minutes: 60 },
-    tuesday: { mode: "basketball_training", minutes: 45 },
-    wednesday: { mode: "game_training", minutes: 45 },
-    thursday: { mode: "recovery", minutes: 30 },
-    friday: { mode: "basketball_training", minutes: 45 },
-    saturday: { mode: "gym", minutes: 60 },
-    sunday: { mode: "game_day", minutes: 20 },
-  };
 }
 
 function loadLocalCache() {
@@ -113,7 +108,8 @@ function loadLocalCache() {
 
 function saveLocalCache(payload: ProfileLocalCache) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(payload));
+  const overrides = Array.from(readManualPlanOverrides());
+  window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify({ ...payload, manualPlanOverrides: overrides }));
 }
 
 function getMonthMatrix(reference: Date) {
@@ -212,6 +208,25 @@ export default function ProfilePage() {
     saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
   }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
 
+  /**
+   * Wendet eine geänderte WeekConfig sofort an: localStorage-Persistenz,
+   * Kalender-Befüllung (unter Berücksichtigung manueller Overrides) und
+   * Cloud-Sync. Wird aus dem Verfügbarkeits-Editor gerufen.
+   */
+  const updateWeekConfigAndCalendar = useCallback(
+    (updater: (prev: WeekConfig) => WeekConfig) => {
+      setWeekConfig((prev) => {
+        const next = updater(prev);
+        saveLocalCache({ profile, playStyle, weekConfig: next, weeklyGoalSessions, bodyMetrics });
+        const updatedDailyPlan = applyWeekConfigToCalendar(next, 28);
+        setDailyPlanMap(updatedDailyPlan);
+        void pushProgressToCloud();
+        return next;
+      });
+    },
+    [bodyMetrics, playStyle, profile, weeklyGoalSessions],
+  );
+
   const loadProfile = useCallback(async (usernameOverride?: string) => {
     await pullProgressFromCloud();
     const localCache = loadLocalCache();
@@ -220,6 +235,9 @@ export default function ProfilePage() {
       setPlayStyle(localCache.playStyle);
       setWeekConfig(localCache.weekConfig);
       setBodyMetrics(localCache.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null });
+      if (localCache.manualPlanOverrides?.length) {
+        writeManualPlanOverrides(new Set(localCache.manualPlanOverrides));
+      }
     }
 
     const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
@@ -364,6 +382,7 @@ export default function ProfilePage() {
 
   const updateSelectedDatePlan = (nextTags: PlannedWorkoutTag[]) => {
     if (selectedDateKey < todayKey) return;
+    markDateAsManualOverride(selectedDateKey);
     setDailyPlanMap((current) => {
       const next = { ...current, [selectedDateKey]: nextTags };
       if (nextTags.length === 0) delete next[selectedDateKey];
@@ -678,7 +697,7 @@ const refreshProfileAndWeekly = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setWeekConfig((prev) => ({
+                    updateWeekConfigAndCalendar((prev) => ({
                       ...prev,
                       [dayKey]: isAvailable
                         ? { mode: "unavailable", minutes: 0 }
@@ -712,7 +731,7 @@ const refreshProfileAndWeekly = () => {
                           gym: 60,
                           custom: 30,
                         };
-                        setWeekConfig((prev) => ({
+                        updateWeekConfigAndCalendar((prev) => ({
                           ...prev,
                           [dayKey]: {
                             mode: nextMode,
@@ -738,7 +757,7 @@ const refreshProfileAndWeekly = () => {
                         value={dayConfig.minutes}
                         onChange={(event) => {
                           const minutes = Number(event.target.value) || 0;
-                          setWeekConfig((prev) => ({
+                          updateWeekConfigAndCalendar((prev) => ({
                             ...prev,
                             [dayKey]: { ...dayConfig, minutes },
                           }));
@@ -827,7 +846,7 @@ const refreshProfileAndWeekly = () => {
                         <p className="font-semibold">{exerciseNameById.get(log.exerciseId) ?? log.exerciseId}</p>
                         <p className="text-muted">Kategorie: {exerciseById.get(log.exerciseId)?.category ?? "-"} · Unterkategorie: {exerciseById.get(log.exerciseId)?.subcategory ?? "-"}</p>
                         {log.made != null || log.misses != null || log.attempts != null ? (
-                          <p>Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"} · Tries: {log.attempts ?? "-"}</p>
+                          <p>Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"} · Reps: {log.attempts ?? "-"}</p>
                         ) : null}
                         {log.completedValue != null ? <p>Reps/Wert: {log.completedValue}</p> : null}
                         {log.weightKg != null && log.weightKg > 0 ? <p>Gewicht: {log.weightKg} kg</p> : null}

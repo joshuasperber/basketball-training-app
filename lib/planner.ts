@@ -182,3 +182,16 @@ export function getDaysStartingToday(fromDate = new Date()): DayKey[] {
 
   return orderedDays;
 }
+
+/** Standard-Wochenrhythmus (wird im Profil überschrieben). */
+export function getDefaultWeekConfig(): WeekConfig {
+  return {
+    monday: { mode: "gym", minutes: 60 },
+    tuesday: { mode: "basketball_training", minutes: 45 },
+    wednesday: { mode: "game_training", minutes: 45 },
+    thursday: { mode: "recovery", minutes: 30 },
+    friday: { mode: "basketball_training", minutes: 45 },
+    saturday: { mode: "gym", minutes: 60 },
+    sunday: { mode: "game_day", minutes: 20 },
+  };
+}

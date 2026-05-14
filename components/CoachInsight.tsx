@@ -6,6 +6,9 @@ import { loadGameStats } from "@/lib/game-stats";
 import { loadExercises } from "@/lib/training-storage";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
 import { getProgressionState } from "@/lib/level-system";
+import { applyWeekConfigToCalendar } from "@/lib/activity-calendar";
+import { pushProgressToCloud } from "@/lib/progress-sync";
+import type { WeekConfig } from "@/lib/planner";
 
 type CoachResponse = {
   headline: string;
@@ -13,6 +16,7 @@ type CoachResponse = {
   source?: "heuristic" | "llm";
   warning?: string;
   error?: string;
+  weekConfig?: WeekConfig;
 };
 
 function buildPayload() {
@@ -104,7 +108,54 @@ function buildPayload() {
 export default function CoachInsight() {
   const [data, setData] = useState<CoachResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [planLoading, setPlanLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const persistWeekFromAi = useCallback((week: WeekConfig) => {
+    const key = "profile_cache_v4";
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = JSON.parse(window.localStorage.getItem(key) || "{}") as Record<string, unknown>;
+    } catch {
+      parsed = {};
+    }
+    parsed.weekConfig = week;
+    window.localStorage.setItem(key, JSON.stringify(parsed));
+    applyWeekConfigToCalendar(week, 28);
+    void pushProgressToCloud();
+    window.dispatchEvent(new Event("bt:plan-updated"));
+    window.dispatchEvent(new Event("storage"));
+  }, []);
+
+  const applyWeeklyPlan = useCallback(async () => {
+    setPlanLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...buildPayload(), intent: "weekly_plan" }),
+      });
+      const json = (await response.json()) as CoachResponse;
+      if (!json.weekConfig) {
+        throw new Error(json.error ?? "Kein Wochenplan in der Antwort.");
+      }
+      persistWeekFromAi(json.weekConfig);
+      setData((current) => ({
+        ...(current ?? { headline: "", bullets: [] }),
+        ...json,
+        headline: json.headline || "Woche aktualisiert",
+        bullets:
+          json.bullets?.length > 0
+            ? json.bullets
+            : ["Kalender & Profil-Woche wurden aus dem KI-Plan aktualisiert. Öffne Profil für Details."],
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Wochenplan fehlgeschlagen.");
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [persistWeekFromAi]);
 
   const fetchCoach = useCallback(async () => {
     setLoading(true);
@@ -151,6 +202,14 @@ export default function CoachInsight() {
               {badge.label}
             </span>
           ) : null}
+          <button
+            type="button"
+            onClick={() => void applyWeeklyPlan()}
+            disabled={planLoading || loading}
+            className="btn btn-primary btn-xs"
+          >
+            {planLoading ? "Plan…" : "KI-Woche"}
+          </button>
           <button
             type="button"
             onClick={() => void fetchCoach()}

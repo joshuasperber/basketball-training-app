@@ -72,6 +72,8 @@ type ManualDayWorkout = {
   subcategory: string;
   notes: string;
   exerciseIds: string[];
+  /** Bei „Auf morgen verschieben“ wird die Original-Dauer übernommen, sodass die Karte die richtige Länge zeigt. */
+  durationMin?: number;
 };
 
 type ProfileLocalCache = {
@@ -657,10 +659,19 @@ export default function WeeklyWorkoutPage() {
           autoSuggested[entry.day] = autoPick;
 
           const manualFirst = manualByDay[entry.day]?.[0];
+          const manualFirstDuration = manualFirst
+            ? manualFirst.durationMin
+              ?? (manualFirst.exerciseIds?.length
+                ? manualFirst.exerciseIds.reduce(
+                    (sum, exerciseId) => sum + (exercisesById[exerciseId]?.durationMin ?? 10),
+                    0,
+                  )
+                : entry.minutes)
+            : entry.minutes;
           suggested[entry.day] = manualFirst
             ? {
                 title: manualFirst.title ?? "Manuelles Workout",
-                durationMin: entry.minutes,
+                durationMin: manualFirstDuration,
                 notes: manualFirst.notes || "Manuell geplant.",
                 sport: manualFirst.sport ?? "Basketball",
                 subcategory: manualFirst.subcategory ?? "-",
@@ -806,7 +817,16 @@ export default function WeeklyWorkoutPage() {
       const targetHasSameId = existingTargetEntries.some((entry) => entry.id === moving.id);
       const movedEntry: ManualDayWorkout = targetHasSameId
         ? { ...moving, id: createManualEntryId() }
-        : moving;
+        : { ...moving };
+      // Original-Dauer auf der Karte beibehalten – nicht an Ziel-Tag anpassen.
+      if (movedEntry.durationMin == null && Array.isArray(movedEntry.exerciseIds) && movedEntry.exerciseIds.length > 0) {
+        const exercisesById = Object.fromEntries(availableExercises.map((exercise) => [exercise.id, exercise]));
+        const computed = movedEntry.exerciseIds.reduce(
+          (sum, exerciseId) => sum + (exercisesById[exerciseId]?.durationMin ?? 10),
+          0,
+        );
+        if (computed > 0) movedEntry.durationMin = computed;
+      }
       parsed[targetDateKey] = dedupeManualEntries([movedEntry, ...existingTargetEntries]);
 
       const disabledMap = readManualDayDisabledMap();
@@ -845,6 +865,9 @@ export default function WeeklyWorkoutPage() {
     );
 
     if (!alreadyOnTarget) {
+      const originalDuration = selectedCard.durationMin
+        ?? selectedCard.autoSuggestion?.durationMin
+        ?? null;
       const autoEntry: ManualDayWorkout = {
         id: createManualEntryId(),
         title: autoTitle,
@@ -852,6 +875,7 @@ export default function WeeklyWorkoutPage() {
         subcategory: selectedCard.subcategory,
         notes: selectedCard.notes || "Aus Auto-Plan verschoben.",
         exerciseIds: selectedCard.autoSuggestion?.exerciseIds ?? [],
+        durationMin: originalDuration ?? undefined,
       };
       parsed[targetDateKey] = dedupeManualEntries([autoEntry, ...targetEntries]);
     }
@@ -859,19 +883,22 @@ export default function WeeklyWorkoutPage() {
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));
     window.dispatchEvent(new Event("bt:plan-updated"));
 
+    // Karte vom Quell-Tag immer verstecken (auch Recovery), damit sie verschwindet.
+    hideAutoWorkoutCard(dayIndex, selectedCard.id);
+
     if (!isRecoveryCard) {
-      hideAutoWorkoutCard(dayIndex, selectedCard.id);
       const sourceRecoveryCardId = `recovery-${sourceDateKey}`;
-      const hiddenMap = readHiddenAutoWorkoutsMap();
-      const nextHidden = { ...hiddenMap };
-      nextHidden[sourceDateKey] = [...new Set([...(nextHidden[sourceDateKey] ?? []), sourceRecoveryCardId])];
-      writeHiddenAutoWorkoutsMap(nextHidden);
-      setHiddenAutoWorkoutsByDate(nextHidden);
+      const sourceHiddenMap = readHiddenAutoWorkoutsMap();
+      const nextHiddenSource = { ...sourceHiddenMap };
+      nextHiddenSource[sourceDateKey] = [
+        ...new Set([...(nextHiddenSource[sourceDateKey] ?? []), sourceRecoveryCardId]),
+      ];
+      writeHiddenAutoWorkoutsMap(nextHiddenSource);
+      setHiddenAutoWorkoutsByDate(nextHiddenSource);
 
       const targetHasRecovery = (parsed[targetDateKey] ?? []).some(
         (entry) => entry.sport === "Regeneration",
       );
-
       if (!targetHasRecovery) {
         const targetRecovery = buildRecoverySuggestion(dayByIndex[dayIndex], availableExercises);
         const recoveryEntry: ManualDayWorkout = {
@@ -881,6 +908,7 @@ export default function WeeklyWorkoutPage() {
           subcategory: targetRecovery.subcategory,
           notes: targetRecovery.notes,
           exerciseIds: targetRecovery.exerciseIds ?? [],
+          durationMin: targetRecovery.durationMin,
         };
         parsed[targetDateKey] = dedupeManualEntries([...(parsed[targetDateKey] ?? []), recoveryEntry]);
         window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(parsed));

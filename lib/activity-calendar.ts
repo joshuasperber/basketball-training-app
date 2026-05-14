@@ -5,6 +5,8 @@ import { toLocalDateKey } from "@/lib/workout";
 export const DAILY_PLAN_KEY = "bt.daily-plan.v1";
 export const MANUAL_DAY_WORKOUTS_KEY = "bt.manual-day-workouts.v1";
 export const MANUAL_DAY_DISABLED_KEY = "bt.manual-day-disabled.v1";
+/** Datums-Keys (yyyy-mm-dd), bei denen der Nutzer den Tagesplan manuell überschrieben hat. */
+export const MANUAL_PLAN_OVERRIDES_KEY = "bt.daily-plan-manual-overrides.v1";
 
 /** Weekly: sichtbare Regenerations-Zusatzkarte pro Datum (ISO yyyy-mm-dd) */
 export const WEEKLY_REGEN_SLOT_MAP_KEY = "bt.weekly-regen-slot.v1";
@@ -136,4 +138,109 @@ export function writeWeeklyRegenSlotMap(map: Record<string, boolean>) {
 export function dayHasRegenerationCoverage(dateKey: string): boolean {
   if (storedRegenerationSignals(dateKey)) return true;
   return readWeeklyRegenSlotMap()[dateKey] === true;
+}
+
+export function readManualPlanOverrides(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  const raw = window.localStorage.getItem(MANUAL_PLAN_OVERRIDES_KEY);
+  if (!raw) return new Set();
+  try {
+    const arr = JSON.parse(raw) as string[];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function writeManualPlanOverrides(set: Set<string>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MANUAL_PLAN_OVERRIDES_KEY, JSON.stringify(Array.from(set)));
+}
+
+export function markDateAsManualOverride(dateKey: string) {
+  const set = readManualPlanOverrides();
+  set.add(dateKey);
+  writeManualPlanOverrides(set);
+}
+
+export function clearManualOverrideForDate(dateKey: string) {
+  const set = readManualPlanOverrides();
+  if (set.delete(dateKey)) writeManualPlanOverrides(set);
+}
+
+type DayConfigLike = { mode: string; minutes: number };
+
+function modeToTagsAndDuration(config: DayConfigLike | undefined): { tags: PlannedWorkoutTag[]; minutes: number } {
+  if (!config || !config.mode) return { tags: [], minutes: 0 };
+  switch (config.mode) {
+    case "basketball_training":
+      return { tags: ["Trainingstag"], minutes: config.minutes || 45 };
+    case "game_training":
+      return { tags: ["Spieltraining"], minutes: config.minutes || 30 };
+    case "game_day":
+      return { tags: ["Spieltag"], minutes: config.minutes || 60 };
+    case "gym":
+      return { tags: ["Gym"], minutes: config.minutes || 60 };
+    case "custom":
+      return { tags: ["Home-Workout"], minutes: config.minutes || 30 };
+    case "recovery":
+      return { tags: ["Regeneration"], minutes: config.minutes || 25 };
+    default:
+      return { tags: [], minutes: 0 };
+  }
+}
+
+const DAY_INDEX_TO_KEY: Record<number, DayKey> = {
+  0: "sunday",
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+  6: "saturday",
+};
+
+function pad(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+function toDateKey(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * Schreibt für die nächsten `horizonDays` Tage Plan-Tags ins dailyPlanMap basierend auf weekConfig.
+ * Manuell überschriebene Tage bleiben unverändert. Heutige Datum wird respektiert (keine Vergangenheit).
+ */
+export function applyWeekConfigToCalendar(
+  weekConfig: Partial<Record<DayKey, DayConfigLike>>,
+  horizonDays = 21,
+): DailyPlanMap {
+  if (typeof window === "undefined") return {};
+  const manualOverrides = readManualPlanOverrides();
+  const currentMap = readDailyPlanMap();
+  const next: DailyPlanMap = { ...currentMap };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = 0; i < horizonDays; i += 1) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
+    const dateKey = toDateKey(date);
+    if (manualOverrides.has(dateKey)) continue;
+    const dayKey = DAY_INDEX_TO_KEY[date.getDay()];
+    const cfg = weekConfig[dayKey];
+    const { tags } = modeToTagsAndDuration(cfg);
+    if (tags.length === 0) {
+      delete next[dateKey];
+    } else {
+      next[dateKey] = tags;
+    }
+  }
+  writeDailyPlanMap(next);
+  try {
+    window.dispatchEvent(new Event("bt:plan-updated"));
+  } catch {
+    // noop
+  }
+  return next;
 }

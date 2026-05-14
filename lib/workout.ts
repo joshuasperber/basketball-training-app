@@ -26,6 +26,8 @@ export type SetLog = {
   tries?: string;
   makes?: string;
   misses?: string;
+  /** Kurz-Notiz pro Satz (optional). */
+  note?: string;
   completed?: boolean;
   /** Rate of Perceived Exertion (RPE) 1–10 */
   rpe?: string;

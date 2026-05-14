@@ -26,6 +26,8 @@ export type WorkoutSessionEntry = {
   workoutName: string;
   workoutCategory?: string;
   workoutSubcategory?: string;
+  /** Optionale Gesamt-Notiz zum Workout (nachträglich editierbar). */
+  sessionNotes?: string;
   logs: WorkoutSessionLog[];
 };
 
@@ -78,4 +80,26 @@ export function getWorkoutSessions() {
 export function appendWorkoutSession(entry: WorkoutSessionEntry) {
   const current = getWorkoutSessions();
   writeJson(WORKOUT_SESSIONS_KEY, [entry, ...current].slice(0, 50));
+}
+
+export function updateWorkoutSession(sessionId: string, patch: Partial<Pick<WorkoutSessionEntry, "sessionNotes" | "logs">>) {
+  const current = getWorkoutSessions();
+  const next = current.map((session) => (session.id === sessionId ? { ...session, ...patch } : session));
+  writeJson(WORKOUT_SESSIONS_KEY, next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("bt:sessions-updated"));
+  }
+}
+
+export function updateWorkoutSessionLogNote(sessionId: string, logIndex: number, note: string) {
+  const current = getWorkoutSessions();
+  const next = current.map((session) => {
+    if (session.id !== sessionId) return session;
+    const logs = session.logs.map((log, index) => (index === logIndex ? { ...log, note } : log));
+    return { ...session, logs };
+  });
+  writeJson(WORKOUT_SESSIONS_KEY, next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("bt:sessions-updated"));
+  }
 }

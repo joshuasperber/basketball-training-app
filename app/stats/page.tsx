@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { type Category } from "@/lib/training-data";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
-import { getWorkoutSessions } from "@/lib/session-storage";
+import { getWorkoutSessions, updateWorkoutSession, updateWorkoutSessionLogNote } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import BasketballCoachingCard from "@/components/BasketballCoachingCard";
 import GameStatsSearchPanel from "@/components/GameStatsSearchPanel";
@@ -15,7 +15,7 @@ import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
 import { buildBasketballCoachingPlan } from "@/lib/basketball-coaching";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
-import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
 import { getProgressionState } from "@/lib/level-system";
 import { countTrackedSetsInLogs, logCountsAsTrackedSet } from "@/lib/workout-session-metrics";
@@ -56,6 +56,7 @@ type SessionDetail = {
   id: string;
   dateISO: string;
   workoutName: string;
+  sessionNotes?: string;
   logs: ReturnType<typeof getWorkoutSessions>[number]["logs"];
 };
 type StatsRange = "all" | "monthly" | "weekly";
@@ -398,6 +399,19 @@ export default function StatsPage() {
   });
   const [username, setUsername] = useState("Champion");
   const [gameStats, setGameStats] = useState(() => loadGameStats());
+  const [sessionNotesDraft, setSessionNotesDraft] = useState("");
+
+  const refreshSessionDetails = useCallback(() => {
+    setSessionDetails(
+      getTrackedWorkoutSessions().map((session) => ({
+        id: session.id,
+        dateISO: session.dateISO,
+        workoutName: session.workoutName,
+        sessionNotes: session.sessionNotes,
+        logs: session.logs,
+      })),
+    );
+  }, []);
 
 useEffect(() => {
     try {
@@ -425,16 +439,29 @@ useEffect(() => {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setHistory(loadCombinedHistory());
-      setSessionDetails(getTrackedWorkoutSessions().map((session) => ({
-        id: session.id,
-        dateISO: session.dateISO,
-        workoutName: session.workoutName,
-        logs: session.logs,
-      })));
+      refreshSessionDetails();
       setGameStats(loadGameStats());
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [refreshSessionDetails]);
+
+  useEffect(() => {
+    const onSessions = () => refreshSessionDetails();
+    window.addEventListener("bt:sessions-updated", onSessions);
+    return () => window.removeEventListener("bt:sessions-updated", onSessions);
+  }, [refreshSessionDetails]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (!selectedSessionId) {
+        setSessionNotesDraft("");
+        return;
+      }
+      const s = getWorkoutSessions().find((x) => x.id === selectedSessionId);
+      setSessionNotesDraft(s?.sessionNotes ?? "");
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [selectedSessionId, sessionDetails]);
 
   const filteredHistory = useMemo(() => {
     if (range === "all") return history;
@@ -789,7 +816,7 @@ useEffect(() => {
               {basketballStats.map((entry) => (
                 <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                   <p className="font-semibold text-strong">{entry.exerciseName}</p>
-                  <p className="mt-1 text-sm text-muted">Quote: <strong className="text-strong">{entry.quote ?? 0}%</strong> · Makes: {entry.made} · Tries: {entry.attempts} · Misses: {entry.misses}</p>
+                  <p className="mt-1 text-sm text-muted">Quote: <strong className="text-strong">{entry.quote ?? 0}%</strong> · Makes: {entry.made} · Reps: {entry.attempts} · Misses: {entry.misses}</p>
                 </div>
               ))}
             </div>
@@ -886,13 +913,49 @@ useEffect(() => {
           <p className="section-eyebrow">Workout-Details</p>
           <h2 className="section-title mt-1">{selectedSession.workoutName}</h2>
           <p className="mt-1 text-xs text-muted">{new Date(selectedSession.dateISO).toLocaleString("de-DE")}</p>
+          <div className="mt-3">
+            <label className="input-label">Workout-Notiz</label>
+            <textarea
+              value={sessionNotesDraft}
+              onChange={(e) => setSessionNotesDraft(e.target.value)}
+              rows={2}
+              className="textarea mt-1"
+              placeholder="z. B. Fokus, Gegner, Gefühl …"
+            />
+            <button
+              type="button"
+              className="btn btn-primary btn-sm mt-2"
+              onClick={() => {
+                updateWorkoutSession(selectedSession.id, { sessionNotes: sessionNotesDraft });
+                refreshSessionDetails();
+                void pushProgressToCloud();
+              }}
+            >
+              Notiz speichern
+            </button>
+          </div>
           <div className="mt-3 space-y-2">
             {selectedSession.logs.map((log, index) => (
               <article key={`${selectedSession.id}-${log.exerciseId}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
                 <p className="font-semibold text-strong">{exerciseLookup.get(log.exerciseId) ?? log.exerciseId}</p>
                 <p className="text-muted">
-                  Reps/Wert: {log.completedValue ?? "-"} · Gewicht: {log.weightKg ?? "-"} kg · Tries: {log.attempts ?? "-"} · Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"}
+                  Reps/Wert: {log.completedValue ?? "-"} · Gewicht: {log.weightKg ?? "-"} kg · Reps: {log.attempts ?? "-"} · Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"}
                 </p>
+                <label className="input-label mt-2">Übungs-Notiz</label>
+                <textarea
+                  key={`${selectedSession.id}-${index}`}
+                  defaultValue={log.note ?? ""}
+                  onBlur={(e) => {
+                    const next = e.target.value;
+                    if (next === (log.note ?? "")) return;
+                    updateWorkoutSessionLogNote(selectedSession.id, index, next);
+                    refreshSessionDetails();
+                    void pushProgressToCloud();
+                  }}
+                  rows={2}
+                  className="textarea mt-1"
+                  placeholder="Technik, Ballgefühl …"
+                />
               </article>
             ))}
           </div>

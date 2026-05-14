@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { type DayKey, type DayMode, type WeekConfig, getDefaultWeekConfig } from "@/lib/planner";
 
 export const runtime = "edge";
 
@@ -50,7 +51,66 @@ type CoachPayload = {
   activeGoals?: string[];
   /** Verletzungs-/Schon-Übungen, die nicht progredieren sollen. */
   injuryExerciseNames?: string[];
+  /** `weekly_plan` liefert optional `weekConfig` für die Wochenplanung. */
+  intent?: "coaching" | "weekly_plan";
 };
+
+const DAY_KEYS: DayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+const DAY_MODES: DayMode[] = [
+  "unavailable",
+  "rest",
+  "recovery",
+  "game_day",
+  "game_training",
+  "basketball_training",
+  "gym",
+  "custom",
+];
+
+function normalizeDayMode(value: unknown): DayMode | null {
+  if (typeof value !== "string") return null;
+  return DAY_MODES.includes(value as DayMode) ? (value as DayMode) : null;
+}
+
+function mergeWeekConfigFromPayload(payload: CoachPayload): WeekConfig {
+  const base = getDefaultWeekConfig();
+  const avail = payload.weekAvailability;
+  if (!avail) return base;
+  const next = { ...base };
+  DAY_KEYS.forEach((day) => {
+    const row = avail[day];
+    if (!row || typeof row !== "object") return;
+    const mode = normalizeDayMode((row as { mode?: unknown }).mode);
+    const minutes = Number((row as { minutes?: unknown }).minutes);
+    if (mode) {
+      next[day] = {
+        mode,
+        minutes: Number.isFinite(minutes) && minutes >= 0 ? minutes : next[day].minutes,
+      };
+    }
+  });
+  return next;
+}
+
+function applyLlmWeekPatch(base: WeekConfig, raw: unknown): WeekConfig {
+  if (!raw || typeof raw !== "object") return base;
+  const obj = raw as Record<string, unknown>;
+  const next = { ...base };
+  DAY_KEYS.forEach((day) => {
+    const row = obj[day];
+    if (!row || typeof row !== "object") return;
+    const mode = normalizeDayMode((row as { mode?: unknown }).mode);
+    const minutes = Number((row as { minutes?: unknown }).minutes);
+    if (mode) {
+      next[day] = {
+        mode,
+        minutes: Number.isFinite(minutes) && minutes >= 0 ? Math.min(240, minutes) : base[day].minutes,
+      };
+    }
+  });
+  return next;
+}
 
 function buildHeuristicResponse(payload: CoachPayload) {
   const sessions = payload.recentSessions ?? [];
@@ -177,7 +237,116 @@ function resolveLlmConfig() {
   return null;
 }
 
-async function callLlm(payload: CoachPayload, config: NonNullable<ReturnType<typeof resolveLlmConfig>>) {
+async function callLlm(
+  payload: CoachPayload,
+  config: NonNullable<ReturnType<typeof resolveLlmConfig>>,
+): Promise<{
+  headline: string;
+  bullets: string[];
+  source: "llm";
+  provider: string;
+  model: string;
+  weekConfig?: WeekConfig;
+}> {
+  if (payload.intent === "weekly_plan") {
+    const sessions = payload.recentSessions ?? [];
+    const games = payload.recentGames ?? [];
+    const profile = payload.profile ?? {};
+    const merged = mergeWeekConfigFromPayload(payload);
+    const availabilityLine = payload.weekAvailability
+      ? Object.entries(payload.weekAvailability)
+          .map(([day, cfg]) => `${day}=${cfg.mode}(${cfg.minutes}m)`)
+          .join(", ")
+      : JSON.stringify(merged);
+
+    const weeklyUser = `Erstelle einen vollständigen Wochen-Trainingsplan (Mo-So) als JSON.
+
+[Spieler]
+Position: ${payload.position ?? "unbekannt"} | Spielstil: ${payload.playStyle ?? "unbekannt"} | Level: ${payload.level ?? "?"} | Phase: ${payload.mesocyclePhase ?? "build"}
+Körper: ${profile.heightCm ?? "?"} cm · ${profile.weightKg ?? "?"} kg · KFA ${profile.bodyFatPct ?? "?"}%
+
+[Verfügbarkeit / Vorgabe]
+${availabilityLine}
+
+[Letzte Sessions (Auszug)]
+${JSON.stringify(sessions).slice(0, 1200)}
+
+[Letzte Spiele]
+${JSON.stringify(games).slice(0, 500)}
+
+[JSON-Schema]
+Antworte NUR mit JSON:
+{
+  "headline": string (max 6 Wörter),
+  "bullets": string[] (3-5 kurze Sätze: Begründung der Woche),
+  "weekConfig": {
+    "monday": {"mode":"gym"|"basketball_training"|"game_training"|"game_day"|"recovery"|"custom"|"unavailable"|"rest","minutes":number},
+    ... alle 7 englischen Tage ...
+  }
+}
+
+Regeln:
+- Nutze die Verfügbarkeit als harte Vorgabe: nur an Tagen mit Zeit schwere Einheiten; mindestens 1 recovery pro Woche wenn möglich.
+- Minuten realistisch (30-90 typisch), game_day eher kürzer.
+- PG/SG: mehr basketball_training; Bigs: mehr gym + finishing; hohe KFA: +1 conditioning/leichte Einheit.
+`;
+
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              'Du bist ein Basketball-S&C-Coach. Antworte AUSSCHLIESSLICH mit gültigem JSON {"headline":string,"bullets":string[],"weekConfig":object}.',
+          },
+          { role: "user", content: weeklyUser },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.45,
+        max_tokens: 900,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(`${config.providerLabel.toUpperCase()} HTTP ${response.status}${errorBody ? `: ${errorBody.slice(0, 200)}` : ""}`);
+    }
+    const json = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const content = json.choices?.[0]?.message?.content ?? "";
+    let parsed: { headline?: string; bullets?: string[]; weekConfig?: unknown } = {};
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      const stripped = content.replace(/```json\s*|\s*```/g, "").trim();
+      try {
+        parsed = JSON.parse(stripped);
+      } catch {
+        parsed = {};
+      }
+    }
+    const aiWeek = applyLlmWeekPatch(merged, parsed.weekConfig);
+    const weekConfig = aiWeek;
+    return {
+      headline: parsed.headline?.trim() || "Deine KI-Woche",
+      bullets:
+        Array.isArray(parsed.bullets) && parsed.bullets.length > 0
+          ? parsed.bullets.slice(0, 6)
+          : ["Plan erstellt — im Profil kannst du Tage feinjustieren."],
+      weekConfig,
+      source: "llm",
+      provider: config.providerLabel,
+      model: config.model,
+    };
+  }
+
   const sessions = payload.recentSessions ?? [];
   const games = payload.recentGames ?? [];
   const profile = payload.profile ?? {};
@@ -288,11 +457,37 @@ export async function POST(request: Request) {
   }
 
   const config = resolveLlmConfig();
+  if (!config) {
+    if (payload.intent === "weekly_plan") {
+      const week = mergeWeekConfigFromPayload(payload);
+      return NextResponse.json({
+        headline: "Wochenplan (offline)",
+        bullets: [
+          "Ohne LLM-API-Key: Plan aus deiner Verfügbarkeit übernommen — trage Groq/OpenAI in Vercel ein für einen KI-feinjustierten Plan.",
+          "Halte 1–2 Regenerationstage pro Woche, wenn die Belastung hoch ist.",
+        ],
+        weekConfig: week,
+        source: "heuristic" as const,
+      });
+    }
+    return NextResponse.json(buildHeuristicResponse(payload));
+  }
+
   if (config) {
     try {
       const aiResponse = await callLlm(payload, config);
       return NextResponse.json(aiResponse);
     } catch (error) {
+      if (payload.intent === "weekly_plan") {
+        const week = mergeWeekConfigFromPayload(payload);
+        return NextResponse.json({
+          headline: "Wochenplan (Fallback)",
+          bullets: ["KI temporär nicht erreichbar — Plan aus deiner Verfügbarkeit erstellt."],
+          weekConfig: week,
+          source: "heuristic" as const,
+          warning: error instanceof Error ? error.message : "LLM-Fallback aktiv",
+        });
+      }
       const fallback = buildHeuristicResponse(payload);
       return NextResponse.json({
         ...fallback,
@@ -300,6 +495,4 @@ export async function POST(request: Request) {
       });
     }
   }
-
-  return NextResponse.json(buildHeuristicResponse(payload));
 }
