@@ -1,3 +1,5 @@
+import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
+
 export const PERFORMANCE_TIPS_KEY = "bt.performance-tips.v1";
 
 export type TipScope = "game" | "game_training" | "basketball_training" | "subcategory";
@@ -97,6 +99,7 @@ export function loadPerformanceTips() {
 export function savePerformanceTips(tips: PerformanceTip[]) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(PERFORMANCE_TIPS_KEY, JSON.stringify(tips));
+  window.dispatchEvent(new Event("bt:performance-tips-updated"));
 }
 
 export function upsertPerformanceTip(
@@ -127,14 +130,52 @@ export function getTipsForWorkoutContext(params: {
   subcategory?: string;
 }) {
   const normalizedSubcategory = (params.subcategory ?? "").trim().toLowerCase();
+  const mode = params.basketballMode ?? "basketball_training";
+
   return params.tips.filter((tip) => {
     if (!tip.active) return false;
-    if (params.basketballMode === "game" && tip.scope === "game") return true;
-    if (params.basketballMode === "game_training" && (tip.scope === "game_training" || tip.scope === "game")) return true;
-    if (params.basketballMode === "basketball_training" && tip.scope === "basketball_training") return true;
+
     if (tip.scope === "subcategory") {
-      return normalizedSubcategory.length > 0 && tip.scopeValue?.toLowerCase() === normalizedSubcategory;
+      if (normalizedSubcategory.length === 0) return false;
+      return (tip.scopeValue ?? "").trim().toLowerCase() === normalizedSubcategory;
     }
+
+    if (mode === "game") return tip.scope === "game";
+    if (mode === "game_training") return tip.scope === "game_training";
+    if (mode === "basketball_training") return tip.scope === "basketball_training";
+
     return false;
+  });
+}
+
+/** Teilt gefilterte Tipps in „allgemeine“ (game / game_training / basketball_training) und nach Unterkategorie. */
+export function partitionTipsForDisplay(filtered: PerformanceTip[]): {
+  general: PerformanceTip[];
+  bySubcategory: Map<string, PerformanceTip[]>;
+} {
+  const general: PerformanceTip[] = [];
+  const bySubcategory = new Map<string, PerformanceTip[]>();
+  for (const tip of filtered) {
+    if (tip.scope === "subcategory") {
+      const key = (tip.scopeValue ?? "Sonstiges").trim() || "Sonstiges";
+      const list = bySubcategory.get(key) ?? [];
+      list.push(tip);
+      bySubcategory.set(key, list);
+    } else {
+      general.push(tip);
+    }
+  }
+  return { general, bySubcategory };
+}
+
+export function orderedSubcategoryKeys(keys: string[]): string[] {
+  const order = exerciseSubcategoriesByCategory.Basketball;
+  return [...keys].sort((a, b) => {
+    const ia = order.findIndex((x) => x.toLowerCase() === a.toLowerCase());
+    const ib = order.findIndex((x) => x.toLowerCase() === b.toLowerCase());
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
   });
 }

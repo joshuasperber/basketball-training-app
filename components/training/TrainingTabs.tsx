@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { type Category, type Exercise, type MetricKey, type Workout } from "@/lib/training-data";
+import {
+  type Category,
+  type Exercise,
+  type MetricKey,
+  type Workout,
+} from "@/lib/training-data";
+import type { DrillCatalogFilters } from "@/lib/drill-catalog-filters";
 
 export type TrainingTab = "Workouts" | "Exercises";
 
@@ -13,9 +19,7 @@ const METRIC_OPTIONS: MetricKey[] = [
   "distance",
   "makes",
   "misses",
-  "tries",
   "points",
-  "intensity",
   "completed",
 ];
 
@@ -26,9 +30,7 @@ const METRIC_LABELS: Record<MetricKey, string> = {
   distance: "Distanz",
   makes: "Makes",
   misses: "Misses",
-  tries: "Trys",
   points: "Punkte",
-  intensity: "Intensität",
   completed: "Geschafft (Ja/Nein)",
 };
 
@@ -382,6 +384,8 @@ type ExercisesTabProps = {
   selectedSubcategory: string;
   onCategoryChange: (category: Category) => void;
   onSubcategoryChange: (subcategory: string) => void;
+  drillFilters: DrillCatalogFilters;
+  onDrillFilterChange: (patch: Partial<DrillCatalogFilters>) => void;
   visibleExercises: Exercise[];
   searchableExercises: Exercise[];
   exerciseSearch: string;
@@ -394,6 +398,9 @@ type ExercisesTabProps = {
   onNewExerciseSubcategoryChange: (value: string) => void;
   newExerciseNotes: string;
   onNewExerciseNotesChange: (value: string) => void;
+  newExerciseVideoUrl: string;
+  onNewExerciseVideoUrlChange: (value: string) => void;
+  onNewExerciseVideoFile: (file: File | null) => void;
   newExerciseDurationMin: string;
   onNewExerciseDurationMinChange: (value: string) => void;
   newExerciseDurationUnit: "minutes" | "seconds";
@@ -418,6 +425,9 @@ type ExercisesTabProps = {
   onEditExerciseSubcategoryChange: (value: string) => void;
   editExerciseNotes: string;
   onEditExerciseNotesChange: (value: string) => void;
+  editExerciseVideoUrl: string;
+  onEditExerciseVideoUrlChange: (value: string) => void;
+  onEditExerciseVideoFile: (file: File | null) => void;
   editExerciseDurationMin: string;
   onEditExerciseDurationMinChange: (value: string) => void;
   editExerciseDurationUnit: "minutes" | "seconds";
@@ -445,6 +455,8 @@ export function ExercisesTab({
   selectedSubcategory,
   onCategoryChange,
   onSubcategoryChange,
+  drillFilters,
+  onDrillFilterChange,
   visibleExercises,
   searchableExercises,
   exerciseSearch,
@@ -457,6 +469,9 @@ export function ExercisesTab({
   onNewExerciseSubcategoryChange,
   newExerciseNotes,
   onNewExerciseNotesChange,
+  newExerciseVideoUrl,
+  onNewExerciseVideoUrlChange,
+  onNewExerciseVideoFile,
   newExerciseDurationMin,
   onNewExerciseDurationMinChange,
   newExerciseDurationUnit,
@@ -481,6 +496,9 @@ export function ExercisesTab({
   onEditExerciseSubcategoryChange,
   editExerciseNotes,
   onEditExerciseNotesChange,
+  editExerciseVideoUrl,
+  onEditExerciseVideoUrlChange,
+  onEditExerciseVideoFile,
   editExerciseDurationMin,
   onEditExerciseDurationMinChange,
   editExerciseDurationUnit,
@@ -517,6 +535,8 @@ export function ExercisesTab({
           onCreateOption={onCreateSubcategory}
           onDeleteOption={onDeleteSubcategory}
         />
+
+        <DrillCatalogFilterCard filters={drillFilters} onChange={onDrillFilterChange} />
 
         <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
           <h2 className="text-xl font-semibold">Exercises in Auswahl</h2>
@@ -598,6 +618,31 @@ export function ExercisesTab({
               rows={2}
               className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
             />
+
+            <div className="rounded-xl border border-zinc-700 bg-zinc-950/80 p-3">
+              <p className="text-sm font-medium text-zinc-200">Demo-Video</p>
+              <p className="mt-1 text-xs text-zinc-500">YouTube-/Vimeo-Link oder kurzes Video (lokal, max. ca. 2,5 MB — wird im Browser gespeichert).</p>
+              <input
+                type="url"
+                value={newExerciseVideoUrl}
+                onChange={(event) => onNewExerciseVideoUrlChange(event.target.value)}
+                placeholder="https://www.youtube.com/watch?v=…"
+                className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm"
+              />
+              <label className="mt-2 block text-xs text-zinc-400">
+                Video hochladen
+                <input
+                  type="file"
+                  accept="video/*"
+                  className="mt-1 block w-full text-xs text-zinc-300 file:mr-2 file:rounded file:border-0 file:bg-indigo-600 file:px-2 file:py-1 file:text-white"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    onNewExerciseVideoFile(file);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
 
             <label className="block text-sm text-zinc-300">
               Zeit (Dauer)
@@ -758,6 +803,31 @@ export function ExercisesTab({
                 rows={2}
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
               />
+
+              <div className="rounded-xl border border-zinc-700 bg-zinc-950/80 p-3">
+                <p className="text-sm font-medium text-zinc-200">Demo-Video</p>
+                <p className="mt-1 text-xs text-zinc-500">Link oder lokales Video (max. ca. 2,5 MB).</p>
+                <input
+                  type="url"
+                  value={editExerciseVideoUrl}
+                  onChange={(event) => onEditExerciseVideoUrlChange(event.target.value)}
+                  placeholder="https://…"
+                  className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm"
+                />
+                <label className="mt-2 block text-xs text-zinc-400">
+                  Video hochladen
+                  <input
+                    type="file"
+                    accept="video/*"
+                    className="mt-1 block w-full text-xs text-zinc-300 file:mr-2 file:rounded file:border-0 file:bg-indigo-600 file:px-2 file:py-1 file:text-white"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      onEditExerciseVideoFile(file);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
 
               <label className="block text-sm text-zinc-300">
                 Zeit (Dauer)
@@ -949,6 +1019,94 @@ function ExerciseCard({
         </button>
       ) : null}
     </article>
+  );
+}
+
+function DrillCatalogFilterCard({
+  filters,
+  onChange,
+}: {
+  filters: DrillCatalogFilters;
+  onChange: (patch: Partial<DrillCatalogFilters>) => void;
+}) {
+  return (
+    <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
+      <h2 className="text-lg font-semibold">3) Katalog-Filter</h2>
+      <p className="mt-1 text-xs text-zinc-500">Filtert die Listen „Exercises in Auswahl“ und „Alle Exercises suchen“.</p>
+
+      <div className="mt-3">
+        <p className="text-xs font-medium text-zinc-500">Video</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(
+            [
+              ["all", "Alle"],
+              ["with", "Mit Video"],
+              ["without", "Ohne Video"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onChange({ video: value })}
+              className={`rounded-xl border px-3 py-1.5 text-sm ${
+                filters.video === value ? "border-indigo-500 bg-indigo-900/40 text-white" : "border-zinc-700 bg-zinc-950 text-zinc-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <p className="text-xs font-medium text-zinc-500">Dauer (planmäßig)</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(
+            [
+              ["all", "Alle"],
+              ["under10", "Unter 10 Min"],
+              ["under15", "Unter 15 Min"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onChange({ duration: value })}
+              className={`rounded-xl border px-3 py-1.5 text-sm ${
+                filters.duration === value ? "border-indigo-500 bg-indigo-900/40 text-white" : "border-zinc-700 bg-zinc-950 text-zinc-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <p className="text-xs font-medium text-zinc-500">Ort / Equipment</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(
+            [
+              ["all", "Alle"],
+              ["gym", "Gym"],
+              ["home", "Heim"],
+              ["outdoor", "Outdoor (BB)"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onChange({ equipment: value })}
+              className={`rounded-xl border px-3 py-1.5 text-sm ${
+                filters.equipment === value ? "border-indigo-500 bg-indigo-900/40 text-white" : "border-zinc-700 bg-zinc-950 text-zinc-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 

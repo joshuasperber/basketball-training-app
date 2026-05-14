@@ -35,6 +35,17 @@ export type SetLog = {
   completedAtIso?: string;
 };
 
+/** RPE aus Set-Log (1–10); leer oder ungültig → null. */
+export function parseSetRpe(raw: string | undefined): number | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed.replace(",", "."));
+  if (!Number.isFinite(n)) return null;
+  if (n < 1 || n > 10) return null;
+  return Math.round(n * 10) / 10;
+}
+
 export type WorkoutProgress = {
   date: string;
   status: WorkoutStatus;

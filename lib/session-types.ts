@@ -13,6 +13,11 @@ export type WorkoutSessionLog = {
   completedValue: number | null;
   completed?: boolean;
   note: string;
+  made?: number | null;
+  attempts?: number | null;
+  misses?: number | null;
+  weightKg?: number | null;
+  rpe?: number | null;
 };
 
 export type WorkoutSessionEntry = {
@@ -20,6 +25,11 @@ export type WorkoutSessionEntry = {
   dateISO: string;
   workoutId: string;
   workoutName: string;
+  workoutCategory?: string;
+  workoutSubcategory?: string;
+  sessionNotes?: string;
+  durationSeconds?: number;
+  avgRpe?: number | null;
   logs: WorkoutSessionLog[];
 };
 

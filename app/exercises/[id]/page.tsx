@@ -23,17 +23,16 @@ function getNumeric(values: Partial<Record<string, string>>, key: string) {
 }
 
 function validateMetricValues(values: Partial<Record<string, string>>) {
-  const tries = getNumeric(values, "tries");
   const reps = getNumeric(values, "reps");
   const makes = getNumeric(values, "makes");
   const misses = getNumeric(values, "misses");
-  const base = tries ?? reps;
+  const base = reps;
 
   if (base !== null) {
-    if (makes !== null && makes > base) return "Makes darf nicht größer als Trys/Reps sein.";
-    if (misses !== null && misses > base) return "Misses darf nicht größer als Trys/Reps sein.";
+    if (makes !== null && makes > base) return "Makes darf nicht größer als Reps sein.";
+    if (misses !== null && misses > base) return "Misses darf nicht größer als Reps sein.";
     if (makes !== null && misses !== null && makes + misses > base) {
-      return "Makes + Misses darf nicht größer als Trys/Reps sein.";
+      return "Makes + Misses darf nicht größer als Reps sein.";
     }
   }
 
@@ -139,7 +138,7 @@ export default function ExerciseExecutionPage() {
         note: sessionNote || "",
         completed: true,
         made: getNumeric(set.values, "makes"),
-        attempts: getNumeric(set.values, "tries"),
+        attempts: getNumeric(set.values, "reps") ?? getNumeric(set.values, "tries"),
         misses: getNumeric(set.values, "misses"),
         weightKg: getNumeric(set.values, "weight"),
       });

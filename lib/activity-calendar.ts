@@ -172,19 +172,21 @@ type DayConfigLike = { mode: string; minutes: number };
 
 function modeToTagsAndDuration(config: DayConfigLike | undefined): { tags: PlannedWorkoutTag[]; minutes: number } {
   if (!config || !config.mode) return { tags: [], minutes: 0 };
+  const rawMin = config.minutes;
+  const safeMin = typeof rawMin === "number" && Number.isFinite(rawMin) ? Math.max(0, rawMin) : null;
   switch (config.mode) {
     case "basketball_training":
-      return { tags: ["Trainingstag"], minutes: config.minutes || 45 };
+      return { tags: ["Trainingstag"], minutes: safeMin ?? 45 };
     case "game_training":
-      return { tags: ["Spieltraining"], minutes: config.minutes || 30 };
+      return { tags: ["Spieltraining"], minutes: safeMin ?? 30 };
     case "game_day":
-      return { tags: ["Spieltag"], minutes: config.minutes || 60 };
+      return { tags: ["Spieltag"], minutes: safeMin ?? 60 };
     case "gym":
-      return { tags: ["Gym"], minutes: config.minutes || 60 };
+      return { tags: ["Gym"], minutes: safeMin ?? 60 };
     case "custom":
-      return { tags: ["Home-Workout"], minutes: config.minutes || 30 };
+      return { tags: ["Home-Workout"], minutes: safeMin ?? 30 };
     case "recovery":
-      return { tags: ["Regeneration"], minutes: config.minutes || 25 };
+      return { tags: ["Regeneration"], minutes: safeMin ?? 25 };
     default:
       return { tags: [], minutes: 0 };
   }

@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { type Category } from "@/lib/training-data";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
-import { getWorkoutSessions, updateWorkoutSession, updateWorkoutSessionLogNote } from "@/lib/session-storage";
+import {
+  getWorkoutSessions,
+  updateWorkoutSession,
+  updateWorkoutSessionLogNote,
+  type WorkoutSessionEntry,
+} from "@/lib/session-storage";
+import { toLocalDateKey } from "@/lib/workout";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import BasketballCoachingCard from "@/components/BasketballCoachingCard";
 import GameStatsSearchPanel from "@/components/GameStatsSearchPanel";
@@ -15,6 +21,7 @@ import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
 import { buildBasketballCoachingPlan } from "@/lib/basketball-coaching";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
+import { downloadWorkoutSessionsTcx } from "@/lib/export-workout-tcx";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
 import { getProgressionState } from "@/lib/level-system";
@@ -52,13 +59,6 @@ type GymExerciseGoalStat = {
   progressionHint: string;
 };
 
-type SessionDetail = {
-  id: string;
-  dateISO: string;
-  workoutName: string;
-  sessionNotes?: string;
-  logs: ReturnType<typeof getWorkoutSessions>[number]["logs"];
-};
 type StatsRange = "all" | "monthly" | "weekly";
 
 type HistorySportBucket = "Basketball" | "Gym" | "Home" | "Regeneration";
@@ -195,8 +195,24 @@ function filterSessionsByRange<T extends { dateISO: string }>(sessions: T[], ran
   return sessions.filter((session) => new Date(session.dateISO) >= start);
 }
 
-function buildBasketballExerciseStats(range: StatsRange): BasketballExerciseStat[] {
-  const sessions = filterSessionsByRange(getTrackedWorkoutSessions(), range);
+function startOfIsoWeekMonday(ref: Date): Date {
+  const d = new Date(ref);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function sessionAverageRpe(session: { avgRpe?: number | null; logs: { rpe?: number | null }[] }): number | null {
+  if (typeof session.avgRpe === "number" && Number.isFinite(session.avgRpe)) return session.avgRpe;
+  const fromLogs = session.logs.map((l) => l.rpe).filter((v): v is number => typeof v === "number");
+  if (fromLogs.length === 0) return null;
+  return Math.round((fromLogs.reduce((a, b) => a + b, 0) / fromLogs.length) * 10) / 10;
+}
+
+function buildBasketballExerciseStats(sessionsInput: WorkoutSessionEntry[], range: StatsRange): BasketballExerciseStat[] {
+  const sessions = filterSessionsByRange(sessionsInput, range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, { attempts: number; made: number; misses: number; usesShotMetrics: boolean }>();
@@ -250,8 +266,8 @@ function buildBasketballExerciseStats(range: StatsRange): BasketballExerciseStat
     .sort((a, b) => b.attempts - a.attempts);
 }
 
-function buildTimedExerciseTrends(range: StatsRange): TimedExerciseTrend[] {
-  const sessions = filterSessionsByRange(getTrackedWorkoutSessions(), range);
+function buildTimedExerciseTrends(sessionsInput: WorkoutSessionEntry[], range: StatsRange): TimedExerciseTrend[] {
+  const sessions = filterSessionsByRange(sessionsInput, range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, number[]>();
@@ -277,8 +293,8 @@ function buildTimedExerciseTrends(range: StatsRange): TimedExerciseTrend[] {
     .sort((a, b) => b.points.length - a.points.length);
 }
 
-function buildGymExerciseGoals(range: StatsRange): GymExerciseGoalStat[] {
-  const sessions = filterSessionsByRange(getTrackedWorkoutSessions(), range);
+function buildGymExerciseGoals(sessionsInput: WorkoutSessionEntry[], range: StatsRange): GymExerciseGoalStat[] {
+  const sessions = filterSessionsByRange(sessionsInput, range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const map = new Map<string, { weights: number[]; reps: number[]; latestISO: string | null; maxWeight: number; maxRepsAtMaxWeight: number }>();
@@ -370,7 +386,7 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
   );
 }
 
-function resolveHistorySport(session: SessionDetail): HistorySportBucket {
+function resolveHistorySport(session: WorkoutSessionEntry): HistorySportBucket {
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const scores: Record<Category, number> = { Basketball: 0, Gym: 0, Home: 0, Regeneration: 0 };
@@ -388,7 +404,7 @@ function resolveHistorySport(session: SessionDetail): HistorySportBucket {
 
 export default function StatsPage() {
   const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
-  const [sessionDetails, setSessionDetails] = useState<SessionDetail[]>([]);
+  const [sessionDetails, setSessionDetails] = useState<WorkoutSessionEntry[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [range, setRange] = useState<StatsRange>("all");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -400,31 +416,36 @@ export default function StatsPage() {
   const [username, setUsername] = useState("Champion");
   const [gameStats, setGameStats] = useState(() => loadGameStats());
   const [sessionNotesDraft, setSessionNotesDraft] = useState("");
+  const [coachingProfile, setCoachingProfile] = useState({ position: "sg", playStyle: "" });
+  const [coachingLevel, setCoachingLevel] = useState(1);
 
   const refreshSessionDetails = useCallback(() => {
-    setSessionDetails(
-      getTrackedWorkoutSessions().map((session) => ({
-        id: session.id,
-        dateISO: session.dateISO,
-        workoutName: session.workoutName,
-        sessionNotes: session.sessionNotes,
-        logs: session.logs,
-      })),
-    );
+    setSessionDetails(getTrackedWorkoutSessions());
   }, []);
 
 useEffect(() => {
     try {
       const cached = window.localStorage.getItem("profile_cache_v4");
       if (!cached) return;
-      const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
+      const parsed = JSON.parse(cached) as {
+        profile?: { username?: string | null; full_name?: string | null; favorite_position?: string | null };
+        playStyle?: string;
+      };
       const nextName = parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
-      const timer = window.setTimeout(() => setUsername(nextName), 0);
+      const pos = (parsed.profile?.favorite_position ?? "sg").trim().toLowerCase() || "sg";
+      const timer = window.setTimeout(() => {
+        setUsername(nextName);
+        setCoachingProfile({ position: pos, playStyle: (parsed.playStyle ?? "").trim() });
+      }, 0);
       return () => window.clearTimeout(timer);
     } catch {
       return undefined;
     }
   }, []);
+
+  useEffect(() => {
+    setCoachingLevel(getProgressionState().level);
+  }, [sessionDetails.length, history.length]);
 
 useEffect(() => {
     void pullProgressFromCloud().then(() => setGameStats(loadGameStats()));
@@ -457,7 +478,7 @@ useEffect(() => {
         setSessionNotesDraft("");
         return;
       }
-      const s = getWorkoutSessions().find((x) => x.id === selectedSessionId);
+      const s = sessionDetails.find((x) => x.id === selectedSessionId);
       setSessionNotesDraft(s?.sessionNotes ?? "");
     }, 0);
     return () => window.clearTimeout(id);
@@ -474,9 +495,69 @@ useEffect(() => {
 
   const filteredSessions = useMemo(() => filterSessionsByRange(sessionDetails, range), [range, sessionDetails]);
 
-  const basketballStats = useMemo(() => buildBasketballExerciseStats(range), [range]);
-  const timedTrends = useMemo(() => buildTimedExerciseTrends(range), [range]);
-  const gymGoals = useMemo(() => buildGymExerciseGoals(range), [range]);
+  const weeklyLoadRpe = useMemo(() => {
+    const monday = startOfIsoWeekMonday(new Date());
+    const weekEnd = new Date(monday);
+    weekEnd.setDate(monday.getDate() + 7);
+
+    const weekSessions = sessionDetails.filter((s) => {
+      const t = new Date(s.dateISO).getTime();
+      return t >= monday.getTime() && t < weekEnd.getTime();
+    });
+
+    const dayLabels = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    const points: TrendPoint[] = [];
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const key = toLocalDateKey(d);
+      const daySessions = weekSessions.filter((s) => toLocalDateKey(new Date(s.dateISO)) === key);
+      const rpes = daySessions.map((s) => sessionAverageRpe(s)).filter((v): v is number => v != null);
+      const avg = rpes.length > 0 ? Math.round((rpes.reduce((a, b) => a + b, 0) / rpes.length) * 10) / 10 : 0;
+      points.push({ label: dayLabels[i], value: avg });
+    }
+
+    const allRpes = weekSessions.map((s) => sessionAverageRpe(s)).filter((v): v is number => v != null);
+    const weekAvg =
+      allRpes.length > 0 ? Math.round((allRpes.reduce((a, b) => a + b, 0) / allRpes.length) * 10) / 10 : null;
+
+    let recommendation =
+      "Noch zu wenig RPE-Daten diese Woche — trage beim nächsten Workout pro Satz ein RPE (1–10) ein.";
+    let tone: "ok" | "watch" | "high" = "ok";
+    if (weekAvg != null) {
+      if (weekAvg >= 8.5) {
+        recommendation =
+          "Die wöchentliche Belastung wirkt sehr hoch. Deload oder eine leichte Erholungswoche einplanen und Schlaf priorisieren.";
+        tone = "high";
+      } else if (weekAvg >= 7.5) {
+        recommendation =
+          "Belastung ist erhöht — Volumen moderaten, Technik- und Regenerationseinheiten beibehalten oder leicht erhöhen.";
+        tone = "watch";
+      } else if (weekAvg <= 5.5 && allRpes.length >= 3) {
+        recommendation =
+          "Intensität war diese Woche eher moderat — du kannst 1–2 Einheiten gezielt fortschreiben (Volumen oder RPE leicht steigern).";
+        tone = "ok";
+      } else {
+        recommendation = "Belastung liegt in einem gesunden Rahmen für kontinuierliches Training.";
+        tone = "ok";
+      }
+    }
+
+    const chartPoints = points.filter((p) => p.value > 0);
+    return {
+      points,
+      chartPoints,
+      weekAvg,
+      sessionCount: weekSessions.length,
+      rpeSampleCount: allRpes.length,
+      recommendation,
+      tone,
+    };
+  }, [sessionDetails]);
+
+  const basketballStats = useMemo(() => buildBasketballExerciseStats(sessionDetails, range), [sessionDetails, range]);
+  const timedTrends = useMemo(() => buildTimedExerciseTrends(sessionDetails, range), [sessionDetails, range]);
+  const gymGoals = useMemo(() => buildGymExerciseGoals(sessionDetails, range), [sessionDetails, range]);
 
   const totalSets = filteredHistory.reduce((sum, entry) => sum + entry.totalSets, 0);
   const totalReps = filteredHistory.reduce((sum, entry) => sum + entry.totalReps, 0);
@@ -611,25 +692,17 @@ useEffect(() => {
   };
 
   const basketballCoachingPlan = useMemo(() => {
-    void history.length;
-    void sessionDetails.length;
-    void gameStats.length;
-    if (typeof window === "undefined") return null;
     try {
-      const raw = window.localStorage.getItem("profile_cache_v4");
-      const parsed = raw
-        ? (JSON.parse(raw) as { profile?: { favorite_position?: string | null }; playStyle?: string })
-        : null;
       return buildBasketballCoachingPlan({
-        sessions: getWorkoutSessions(),
-        position: parsed?.profile?.favorite_position ?? "sg",
-        playStyle: parsed?.playStyle ?? "",
-        level: getProgressionState().level,
+        sessions: sessionDetails,
+        position: coachingProfile.position,
+        playStyle: coachingProfile.playStyle,
+        level: coachingLevel,
       });
     } catch {
       return null;
     }
-  }, [history, sessionDetails, gameStats]);
+  }, [sessionDetails, coachingProfile, coachingLevel]);
 
   return (
     <main className="app-container animate-in">
@@ -641,6 +714,22 @@ useEffect(() => {
           <>
             <button type="button" onClick={() => downloadTrainingCsv()} className="btn btn-ghost btn-sm">
               CSV Export
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const sessions = getWorkoutSessions()
+                  .filter((s) => s.workoutId !== "single-exercise-session")
+                  .slice(0, 24);
+                if (sessions.length === 0) {
+                  window.alert("Keine Workout-Sessions zum Export vorhanden.");
+                  return;
+                }
+                downloadWorkoutSessionsTcx(`basketball-training-sessions-${toLocalDateKey(new Date())}.tcx`, sessions);
+              }}
+              className="btn btn-ghost btn-sm"
+            >
+              TCX (Health / Strava)
             </button>
             <Link href="/review" className="btn btn-outline btn-sm">
               Wochen-Review
@@ -686,6 +775,40 @@ useEffect(() => {
         <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{totalMinutesTrained}</p></div>
         <div className="stat-tile"><p className="stat-tile__label">Volumen (kg)</p><p className="stat-tile__value">{totalVolume}</p></div>
       </div>
+
+      <section
+        className={`mt-6 app-card ${
+          weeklyLoadRpe.tone === "high"
+            ? "border-rose-500/30"
+            : weeklyLoadRpe.tone === "watch"
+              ? "border-amber-500/30"
+              : ""
+        }`}
+      >
+        <p className="section-eyebrow">Kalenderwoche</p>
+        <h2 className="section-title mt-1">Belastung diese Woche (RPE)</h2>
+        <p className="mt-1 text-xs text-muted">
+          Aus Sessions mit erfasstem RPE · Mo–So (lokale Zeit) · {weeklyLoadRpe.sessionCount} Workouts ·{" "}
+          {weeklyLoadRpe.rpeSampleCount} RPE-Mittelwerte
+        </p>
+        <div className="mt-4 flex flex-wrap items-end gap-6">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-faint">Ø RPE (Woche)</p>
+            <p className="text-3xl font-semibold tabular-nums text-strong">
+              {weeklyLoadRpe.weekAvg != null ? weeklyLoadRpe.weekAvg : "—"}
+              {weeklyLoadRpe.weekAvg != null ? <span className="ml-1 text-base font-medium text-muted">/ 10</span> : null}
+            </p>
+          </div>
+          <p className="max-w-xl flex-1 text-sm text-strong">{weeklyLoadRpe.recommendation}</p>
+        </div>
+        <div className="mt-5">
+          {weeklyLoadRpe.chartPoints.length > 0 ? (
+            <TrendChart points={weeklyLoadRpe.chartPoints} yLabel="RPE" yMax={10} height={110} lowerIsBetter />
+          ) : (
+            <p className="text-xs text-faint">Keine Tages-RPE-Werte — nach ein paar protokollierten Sätzen erscheint der Verlauf.</p>
+          )}
+        </div>
+      </section>
       <section className="mt-4 app-card--accent-violet">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>

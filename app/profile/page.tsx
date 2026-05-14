@@ -24,6 +24,7 @@ import {
   writeManualDayDisabledMap,
   writeManualPlanOverrides,
 } from "@/lib/activity-calendar";
+import { clearPlayerIntake } from "@/lib/coach-intake";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
@@ -561,6 +562,24 @@ const refreshProfileAndWeekly = () => {
         subtitle="Pflege deine Daten und plane die Woche – die Engine baut deinen Plan automatisch."
       />
 
+      <section className="mt-4 app-card">
+        <p className="section-eyebrow">Coach</p>
+        <h2 className="section-title mt-1">Kennenlern-Chat</h2>
+        <p className="mt-1 text-sm text-muted">
+          Beim ersten App-Start hast du Stärken, Schwächen und Rolle im Team angegeben. Du kannst das zurücksetzen — der Dialog erscheint dann wieder (z. B. nach der Saison).
+        </p>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm mt-3"
+          onClick={() => {
+            clearPlayerIntake();
+            setMessage("Kennenlern-Chat zurückgesetzt. Beim nächsten Laden der App wirst du erneut befragt.");
+          }}
+        >
+          Kennenlern-Chat erneut starten
+        </button>
+      </section>
+
       <section className="mt-6 app-card">
         <p className="section-eyebrow">Stammdaten</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -721,23 +740,30 @@ const refreshProfileAndWeekly = () => {
                       value={dayConfig.mode}
                       onChange={(event) => {
                         const nextMode = event.target.value as DayMode;
-                        const defaultMinutes: Record<DayMode, number> = {
-                          unavailable: 0,
-                          rest: 0,
-                          recovery: 25,
-                          game_day: 60,
-                          game_training: 45,
-                          basketball_training: 45,
-                          gym: 60,
-                          custom: 30,
-                        };
-                        updateWeekConfigAndCalendar((prev) => ({
-                          ...prev,
-                          [dayKey]: {
-                            mode: nextMode,
-                            minutes: dayConfig.minutes || defaultMinutes[nextMode],
-                          },
-                        }));
+                        updateWeekConfigAndCalendar((prev) => {
+                          const current = prev[dayKey] ?? { mode: "unavailable" as DayMode, minutes: 0 };
+                          const defaultMinutes: Record<DayMode, number> = {
+                            unavailable: 0,
+                            rest: 0,
+                            recovery: 25,
+                            game_day: 60,
+                            game_training: 45,
+                            basketball_training: 45,
+                            gym: 60,
+                            custom: 30,
+                          };
+                          const nextMinutes =
+                            typeof current.minutes === "number" && Number.isFinite(current.minutes) && current.minutes > 0
+                              ? current.minutes
+                              : defaultMinutes[nextMode];
+                          return {
+                            ...prev,
+                            [dayKey]: {
+                              mode: nextMode,
+                              minutes: nextMinutes,
+                            },
+                          };
+                        });
                       }}
                       className="select min-w-[140px] flex-1"
                     >
@@ -757,10 +783,13 @@ const refreshProfileAndWeekly = () => {
                         value={dayConfig.minutes}
                         onChange={(event) => {
                           const minutes = Number(event.target.value) || 0;
-                          updateWeekConfigAndCalendar((prev) => ({
-                            ...prev,
-                            [dayKey]: { ...dayConfig, minutes },
-                          }));
+                          updateWeekConfigAndCalendar((prev) => {
+                            const current = prev[dayKey] ?? { mode: "unavailable" as DayMode, minutes: 0 };
+                            return {
+                              ...prev,
+                              [dayKey]: { ...current, minutes },
+                            };
+                          });
                         }}
                         className="input w-20"
                       />

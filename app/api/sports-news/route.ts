@@ -29,7 +29,10 @@ type SportsNewsItem = {
   gameId: number | null;
   /** Nur NBA-Daten (Ball Dont Lie). Keine Viertel-Zeilen in Free-Tier — siehe statsLink */
   topScorers?: SportsNewsTopScorer[];
+  /** Direkt nba.com/box-score wenn eine NBA-Game-ID mitgeliefert wird, sonst nba.com/games?date=… */
   statsLink: string;
+  /** Kanal-Suche @TheGametimeHighlights für genau dieses Matchup (Fallback für Highlights-Link). */
+  youtubeHighlightsSearchUrl: string;
 };
 
 type BallDontLieGame = {
@@ -115,6 +118,47 @@ function inferHasResult(status: string, homeScore: number | null, awayScore: num
   return false;
 }
 
+/** NBA.com nutzt meist 3-Buchstaben-Codes (Kleinbuchstaben im Pfad). */
+function nbaTricodeSlug(abbr: string | undefined): string {
+  const raw = (abbr ?? "nba").trim().toUpperCase();
+  if (raw.length <= 1) return "nba";
+  return raw.toLowerCase().slice(0, 6);
+}
+
+/** Falls die API später eine offizielle NBA-Game-ID (10 Ziffern) liefert — dann echter /box-score-Link. */
+function tryOfficialNbaGameIdSegment(game: BallDontLieGame): string | null {
+  const extra = game as Record<string, unknown>;
+  for (const key of ["nba_game_id", "official_nba_game_id", "nba_stats_game_id", "reference"]) {
+    const v = extra[key];
+    if (typeof v === "string") {
+      const t = v.trim();
+      if (/^\d{10}$/.test(t)) return t;
+      const digits = t.replace(/\D/g, "");
+      if (digits.length === 10) return digits;
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const s = String(Math.trunc(v));
+      if (s.length === 10) return s;
+    }
+  }
+  return null;
+}
+
+function buildNbaBoxScoreUrl(game: BallDontLieGame, dateDay: string): string {
+  const va = nbaTricodeSlug(game.visitor_team?.abbreviation);
+  const ha = nbaTricodeSlug(game.home_team?.abbreviation);
+  const gid = tryOfficialNbaGameIdSegment(game);
+  if (gid) {
+    return `https://www.nba.com/game/${va}-vs-${ha}-${gid}/box-score`;
+  }
+  return `https://www.nba.com/games?date=${encodeURIComponent(dateDay)}`;
+}
+
+function buildYoutubeTheGameTimeHighlightsSearchUrl(awayFull: string, homeFull: string, dateDay: string): string {
+  const q = `${awayFull} ${homeFull} NBA Highlights ${dateDay}`;
+  return `https://www.youtube.com/@TheGametimeHighlights/search?query=${encodeURIComponent(q)}`;
+}
+
 function mapGameToItem(game: BallDontLieGame): SportsNewsItem {
   const home = game.home_team?.full_name ?? "Home";
   const away = game.visitor_team?.full_name ?? "Away";
@@ -128,7 +172,8 @@ function mapGameToItem(game: BallDontLieGame): SportsNewsItem {
   const dateDay = (game.date ?? date).slice(0, 10);
   const dateDe = germanCalendarDateFromIsoDay(dateDay);
   const dateForSearch = `${dateDe} (${dateDay})`;
-  const statsLink = `https://www.google.com/search?q=${encodeURIComponent(`${away} @ ${home} NBA Box Score ${dateForSearch}`)}`;
+  const statsLink = buildNbaBoxScoreUrl(game, dateDay);
+  const youtubeHighlightsSearchUrl = buildYoutubeTheGameTimeHighlightsSearchUrl(away, home, dateDay);
 
   return {
     title: `${away} @ ${home}`,
@@ -143,6 +188,7 @@ function mapGameToItem(game: BallDontLieGame): SportsNewsItem {
     url: `https://www.google.com/search?q=${encodeURIComponent(`${away} @ ${home} NBA Highlights Spiel ${dateForSearch}`)}`,
     gameId: gid,
     statsLink,
+    youtubeHighlightsSearchUrl,
   };
 }
 

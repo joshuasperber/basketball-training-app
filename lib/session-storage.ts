@@ -17,6 +17,8 @@ export type WorkoutSessionLog = {
   attempts?: number | null;
   misses?: number | null;
   weightKg?: number | null;
+  /** RPE 1–10 pro Satz, falls beim Abschluss erfasst. */
+  rpe?: number | null;
 };
 
 export type WorkoutSessionEntry = {
@@ -28,6 +30,10 @@ export type WorkoutSessionEntry = {
   workoutSubcategory?: string;
   /** Optionale Gesamt-Notiz zum Workout (nachträglich editierbar). */
   sessionNotes?: string;
+  /** Geschätzte oder gemessene Session-Dauer (Sekunden), z. B. für Export. */
+  durationSeconds?: number;
+  /** Durchschnittliches RPE der erfassten Sätze (1–10). */
+  avgRpe?: number | null;
   logs: WorkoutSessionLog[];
 };
 

@@ -12,6 +12,8 @@ import {
   SportsNewsSegmentNav,
   SportsNewsShell,
 } from "@/components/sports-news/SportsNewsChrome";
+import SportsNewsSpoilerToolbar, { useSportsNewsSpoilerPrefs } from "@/components/sports-news/SportsNewsSpoilerToolbar";
+import { resolveGameHighlightsYoutubeUrl } from "@/lib/sports-news-highlights-url";
 
 type SportsNewsTopScorer = {
   name: string;
@@ -35,6 +37,7 @@ type SportsNewsItem = {
   gameId?: number | null;
   topScorers?: SportsNewsTopScorer[];
   statsLink?: string;
+  youtubeHighlightsSearchUrl?: string;
 };
 
 type SportsNewsPayload = {
@@ -52,6 +55,7 @@ function formatDate(value: string) {
 }
 
 export default function SportsNewsPage() {
+  const { hideScores, highlightsYoutubeUrl } = useSportsNewsSpoilerPrefs();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -92,6 +96,8 @@ export default function SportsNewsPage() {
 
       <SportsNewsPageTitle title="NBA Sports Hub" />
 
+      <SportsNewsSpoilerToolbar className="mt-3" />
+
       {warning ? <MessageBanner variant="warning">{warning}</MessageBanner> : null}
       {error ? <MessageBanner variant="error">{error}</MessageBanner> : null}
 
@@ -119,10 +125,15 @@ export default function SportsNewsPage() {
                 dateLabel={formatDate(item.date)}
                 homeScore={item.homeScore}
                 awayScore={item.awayScore}
-                highlightsUrl={item.url}
+                titleSearchUrl={item.url}
                 statsLink={item.statsLink}
                 topScorers={item.topScorers}
                 gameId={item.gameId}
+                hideScores={hideScores}
+                highlightsYoutubeUrl={resolveGameHighlightsYoutubeUrl(
+                  highlightsYoutubeUrl,
+                  item.youtubeHighlightsSearchUrl ?? "",
+                )}
               />
             ))}
           </div>

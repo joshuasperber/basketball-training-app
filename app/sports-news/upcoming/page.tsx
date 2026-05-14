@@ -12,6 +12,8 @@ import {
   SportsNewsShell,
   UpcomingGameCard,
 } from "@/components/sports-news/SportsNewsChrome";
+import SportsNewsSpoilerToolbar, { useSportsNewsSpoilerPrefs } from "@/components/sports-news/SportsNewsSpoilerToolbar";
+import { resolveGameHighlightsYoutubeUrl } from "@/lib/sports-news-highlights-url";
 
 type SportsNewsItem = {
   title: string;
@@ -26,6 +28,7 @@ type SportsNewsItem = {
   status: string;
   gameId?: number | null;
   statsLink?: string;
+  youtubeHighlightsSearchUrl?: string;
 };
 
 type SportsNewsPayload = {
@@ -43,6 +46,7 @@ function formatDate(value: string) {
 }
 
 export default function SportsNewsUpcomingPage() {
+  const { hideScores, highlightsYoutubeUrl } = useSportsNewsSpoilerPrefs();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -85,6 +89,8 @@ export default function SportsNewsUpcomingPage() {
 
       <SportsNewsPageTitle title="Kommende Spiele" tone="cyan" />
 
+      <SportsNewsSpoilerToolbar className="mt-3" />
+
       {warning ? <MessageBanner variant="warning">{warning}</MessageBanner> : null}
       {error ? <MessageBanner variant="error">{error}</MessageBanner> : null}
 
@@ -108,9 +114,14 @@ export default function SportsNewsUpcomingPage() {
                 source={item.source}
                 dateLabel={formatDate(item.date)}
                 status={item.status}
-                highlightsUrl={item.url}
+                titleSearchUrl={item.url}
                 homeScore={item.homeScore}
                 awayScore={item.awayScore}
+                hideScores={hideScores}
+                highlightsYoutubeUrl={resolveGameHighlightsYoutubeUrl(
+                  highlightsYoutubeUrl,
+                  item.youtubeHighlightsSearchUrl ?? "",
+                )}
               />
             ))}
           </div>

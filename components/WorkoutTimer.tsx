@@ -43,7 +43,7 @@ export default function WorkoutTimer({ startedAtIso, lastSetCompletedAtIso, stat
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
         <p className="section-eyebrow">Stoppuhr</p>
         <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-strong">00:00</p>
-        <p className="mt-1 text-xs text-faint">Beim Start des Workouts läuft die Zeit automatisch.</p>
+        <p className="mt-1 text-xs text-faint">Starte das Workout oder den ersten Satz — die Stoppuhr beginnt sofort mit der Gesamtzeit.</p>
       </div>
     );
   }

@@ -127,57 +127,89 @@ export function ResultGameCard({
   dateLabel,
   homeScore,
   awayScore,
-  highlightsUrl,
+  titleSearchUrl,
   statsLink,
   topScorers,
   gameId,
+  hideScores,
+  highlightsYoutubeUrl,
 }: {
   title: string;
   source: string;
   dateLabel: string;
   homeScore: number | null;
   awayScore: number | null;
-  highlightsUrl: string;
+  titleSearchUrl: string;
   statsLink?: string;
   topScorers?: { name: string; pts: number; reb: number; ast: number; teamAbbr: string }[];
   gameId?: number | null;
+  hideScores: boolean;
+  highlightsYoutubeUrl: string;
 }) {
+  const hasFt = homeScore != null && awayScore != null;
+
   return (
     <article className="group rounded-xl border border-white/[0.06] bg-gradient-to-b from-zinc-900/80 to-zinc-950/90 p-4 shadow-md shadow-black/25 ring-1 ring-white/[0.04] transition hover:border-emerald-500/20 hover:ring-emerald-500/10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <a
-          href={highlightsUrl}
+          href={titleSearchUrl}
           target="_blank"
           rel="noreferrer"
-          title={`Externe Suche inkl. Datum (${dateLabel})`}
+          title={`Infos & Kontext · ${dateLabel}`}
           className="text-base font-semibold text-zinc-100 underline decoration-emerald-500/40 underline-offset-2 transition group-hover:decoration-emerald-400/70"
         >
           {title}
         </a>
-        {statsLink ?
+        <div className="flex shrink-0 flex-wrap gap-2">
           <a
-            href={statsLink}
+            href={highlightsYoutubeUrl}
             target="_blank"
             rel="noreferrer"
-            title={`Box Score / Details · ${dateLabel}`}
-            className="shrink-0 rounded-lg border border-white/10 bg-zinc-800/60 px-2.5 py-1 text-[11px] font-medium text-zinc-200 transition hover:border-emerald-500/30 hover:bg-emerald-950/30 hover:text-emerald-100"
+            title={
+              highlightsYoutubeUrl.includes("/search?") || highlightsYoutubeUrl.includes("/search&")
+                ? "Passendes Highlight im Kanal @TheGametimeHighlights suchen"
+                : "YouTube Highlights"
+            }
+            className="rounded-lg border border-red-500/35 bg-red-950/35 px-2.5 py-1 text-[11px] font-semibold text-red-100 transition hover:border-red-400/50 hover:bg-red-950/50"
           >
-            Box Score
+            {highlightsYoutubeUrl.includes("/search?") || highlightsYoutubeUrl.includes("/search&") ?
+              "Highlights suchen"
+            : "YouTube Highlights"}
           </a>
-        : null}
+          {statsLink ?
+            <a
+              href={statsLink}
+              target="_blank"
+              rel="noreferrer"
+              title={
+                statsLink.includes("/box-score") ?
+                  "Offizieller NBA Box Score"
+                : "Spiele dieses Tages auf NBA.com — dort zum gewünschten Spiel und Box Score wechseln"
+              }
+              className="rounded-lg border border-white/10 bg-zinc-800/60 px-2.5 py-1 text-[11px] font-medium text-zinc-200 transition hover:border-emerald-500/30 hover:bg-emerald-950/30 hover:text-emerald-100"
+            >
+              {statsLink.includes("/box-score") ? "Box Score" : "NBA.com"}
+            </a>
+          : null}
+        </div>
       </div>
       <p className="mt-1.5 line-clamp-2 text-xs text-zinc-600">{source}</p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-emerald-950/25 px-3 py-1.5 ring-1 ring-emerald-500/10">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-500/75">FT</span>
-          <span className="tabular-nums text-xl font-bold tracking-tight text-emerald-100">
-            {homeScore ?? "–"} <span className="text-emerald-600/80">:</span> {awayScore ?? "–"}
-          </span>
-        </div>
+        {hasFt ?
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/15 bg-emerald-950/25 px-3 py-1.5 ring-1 ring-emerald-500/10">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-500/75">FT</span>
+            <span className="text-[10px] text-emerald-400/80">Gast · Heim</span>
+            {hideScores ?
+              <span className="tabular-nums text-xl font-bold tracking-tight text-emerald-100/50">••• : •••</span>
+            : <span className="tabular-nums text-xl font-bold tracking-tight text-emerald-100">
+                {awayScore ?? "–"} <span className="text-emerald-600/80">:</span> {homeScore ?? "–"}
+              </span>}
+          </div>
+        : null}
         <time className="text-[11px] text-zinc-600">{dateLabel}</time>
       </div>
 
-      {topScorers?.length ?
+      {!hideScores && topScorers?.length ?
         <details className="mt-3 rounded-lg border border-white/[0.05] bg-black/25 p-2.5 text-xs ring-1 ring-white/[0.03]">
           <summary className="cursor-pointer font-medium text-zinc-400 hover:text-white">Top Scorer</summary>
           <p className="mt-1.5 text-[11px] text-zinc-600">PTS · REB · AST</p>
@@ -204,17 +236,21 @@ export function UpcomingGameCard({
   source,
   dateLabel,
   status,
-  highlightsUrl,
+  titleSearchUrl,
   homeScore,
   awayScore,
+  hideScores,
+  highlightsYoutubeUrl,
 }: {
   title: string;
   source: string;
   dateLabel: string;
   status: string;
-  highlightsUrl: string;
+  titleSearchUrl: string;
   homeScore: number | null;
   awayScore: number | null;
+  hideScores: boolean;
+  highlightsYoutubeUrl: string;
 }) {
   const live = homeScore != null || awayScore != null;
 
@@ -222,26 +258,45 @@ export function UpcomingGameCard({
     <article className="group rounded-xl border border-cyan-500/15 bg-gradient-to-b from-cyan-950/40 to-zinc-950/90 p-4 shadow-md shadow-black/25 ring-1 ring-cyan-500/10 transition hover:border-cyan-400/35 hover:shadow-cyan-950/20">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <a
-          href={highlightsUrl}
+          href={titleSearchUrl}
           target="_blank"
           rel="noreferrer"
-          title={`Externe Suche inkl. Datum (${dateLabel})`}
+          title={`Infos · ${dateLabel}`}
           className="text-base font-semibold text-cyan-50 underline decoration-cyan-500/35 underline-offset-2 transition group-hover:decoration-cyan-300/60"
         >
           {title}
         </a>
-        <span className="shrink-0 rounded-full border border-cyan-400/25 bg-cyan-950/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-200/95">
-          {status}
-        </span>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <a
+            href={highlightsYoutubeUrl}
+            target="_blank"
+            rel="noreferrer"
+            title={
+              highlightsYoutubeUrl.includes("/search?") || highlightsYoutubeUrl.includes("/search&")
+                ? "Passendes Highlight im Kanal @TheGametimeHighlights suchen"
+                : "YouTube"
+            }
+            className="rounded-lg border border-red-500/35 bg-red-950/35 px-2 py-1 text-[10px] font-semibold text-red-100"
+          >
+            {highlightsYoutubeUrl.includes("/search?") || highlightsYoutubeUrl.includes("/search&") ? "YT suchen" : "YouTube"}
+          </a>
+          <span className="rounded-full border border-cyan-400/25 bg-cyan-950/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-200/95">
+            {status}
+          </span>
+        </div>
       </div>
       <p className="mt-1.5 line-clamp-2 text-xs text-zinc-600">{source}</p>
       <time className="mt-2 block text-[11px] text-zinc-600">{dateLabel}</time>
       {live ?
         <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-950/20 px-3 py-1.5 ring-1 ring-amber-500/10">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-amber-500/80">Stand</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-amber-500/80">Stand (Gast · Heim)</p>
           <p className="tabular-nums text-lg font-bold text-amber-100">
-            {homeScore ?? "–"} : {awayScore ?? "–"}{" "}
-            <span className="text-xs font-normal text-zinc-600">(live / vorläufig)</span>
+            {hideScores ?
+              "••• : •••"
+            : <>
+                {awayScore ?? "–"} : {homeScore ?? "–"}{" "}
+                <span className="text-xs font-normal text-zinc-600">(live / vorläufig)</span>
+              </>}
           </p>
         </div>
       : null}

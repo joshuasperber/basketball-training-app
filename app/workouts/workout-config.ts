@@ -1,12 +1,6 @@
-export type MetricKey =
-  | "tries"
-  | "makes"
-  | "misses"
-  | "weight"
-  | "reps"
-  | "time"
-  | "distance"
-  | "intensity";
+import type { MetricKey } from "@/lib/training-data";
+
+export type { MetricKey };
 
 export type Category = {
   id: string;
@@ -16,26 +10,17 @@ export type Category = {
 };
 
 export const METRIC_LABELS: Record<MetricKey, string> = {
-  tries: "Trys",
   makes: "Makes",
   misses: "Misses",
   weight: "Gewicht",
   reps: "Reps",
   time: "Zeit",
   distance: "Distanz",
-  intensity: "Intensität",
+  points: "Punkte",
+  completed: "Geschafft (Ja/Nein)",
 };
 
-export const ALL_METRICS: MetricKey[] = [
-  "tries",
-  "makes",
-  "misses",
-  "weight",
-  "reps",
-  "time",
-  "distance",
-  "intensity",
-];
+export const ALL_METRICS: MetricKey[] = ["makes", "misses", "weight", "reps", "time", "distance", "points", "completed"];
 
 export const SHOT_RESULT_CATEGORIES = ["handles", "finishes", "shooting"] as const;
 
@@ -43,20 +28,20 @@ export const CATEGORIES: Category[] = [
   {
     id: "handles",
     title: "Handles",
-    description: "Trys + Makes als getrennte Eingaben (Misses werden automatisch berechnet).",
-    defaultMetrics: ["tries", "makes"],
+    description: "Reps + Makes (Misses optional / automatisch).",
+    defaultMetrics: ["reps", "makes"],
   },
   {
     id: "finishes",
     title: "Finishes",
-    description: "Trys + Makes als getrennte Eingaben (Misses werden automatisch berechnet).",
-    defaultMetrics: ["tries", "makes"],
+    description: "Reps + Makes (Misses optional / automatisch).",
+    defaultMetrics: ["reps", "makes"],
   },
   {
     id: "shooting",
     title: "Shooting",
-    description: "Trys + Makes als getrennte Eingaben (Misses werden automatisch berechnet).",
-    defaultMetrics: ["tries", "makes"],
+    description: "Reps + Makes (Misses optional / automatisch).",
+    defaultMetrics: ["reps", "makes"],
   },
   {
     id: "gym-push",
@@ -92,7 +77,7 @@ export const CATEGORIES: Category[] = [
     id: "home",
     title: "Home / Custom",
     description: "Eigene Exercises frei definieren. Metriken komplett frei auswählbar.",
-    defaultMetrics: ["tries", "makes", "weight", "reps", "time"],
+    defaultMetrics: ["makes", "weight", "reps", "time"],
   },
 ];
 

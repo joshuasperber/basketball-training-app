@@ -13,6 +13,7 @@ import {
   type MetricKey,
   type Workout,
 } from "@/lib/training-data";
+import { matchesDrillCatalogFilters, type DrillCatalogFilters } from "@/lib/drill-catalog-filters";
 import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
 import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab } from "@/components/training/TrainingTabs";
 import TopSubTabs from "@/components/TopSubTabs";
@@ -50,6 +51,35 @@ function parseMetricInput(value?: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+const MAX_EXERCISE_VIDEO_BYTES = Math.floor(2.5 * 1024 * 1024);
+
+function readExerciseVideoFile(
+  file: File | null,
+  onDone: (dataUrl: string) => void,
+  onError: (message: string) => void,
+) {
+  if (!file) return;
+  if (!file.type.startsWith("video/")) {
+    onError("Bitte eine Videodatei wählen.");
+    return;
+  }
+  if (file.size > MAX_EXERCISE_VIDEO_BYTES) {
+    onError(`Video zu groß (max. ca. ${(MAX_EXERCISE_VIDEO_BYTES / (1024 * 1024)).toFixed(1)} MB).`);
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const r = String(reader.result ?? "");
+    if (r.length > MAX_EXERCISE_VIDEO_BYTES * 2) {
+      onError("Kodiertes Video zu groß für den lokalen Speicher — bitte kürzeres Video oder Link nutzen.");
+      return;
+    }
+    onDone(r);
+  };
+  reader.onerror = () => onError("Datei konnte nicht gelesen werden.");
+  reader.readAsDataURL(file);
+}
+
 function normalizeSetTargetsLength(
   current: Partial<Record<MetricKey, string>>[],
   setCountValue: string,
@@ -76,17 +106,16 @@ function validateMetricTargets(metricKeys: MetricKey[], targets: Partial<Record<
     }
   }
 
-  const tries = parseMetricInput(targets.tries);
   const reps = parseMetricInput(targets.reps);
   const makes = parseMetricInput(targets.makes);
   const misses = parseMetricInput(targets.misses);
-  const base = tries ?? reps;
+  const base = reps;
 
   if (base !== null) {
-    if (makes !== null && makes > base) return "Makes darf nicht größer als Trys/Reps sein.";
-    if (misses !== null && misses > base) return "Misses darf nicht größer als Trys/Reps sein.";
+    if (makes !== null && makes > base) return "Makes darf nicht größer als Reps sein.";
+    if (misses !== null && misses > base) return "Misses darf nicht größer als Reps sein.";
     if (makes !== null && misses !== null && makes + misses > base) {
-      return "Makes + Misses darf nicht größer als Trys/Reps sein.";
+      return "Makes + Misses darf nicht größer als Reps sein.";
     }
   }
 
@@ -110,6 +139,11 @@ function TrainingPageContent() {
   const [exerciseCategory, setExerciseCategory] = useState<Category>("Basketball");
   const [exerciseSubcategory, setExerciseSubcategory] = useState("Shooting");
   const [exerciseSearch, setExerciseSearch] = useState("");
+  const [drillFilters, setDrillFilters] = useState<DrillCatalogFilters>({
+    video: "all",
+    duration: "all",
+    equipment: "all",
+  });
 
   const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
   const [workouts, setWorkouts] = useState<Workout[]>(defaultWorkouts);
@@ -124,6 +158,7 @@ function TrainingPageContent() {
   const [newExerciseCategory, setNewExerciseCategory] = useState<Category>("Basketball");
   const [newExerciseSubcategory, setNewExerciseSubcategory] = useState("Handles");
   const [newExerciseNotes, setNewExerciseNotes] = useState("");
+  const [newExerciseVideoUrl, setNewExerciseVideoUrl] = useState("");
   const [newExerciseDurationMin, setNewExerciseDurationMin] = useState("10");
   const [newExerciseDurationUnit, setNewExerciseDurationUnit] = useState<"minutes" | "seconds">("minutes");
   const [newExerciseSetCount, setNewExerciseSetCount] = useState("1");
@@ -155,6 +190,7 @@ function TrainingPageContent() {
   const [editExerciseCategory, setEditExerciseCategory] = useState<Category>("Basketball");
   const [editExerciseSubcategory, setEditExerciseSubcategory] = useState("Handles");
   const [editExerciseNotes, setEditExerciseNotes] = useState("");
+  const [editExerciseVideoUrl, setEditExerciseVideoUrl] = useState("");
   const [editExerciseDurationMin, setEditExerciseDurationMin] = useState("10");
   const [editExerciseDurationUnit, setEditExerciseDurationUnit] = useState<"minutes" | "seconds">("minutes");
   const [editExerciseSetCount, setEditExerciseSetCount] = useState("1");
@@ -194,25 +230,32 @@ function TrainingPageContent() {
 
   const exercisesForSelection = useMemo(
     () =>
-      exercises.filter(
-        (exercise) => exercise.category === exerciseCategory && exercise.subcategory === exerciseSubcategory && exercise.subcategory !== "Komplett",
-      ),
-    [exercises, exerciseCategory, exerciseSubcategory],
+      exercises
+        .filter(
+          (exercise) =>
+            exercise.category === exerciseCategory &&
+            exercise.subcategory === exerciseSubcategory &&
+            exercise.subcategory !== "Komplett",
+        )
+        .filter((exercise) => matchesDrillCatalogFilters(exercise, drillFilters)),
+    [exercises, exerciseCategory, exerciseSubcategory, drillFilters],
   );
 
   const allExercisesBySearch = useMemo(() => {
     const searchTerm = exerciseSearch.trim().toLowerCase();
-    if (!searchTerm) return exercises.filter((exercise) => exercise.subcategory !== "Komplett");
-
-    return exercises.filter((exercise) => {
-      if (exercise.subcategory === "Komplett") return false;
-      return (
-        exercise.name.toLowerCase().includes(searchTerm) ||
-        exercise.category.toLowerCase().includes(searchTerm) ||
-        exercise.subcategory.toLowerCase().includes(searchTerm)
-      );
-    });
-  }, [exerciseSearch, exercises]);
+    const base =
+      searchTerm.length === 0
+        ? exercises.filter((exercise) => exercise.subcategory !== "Komplett")
+        : exercises.filter((exercise) => {
+            if (exercise.subcategory === "Komplett") return false;
+            return (
+              exercise.name.toLowerCase().includes(searchTerm) ||
+              exercise.category.toLowerCase().includes(searchTerm) ||
+              exercise.subcategory.toLowerCase().includes(searchTerm)
+            );
+          });
+    return base.filter((exercise) => matchesDrillCatalogFilters(exercise, drillFilters));
+  }, [exerciseSearch, exercises, drillFilters]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -305,6 +348,7 @@ function TrainingPageContent() {
         category: newExerciseCategory,
         subcategory: newExerciseSubcategory,
         notes: newExerciseNotes.trim() || undefined,
+        videoUrl: newExerciseVideoUrl.trim() || undefined,
         metricKeys: newExerciseMetrics.length > 0 ? newExerciseMetrics : (["reps"] as MetricKey[]),
         targetByMetric: Object.fromEntries(
           Object.entries(newExerciseTargets).flatMap(([metric, value]) => {
@@ -330,6 +374,7 @@ function TrainingPageContent() {
 
     setNewExerciseName("");
     setNewExerciseNotes("");
+    setNewExerciseVideoUrl("");
     setNewExerciseDurationMin("10");
     setNewExerciseDurationUnit("minutes");
     setNewExerciseSetCount("1");
@@ -402,6 +447,7 @@ function TrainingPageContent() {
     setEditExerciseCategory(exercise.category);
     setEditExerciseSubcategory(exercise.subcategory);
     setEditExerciseNotes(exercise.notes ?? "");
+    setEditExerciseVideoUrl(exercise.videoUrl ?? "");
     setEditExerciseDurationMin(String(exercise.durationMin));
     setEditExerciseDurationUnit(exercise.timeUnit ?? "minutes");
     setEditExerciseSetCount(String(exercise.setCount ?? 1));
@@ -424,11 +470,14 @@ function TrainingPageContent() {
 
   function cancelEditExercise() {
     setEditingExerciseId(null);
+    setEditExerciseNotes("");
+    setEditExerciseVideoUrl("");
     setEditExerciseDurationMin("10");
     setEditExerciseDurationUnit("minutes");
     setEditExerciseSetCount("1");
     setEditExerciseMetrics(["reps"]);
     setEditExerciseTargets({});
+    setEditExerciseSetTargets([{}]);
     setEditExerciseError(null);
   }
 
@@ -482,6 +531,7 @@ function TrainingPageContent() {
         category: editExerciseCategory,
         subcategory: editExerciseSubcategory,
         notes: editExerciseNotes.trim() || undefined,
+        videoUrl: editExerciseVideoUrl.trim() || undefined,
         metricKeys: metrics,
         targetByMetric: numericTargets,
         setTargetsByMetric: normalizeSetTargetsLength(editExerciseSetTargets, editExerciseSetCount).map((setTargets) =>
@@ -503,6 +553,8 @@ function TrainingPageContent() {
     await persistTrainingData(nextExercises, workouts);
 
     setEditingExerciseId(null);
+    setEditExerciseNotes("");
+    setEditExerciseVideoUrl("");
     setEditExerciseDurationMin("10");
     setEditExerciseDurationUnit("minutes");
     setEditExerciseSetCount("1");
@@ -525,6 +577,8 @@ function TrainingPageContent() {
 
     if (editingExerciseId === exerciseId) {
       setEditingExerciseId(null);
+      setEditExerciseNotes("");
+      setEditExerciseVideoUrl("");
       setEditExerciseDurationMin("10");
       setEditExerciseDurationUnit("minutes");
       setEditExerciseSetCount("1");
@@ -645,6 +699,8 @@ function TrainingPageContent() {
             selectedSubcategory={exerciseSubcategory}
             onCategoryChange={handleExerciseCategoryChange}
             onSubcategoryChange={setExerciseSubcategory}
+            drillFilters={drillFilters}
+            onDrillFilterChange={(patch) => setDrillFilters((current) => ({ ...current, ...patch }))}
             visibleExercises={exercisesForSelection}
             searchableExercises={allExercisesBySearch}
             exerciseSearch={exerciseSearch}
@@ -657,6 +713,11 @@ function TrainingPageContent() {
             onNewExerciseSubcategoryChange={setNewExerciseSubcategory}
             newExerciseNotes={newExerciseNotes}
             onNewExerciseNotesChange={setNewExerciseNotes}
+            newExerciseVideoUrl={newExerciseVideoUrl}
+            onNewExerciseVideoUrlChange={setNewExerciseVideoUrl}
+            onNewExerciseVideoFile={(file) =>
+              readExerciseVideoFile(file, setNewExerciseVideoUrl, (msg) => window.alert(msg))
+            }
             newExerciseDurationMin={newExerciseDurationMin}
             onNewExerciseDurationMinChange={setNewExerciseDurationMin}
             newExerciseDurationUnit={newExerciseDurationUnit}
@@ -692,6 +753,11 @@ function TrainingPageContent() {
             onEditExerciseSubcategoryChange={setEditExerciseSubcategory}
             editExerciseNotes={editExerciseNotes}
             onEditExerciseNotesChange={setEditExerciseNotes}
+            editExerciseVideoUrl={editExerciseVideoUrl}
+            onEditExerciseVideoUrlChange={setEditExerciseVideoUrl}
+            onEditExerciseVideoFile={(file) =>
+              readExerciseVideoFile(file, setEditExerciseVideoUrl, (msg) => window.alert(msg))
+            }
             editExerciseDurationMin={editExerciseDurationMin}
             onEditExerciseDurationMinChange={setEditExerciseDurationMin}
             editExerciseDurationUnit={editExerciseDurationUnit}

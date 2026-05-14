@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useSportsNewsSpoilerPrefs } from "@/components/sports-news/SportsNewsSpoilerToolbar";
+import { resolveGameHighlightsYoutubeUrl } from "@/lib/sports-news-highlights-url";
 
 type SportsNewsItem = {
   title: string;
@@ -12,6 +14,8 @@ type SportsNewsItem = {
   homeScore?: number | null;
   awayScore?: number | null;
   hasResult?: boolean;
+  statsLink?: string;
+  youtubeHighlightsSearchUrl?: string;
 };
 
 type SportsNewsPayload = {
@@ -48,6 +52,7 @@ async function fetchNewsFromEndpoint(endpoint: string) {
 }
 
 export default function SportsNewsSection() {
+  const { hideScores, setHideScores, highlightsYoutubeUrl } = useSportsNewsSpoilerPrefs();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -105,6 +110,32 @@ export default function SportsNewsSection() {
         <p className="text-xs text-zinc-600">Ball Dont Lie · ~15&nbsp;Min Cache</p>
       </div>
 
+      <div className="relative mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-300">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={hideScores}
+            onChange={(e) => setHideScores(e.target.checked)}
+            className="rounded border-zinc-600"
+          />
+          Keine Spielstände
+        </label>
+        <a
+          href={highlightsYoutubeUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-red-300 underline-offset-2 hover:underline"
+        >
+          Highlights (YouTube)
+        </a>
+        <span className="text-zinc-600">
+          URL anpassen:{" "}
+          <Link href="/sports-news" className="text-emerald-400 hover:underline">
+            Sports Hub
+          </Link>
+        </span>
+      </div>
+
       <div className="relative mt-5 flex flex-wrap gap-2">
         <button
           type="button"
@@ -153,16 +184,37 @@ export default function SportsNewsSection() {
               <a href={item.url} target="_blank" rel="noreferrer" className="font-semibold text-zinc-100 underline decoration-emerald-500/35 underline-offset-2 hover:decoration-emerald-400/60">
                 {item.title}
               </a>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href={resolveGameHighlightsYoutubeUrl(highlightsYoutubeUrl, item.youtubeHighlightsSearchUrl ?? "")}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-red-500/30 bg-red-950/30 px-2 py-0.5 text-[10px] font-semibold text-red-100 hover:border-red-400/50"
+                >
+                  Highlights
+                </a>
+                {item.statsLink ?
+                  <a
+                    href={item.statsLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-white/10 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium text-zinc-200 hover:border-emerald-500/30"
+                  >
+                    {item.statsLink.includes("/box-score") ? "Box Score" : "NBA.com"}
+                  </a>
+                : null}
+              </div>
               {!item.hasResult ?
                 <p className="mt-2 text-xs font-medium text-cyan-300/95">
                   {item.status ? `${item.status} · ` : ""}
                   Kommend
                 </p>
               : item.homeScore != null && item.awayScore != null ?
-                <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-emerald-950/25 px-3 py-1 ring-1 ring-emerald-500/10">
+                <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/15 bg-emerald-950/25 px-3 py-1 ring-1 ring-emerald-500/10">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-500/75">FT</span>
+                  <span className="text-[10px] text-emerald-400/80">Gast · Heim</span>
                   <span className="tabular-nums text-sm font-bold text-emerald-100">
-                    {item.homeScore} : {item.awayScore}
+                    {hideScores ? "••• : •••" : `${item.awayScore} : ${item.homeScore}`}
                   </span>
                 </div>
               : <p className="mt-2 text-xs font-medium text-emerald-200/80">Ergebnis vorhanden</p>}

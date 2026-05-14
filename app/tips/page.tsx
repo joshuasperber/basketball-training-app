@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import TopSubTabs from "@/components/TopSubTabs";
 import {
@@ -11,6 +11,7 @@ import {
   savePerformanceTips,
   upsertPerformanceTip,
 } from "@/lib/performance-tips";
+import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 
 const SCOPE_OPTIONS: { value: TipScope; label: string }[] = [
   { value: "game", label: "Vor Spiel" },
@@ -19,12 +20,23 @@ const SCOPE_OPTIONS: { value: TipScope; label: string }[] = [
   { value: "subcategory", label: "Workout-Schwerpunkt (z.B. Shooting)" },
 ];
 
+const TIP_GROUP_ORDER: TipScope[] = ["game", "game_training", "basketball_training", "subcategory"];
+
+const BASKETBALL_SUBS = exerciseSubcategoriesByCategory.Basketball;
+
 export default function TipsPage() {
-  const [tips, setTips] = useState<PerformanceTip[]>(() => loadPerformanceTips());
+  const [tips, setTips] = useState<PerformanceTip[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [scope, setScope] = useState<TipScope>("subcategory");
   const [scopeValue, setScopeValue] = useState("Shooting");
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTips(loadPerformanceTips());
+    setHydrated(true);
+  }, []);
 
   const grouped = useMemo(() => {
     return {
@@ -40,6 +52,50 @@ export default function TipsPage() {
     savePerformanceTips(next);
   };
 
+  const resetForm = () => {
+    setTitle("");
+    setContent("");
+    setScope("subcategory");
+    setScopeValue("Shooting");
+    setEditingId(null);
+  };
+
+  const startEdit = (tip: PerformanceTip) => {
+    setEditingId(tip.id);
+    setTitle(tip.title);
+    setContent(tip.content);
+    setScope(tip.scope);
+    setScopeValue(tip.scopeValue ?? "Shooting");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const submitTip = () => {
+    const nextTitle = title.trim();
+    const nextContent = content.trim();
+    if (!nextTitle || !nextContent) return;
+    if (scope === "subcategory" && !scopeValue.trim()) return;
+    const prev = editingId ? tips.find((t) => t.id === editingId) : null;
+    const subVal = scope === "subcategory" ? scopeValue.trim() : undefined;
+    const next = upsertPerformanceTip(tips, {
+      id: editingId ?? undefined,
+      title: nextTitle,
+      content: nextContent,
+      scope,
+      scopeValue: subVal,
+      active: prev?.active ?? true,
+    });
+    persist(next);
+    resetForm();
+  };
+
+  if (!hydrated) {
+    return (
+      <main className="app-container animate-in">
+        <p className="text-sm text-muted">Tipps werden geladen…</p>
+      </main>
+    );
+  }
+
   return (
     <main className="app-container animate-in">
       <header>
@@ -52,8 +108,8 @@ export default function TipsPage() {
       </div>
 
       <section className="mt-4 app-card">
-        <p className="section-eyebrow">Neue Notiz</p>
-        <h2 className="section-title mt-1">Schreibe einen Tipp</h2>
+        <p className="section-eyebrow">{editingId ? "Notiz bearbeiten" : "Neue Notiz"}</p>
+        <h2 className="section-title mt-1">{editingId ? "Eintrag anpassen" : "Schreibe einen Tipp"}</h2>
         <div className="mt-3 space-y-3">
           <input
             value={title}
@@ -71,48 +127,55 @@ export default function TipsPage() {
           <div className="grid gap-2 sm:grid-cols-2">
             <select value={scope} onChange={(event) => setScope(event.target.value as TipScope)} className="select">
               {SCOPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
             </select>
             {scope === "subcategory" ? (
-              <input
-                value={scopeValue}
-                onChange={(event) => setScopeValue(event.target.value)}
-                placeholder="Schwerpunkt (z.B. Shooting)"
-                className="input"
-              />
+              <select
+                value={BASKETBALL_SUBS.includes(scopeValue) ? scopeValue : "__other__"}
+                onChange={(event) => {
+                  const v = event.target.value;
+                  if (v === "__other__") setScopeValue("");
+                  else setScopeValue(v);
+                }}
+                className="select"
+              >
+                {BASKETBALL_SUBS.map((sub) => (
+                  <option key={sub} value={sub}>
+                    {sub}
+                  </option>
+                ))}
+                <option value="__other__">Sonstiges …</option>
+              </select>
             ) : null}
           </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-block"
-            onClick={() => {
-              const nextTitle = title.trim();
-              const nextContent = content.trim();
-              if (!nextTitle || !nextContent) return;
-              const next = upsertPerformanceTip(tips, {
-                title: nextTitle,
-                content: nextContent,
-                scope,
-                scopeValue: scope === "subcategory" ? scopeValue.trim() || "Shooting" : undefined,
-                active: true,
-              });
-              persist(next);
-              setTitle("");
-              setContent("");
-            }}
-          >
-            Notiz speichern
-          </button>
+          {scope === "subcategory" && !BASKETBALL_SUBS.includes(scopeValue) ? (
+            <input
+              value={scopeValue}
+              onChange={(event) => setScopeValue(event.target.value)}
+              placeholder="Eigener Schwerpunkt (z.B. Post)"
+              className="input"
+            />
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn btn-primary" onClick={() => void submitTip()}>
+              {editingId ? "Änderungen speichern" : "Notiz speichern"}
+            </button>
+            {editingId ? (
+              <button type="button" className="btn btn-ghost" onClick={() => void resetForm()}>
+                Abbrechen
+              </button>
+            ) : null}
+          </div>
         </div>
       </section>
 
       <section className="mt-4 space-y-3">
-        {(Object.keys(grouped) as TipScope[]).map((key) => (
+        {TIP_GROUP_ORDER.map((key) => (
           <div key={key} className="app-card">
-            <h3 className="section-title">
-              {SCOPE_OPTIONS.find((option) => option.value === key)?.label}
-            </h3>
+            <h3 className="section-title">{SCOPE_OPTIONS.find((option) => option.value === key)?.label}</h3>
             <div className="mt-3 space-y-2">
               {grouped[key].length === 0 ? (
                 <p className="text-sm text-muted">Keine Einträge.</p>
@@ -124,7 +187,10 @@ export default function TipsPage() {
                       <p className="text-xs text-cyan-300">Schwerpunkt: {tip.scopeValue}</p>
                     ) : null}
                     <p className="mt-1 text-sm text-muted">{tip.content}</p>
-                    <div className="mt-2 flex gap-2">
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => void startEdit(tip)}>
+                        Bearbeiten
+                      </button>
                       <button
                         type="button"
                         className="btn btn-ghost btn-xs"

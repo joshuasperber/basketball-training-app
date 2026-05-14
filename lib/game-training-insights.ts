@@ -49,7 +49,8 @@ function average(values: number[]): number {
   return sum / values.length;
 }
 
-function pearsonCorrelation(xs: number[], ys: number[]): number | null {
+/** Pearson-Korrelation (gleiche Länge, n ≥ 3). Export für Unit-Tests. */
+export function pearsonCorrelation(xs: number[], ys: number[]): number | null {
   if (xs.length < 3 || xs.length !== ys.length) return null;
   const mx = average(xs);
   const my = average(ys);

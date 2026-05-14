@@ -19,11 +19,12 @@ const HomeIcon = (
 );
 
 const TrainingIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="9" />
-    <path d="M3.5 8.5C7 10 10 13 11.5 16.5" />
-    <path d="M20.5 8.5C17 10 14 13 12.5 16.5" />
     <path d="M12 3v18" />
+    <path d="M3.2 12h17.6" />
+    <path d="M5.2 6.8c2.8 1.1 5.5 2.6 6.8 5.2 1.3 2.6 4 4.1 6.8 5.2" />
+    <path d="M18.8 6.8c-2.8 1.1-5.5 2.6-6.8 5.2-1.3 2.6-4 4.1-6.8 5.2" />
   </svg>
 );
 

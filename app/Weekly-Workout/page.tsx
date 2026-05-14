@@ -83,6 +83,7 @@ type ProfileLocalCache = {
   playStyle: string;
   weekConfig: WeekConfig;
   weeklyGoalSessions: number;
+  coachWorkoutByDay?: Partial<Record<DayKey, string>>;
 };
 
 type PlannedUiEntry = {
@@ -234,6 +235,30 @@ function computeWorkoutDuration(workout: Workout, exercisesById: Record<string, 
   }, 0);
 
   return roundUpToNearestFive(rawDuration * 1.1);
+}
+
+function workoutFitsPlannedSessionType(workout: Workout, sessionType: string): boolean {
+  if (sessionType === "gym") return workout.category === "Gym";
+  if (sessionType === "basketball") return workout.category === "Basketball";
+  if (sessionType === "game-training" || sessionType === "game") return workout.category === "Basketball";
+  if (sessionType === "recovery") return workout.category === "Regeneration" || workout.category === "Home";
+  if (sessionType === "custom") return true;
+  return false;
+}
+
+function suggestionFromCatalogWorkout(workout: Workout, exercisesById: Record<string, Exercise>): SuggestedWorkout {
+  return {
+    workoutId: workout.id,
+    title: workout.name,
+    durationMin: computeWorkoutDuration(workout, exercisesById),
+    notes: "Vorschlag vom KI-Wochenplan (manuell änderbar).",
+    sport: workout.category,
+    subcategory: workout.subcategory,
+    exerciseIds: workout.exerciseIds,
+    exercises: (workout.exerciseIds ?? [])
+      .map((id) => exercisesById[id]?.name)
+      .filter((name): name is string => Boolean(name)),
+  };
 }
 
 function buildFallbackSuggestion(mode: string, minutes: number): SuggestedWorkout | null {
@@ -636,6 +661,8 @@ export default function WeeklyWorkoutPage() {
           getProgressionState().level,
         );
 
+        const coachByDay = parsed.coachWorkoutByDay;
+
         const suggested = {} as Record<DayKey, SuggestedWorkout>;
         const autoSuggested = {} as Record<DayKey, SuggestedWorkout>;
         computed.forEach((entry) => {
@@ -668,6 +695,14 @@ export default function WeeklyWorkoutPage() {
                   )
                 : entry.minutes)
             : entry.minutes;
+
+          const coachId = coachByDay?.[entry.day];
+          const coachWorkout = coachId ? workouts.find((w) => w.id === coachId) : undefined;
+          const coachSuggestion =
+            !manualFirst && coachWorkout && workoutFitsPlannedSessionType(coachWorkout, entry.sessionType)
+              ? suggestionFromCatalogWorkout(coachWorkout, exercisesById)
+              : null;
+
           suggested[entry.day] = manualFirst
             ? {
                 title: manualFirst.title ?? "Manuelles Workout",
@@ -680,7 +715,7 @@ export default function WeeklyWorkoutPage() {
                   .map((exerciseId) => exercisesById[exerciseId]?.name)
                   .filter((name): name is string => Boolean(name)),
               }
-            : autoPick;
+            : coachSuggestion ?? autoPick;
 
           const usageSource = suggested[entry.day];
           const category = usageSource.sport as Category | undefined;
@@ -719,9 +754,11 @@ export default function WeeklyWorkoutPage() {
     const refreshProfilePlan = () => setProfileVersion((current) => current + 1);
     window.addEventListener("storage", refreshProfilePlan);
     window.addEventListener("focus", refreshProfilePlan);
+    window.addEventListener("bt:plan-updated", refreshProfilePlan);
     return () => {
       window.removeEventListener("storage", refreshProfilePlan);
       window.removeEventListener("focus", refreshProfilePlan);
+      window.removeEventListener("bt:plan-updated", refreshProfilePlan);
     };
   }, []);
 
