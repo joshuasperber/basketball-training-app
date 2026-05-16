@@ -21,6 +21,7 @@ import {
 import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap } from "@/lib/activity-calendar";
 import { pullProgressFromCloud } from "@/lib/progress-sync";
 import { loadPerformanceTips } from "@/lib/performance-tips";
+import { isWorkoutCompletedOnDate } from "@/lib/workout-completion";
 
 const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
 
@@ -96,15 +97,16 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   const [weeklyPlannedCount, setWeeklyPlannedCount] = useState(0);
   const [dashboardTips, setDashboardTips] = useState<string[]>([]);
   const [levelPopup, setLevelPopup] = useState<string | null>(null);
+  const [todayWorkoutIds, setTodayWorkoutIds] = useState<string[]>([todayWorkout.id]);
 
   useEffect(() => {
     const refreshTodayData = () => {
-      setProgress(
-        parseWorkoutProgress(
-          window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
-          fallbackProgress,
-        ),
+      const parsed = parseWorkoutProgress(
+        window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
+        fallbackProgress,
       );
+      const plannedIds = new Set<string>([todayWorkout.id, parsed.workoutId]);
+      setProgress(parsed);
       try {
         setHasWorkoutPlanned(true);
         setTodayLabel(null);
@@ -112,8 +114,15 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         setTodaySubcategory(todayWorkout.subcategory);
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
         if (rawManual) {
-          const parsed = JSON.parse(rawManual) as Record<string, Array<{ title: string; sport?: string; subcategory?: string }>>;
-          const todayManual = parsed[dateKey]?.[0];
+          const parsedManual = JSON.parse(rawManual) as Record<
+            string,
+            Array<{ id?: string; title: string; sport?: string; subcategory?: string }>
+          >;
+          const todayManuals = parsedManual[dateKey] ?? [];
+          todayManuals.forEach((entry) => {
+            if (entry.id) plannedIds.add(entry.id);
+          });
+          const todayManual = todayManuals[0];
           if (todayManual?.title) {
             setHasWorkoutPlanned(true);
             setTodayLabel(todayManual.title);
@@ -121,6 +130,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           if (todayManual?.sport && isSportType(todayManual.sport)) setTodaySport(todayManual.sport);
           if (todayManual?.subcategory) setTodaySubcategory(todayManual.subcategory);
         }
+        setTodayWorkoutIds(Array.from(plannedIds));
         const dailyPlans = readDailyPlanMap();
         const tags = dailyPlans[dateKey] ?? [];
         setPlannedTags(tags);
@@ -225,8 +235,12 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     return Math.min(100, Math.round((weeklyCompleted / weeklyPlannedCount) * 100));
   }, [weeklyCompleted, weeklyPlannedCount]);
 
-  const isCompleted = progress.status === "completed";
-  const isInProgress = progress.status === "in_progress";
+  const isCompleted = useMemo(
+    () => isWorkoutCompletedOnDate(dateKey, todayWorkoutIds),
+    [dateKey, todayWorkoutIds],
+  );
+  const isInProgress =
+    !isCompleted && progress.status === "in_progress" && progress.date === dateKey;
   const quoteOfTheDay = PLAYER_QUOTES[(new Date(dateKey).getDate() - 1) % PLAYER_QUOTES.length];
   const visibleBadges = showAllBadges ? badges : badges.filter((badge) => badge.unlocked);
   const badgeSections = useMemo(() => {

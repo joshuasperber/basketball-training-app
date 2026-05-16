@@ -316,6 +316,10 @@ export const parseWorkoutProgress = (
       return fallback;
     }
 
+    if (parsed.date && parsed.date !== fallback.date) {
+      return fallback;
+    }
+
     return parsed;
   } catch {
     return fallback;

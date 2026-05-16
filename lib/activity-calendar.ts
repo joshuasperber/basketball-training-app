@@ -11,6 +11,11 @@ export const MANUAL_PLAN_OVERRIDES_KEY = "bt.daily-plan-manual-overrides.v1";
 /** Weekly: sichtbare Regenerations-Zusatzkarte pro Datum (ISO yyyy-mm-dd) */
 export const WEEKLY_REGEN_SLOT_MAP_KEY = "bt.weekly-regen-slot.v1";
 
+/** Auto-Vorschlagskarten, die der Nutzer ersetzt oder ausgeblendet hat. */
+export const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
+
+export type HiddenAutoWorkoutsMap = Record<string, string[]>;
+
 export type PlannedWorkoutTag =
   | "Spieltag"
   | "Trainingstag"
@@ -130,6 +135,29 @@ export function readWeeklyRegenSlotMap(): Record<string, boolean> {
 export function writeWeeklyRegenSlotMap(map: Record<string, boolean>) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(WEEKLY_REGEN_SLOT_MAP_KEY, JSON.stringify(map));
+}
+
+export function readHiddenAutoWorkoutsMap(): HiddenAutoWorkoutsMap {
+  if (typeof window === "undefined") return {};
+  const raw = window.localStorage.getItem(HIDDEN_AUTO_WORKOUTS_KEY);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as HiddenAutoWorkoutsMap;
+  } catch {
+    return {};
+  }
+}
+
+export function writeHiddenAutoWorkoutsMap(value: HiddenAutoWorkoutsMap) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(value));
+}
+
+export function hideAutoWorkoutCardForDate(dateKey: string, cardId: string) {
+  const current = readHiddenAutoWorkoutsMap();
+  const hiddenForDate = new Set(current[dateKey] ?? []);
+  hiddenForDate.add(cardId);
+  writeHiddenAutoWorkoutsMap({ ...current, [dateKey]: Array.from(hiddenForDate) });
 }
 
 /**

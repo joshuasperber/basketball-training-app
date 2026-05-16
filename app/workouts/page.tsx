@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type MetricKey } from "@/lib/training-data";
@@ -30,9 +30,17 @@ import { appendWorkoutXpEntry } from "@/lib/level-system";
 import {
   MANUAL_DAY_WORKOUTS_KEY,
   dayHasRegenerationCoverage,
+  hideAutoWorkoutCardForDate,
   readManualDayDisabledMap,
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
+import { sumExerciseIdsDurationMin } from "@/lib/workout-duration";
+import {
+  consumeWeeklyWorkoutPayload,
+  peekWeeklyWorkoutPayload,
+  parseWeeklyAutoWorkoutRaw,
+  type WeeklyWorkoutTransferPayload,
+} from "@/lib/weekly-workout-nav";
 import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { getTipsForWorkoutContext, loadPerformanceTips, type PerformanceTip } from "@/lib/performance-tips";
@@ -264,7 +272,9 @@ function WorkoutsPageContent() {
   const dayParam = searchParams.get("day");
   const workoutIdParam = searchParams.get("workoutId");
   const autoWorkoutParam = searchParams.get("autoWorkout");
+  const workoutPayloadIdParam = searchParams.get("workoutPayloadId");
   const manualWorkoutIdParam = searchParams.get("manualWorkoutId");
+  const replaceCardIdParam = searchParams.get("replaceCardId");
   const manualParam = searchParams.get("manual");
   const selectedDay = dayParam !== null ? Number(dayParam) : null;
   const todayDayIndex = useMemo(() => new Date().getDay(), []);
@@ -304,10 +314,23 @@ function WorkoutsPageContent() {
     Home: [],
     Regeneration: [],
   });
+  const [weeklyTransferPayload, setWeeklyTransferPayload] = useState<WeeklyWorkoutTransferPayload | null>(null);
+  const [sessionWorkout, setSessionWorkout] = useState<WorkoutPlan>(() => getTodayWorkoutPlan());
+  const [progress, setProgress] = useState<WorkoutProgress>(() =>
+    getDefaultWorkoutProgress(toLocalDateKey(new Date()), getTodayWorkoutPlan()),
+  );
+  const [selectedMetricByExercise, setSelectedMetricByExercise] = useState<Record<number, MetricKey>>({});
+  const [trainingGoalsSnap, setTrainingGoalsSnap] = useState(0);
 
   useEffect(() => {
     setIsClientReady(true);
     void pullProgressFromCloud();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setTrainingGoalsSnap((value) => value + 1);
+    window.addEventListener("bt:training-goals-updated", handler);
+    return () => window.removeEventListener("bt:training-goals-updated", handler);
   }, []);
 
   useEffect(() => {
@@ -345,26 +368,29 @@ function WorkoutsPageContent() {
     return () => window.removeEventListener("storage", loadCustomSubcategories);
   }, []);
 
-  const autoWorkoutFromWeekly = useMemo<WorkoutPlan | null>(() => {
-    if (!autoWorkoutParam) return null;
-    try {
-      const decoded = decodeURIComponent(autoWorkoutParam);
-      const parsed = JSON.parse(decoded) as {
-        title?: string;
-        sport?: string;
-        subcategory?: string;
-        notes?: string;
-        exerciseIds?: string[];
-        exercises?: string[];
-      };
+  useEffect(() => {
+    if (!workoutPayloadIdParam) {
+      setWeeklyTransferPayload(null);
+      return;
+    }
+    setWeeklyTransferPayload(peekWeeklyWorkoutPayload(workoutPayloadIdParam));
+  }, [workoutPayloadIdParam]);
 
+  useEffect(() => {
+    if (manualParam === "1" || !workoutPayloadIdParam || !weeklyTransferPayload) return;
+    consumeWeeklyWorkoutPayload(workoutPayloadIdParam);
+  }, [manualParam, workoutPayloadIdParam, weeklyTransferPayload]);
+
+  const buildPlanFromWeeklyPayload = useCallback(
+    (parsed: WeeklyWorkoutTransferPayload): WorkoutPlan | null => {
       const sport =
         parsed.sport === "Gym" || parsed.sport === "Home" || parsed.sport === "Regeneration"
           ? parsed.sport
-          : parsed.sport === "-"
+          : parsed.sport === "-" || parsed.sport === "Rest"
             ? "Rest"
             : "Basketball";
       const exerciseNames = parsed.exercises?.filter(Boolean) ?? [];
+      const exerciseIds = parsed.exerciseIds ?? [];
       if (!parsed.title) return null;
       if (sport === "Rest") {
         return {
@@ -375,34 +401,42 @@ function WorkoutsPageContent() {
           exercises: [],
         };
       }
-      if (exerciseNames.length === 0) return null;
+      const hasExercises = exerciseIds.length > 0 || exerciseNames.length > 0;
+      if (!hasExercises) return null;
       const autoWorkoutId =
-              sport === "Regeneration"
-          ? `auto-weekly-recovery-${effectiveDay}`
-          : `auto-weekly-${effectiveDay}`;
+        parsed.workoutId ??
+        (sport === "Regeneration" ? `auto-weekly-recovery-${effectiveDay}` : `auto-weekly-${effectiveDay}`);
 
       return {
         id: autoWorkoutId,
         title: parsed.title,
         sport,
         subcategory: parsed.subcategory ?? "-",
-        exercises: (parsed.exerciseIds?.length
-          ? parsed.exerciseIds
-              .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
-              .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise))
-              .map((exercise) => ({
-                name: exercise.name,
-                sets: buildExerciseSets(exercise),
-              }))
-          : exerciseNames.map((name) => ({
-              name,
-              sets: [{ targetKg: 0, targetReps: sport === "Gym" ? 8 : 20 }],
-            }))),
+        exercises:
+          exerciseIds.length > 0
+            ? exerciseIds
+                .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
+                .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise))
+                .map((exercise) => ({
+                  name: exercise.name,
+                  sets: buildExerciseSets(exercise),
+                }))
+            : exerciseNames.map((name) => ({
+                name,
+                sets: [{ targetKg: 0, targetReps: sport === "Gym" ? 8 : 20 }],
+              })),
       };
-    } catch {
-      return null;
-    }
-  }, [autoWorkoutParam, effectiveDay, trainingExercises]);
+    },
+    [effectiveDay, trainingExercises],
+  );
+
+  const autoWorkoutFromWeekly = useMemo<WorkoutPlan | null>(() => {
+    const fromTransfer = weeklyTransferPayload ? buildPlanFromWeeklyPayload(weeklyTransferPayload) : null;
+    if (fromTransfer) return fromTransfer;
+    const parsed = parseWeeklyAutoWorkoutRaw(autoWorkoutParam);
+    if (!parsed) return null;
+    return buildPlanFromWeeklyPayload(parsed);
+  }, [autoWorkoutParam, buildPlanFromWeeklyPayload, weeklyTransferPayload]);
 
   const customWorkoutFromCatalog = useMemo<WorkoutPlan | null>(() => {
     if (!workoutIdParam) return null;
@@ -445,7 +479,6 @@ function WorkoutsPageContent() {
   }, [overrideWorkoutId, workoutOptions]);
 
   const activeWorkoutBase = manualWorkout ?? selectedOverrideWorkout ?? customWorkoutFromCatalog ?? autoWorkoutFromWeekly ?? defaultWorkout;
-  const [sessionWorkout, setSessionWorkout] = useState<WorkoutPlan>(activeWorkoutBase);
 
   useEffect(() => {
     setSessionWorkout(activeWorkoutBase);
@@ -457,8 +490,6 @@ function WorkoutsPageContent() {
     () => getDefaultWorkoutProgress(dateKey, workoutForExecution),
     [dateKey, workoutForExecution],
   );
-    const [progress, setProgress] = useState<WorkoutProgress>(fallbackProgress);
-  const [selectedMetricByExercise, setSelectedMetricByExercise] = useState<Record<number, MetricKey>>({});
 
   const recommendations = useMemo(() => {
     const sessions = getWorkoutSessions();
@@ -574,6 +605,49 @@ function WorkoutsPageContent() {
 
   useEffect(() => {
     if (manualParam !== "1" || manualWorkoutIdParam) return;
+    if (workoutPayloadIdParam && !weeklyTransferPayload) return;
+
+    const applyPayloadToManualForm = (parsed: WeeklyWorkoutTransferPayload) => {
+      if (parsed.sport === "Gym" || parsed.sport === "Home" || parsed.sport === "Regeneration") {
+        setManualCategory(parsed.sport);
+      } else if (parsed.sport && parsed.sport !== "-" && parsed.sport !== "Rest") {
+        setManualCategory("Basketball");
+      }
+      if (parsed.title) setManualTitle(parsed.title);
+      if (parsed.subcategory) setManualSubcategory(parsed.subcategory);
+      if (parsed.notes) setManualNotes(parsed.notes);
+      if (parsed.exerciseIds?.length) setSelectedManualExerciseIds(parsed.exerciseIds);
+    };
+
+    if (weeklyTransferPayload) {
+      applyPayloadToManualForm(weeklyTransferPayload);
+      if (workoutPayloadIdParam) consumeWeeklyWorkoutPayload(workoutPayloadIdParam);
+      return;
+    }
+
+    const parsedFromQuery = parseWeeklyAutoWorkoutRaw(autoWorkoutParam);
+    if (parsedFromQuery) {
+      applyPayloadToManualForm(parsedFromQuery);
+      return;
+    }
+
+    if (autoWorkoutParam) {
+      return;
+    }
+    if (workoutIdParam) {
+      const template = trainingWorkouts.find((entry) => entry.id === workoutIdParam);
+      if (template) {
+        if (template.category === "Gym" || template.category === "Home" || template.category === "Regeneration") {
+          setManualCategory(template.category);
+        } else {
+          setManualCategory("Basketball");
+        }
+        setManualTitle(template.name);
+        setManualSubcategory(template.subcategory);
+        setSelectedManualExerciseIds(template.exerciseIds);
+      }
+      return;
+    }
     setManualTitle("");
     setManualCategory("Basketball");
     setManualBasketballMode("basketball_training");
@@ -583,7 +657,16 @@ function WorkoutsPageContent() {
     setSelectedManualExerciseIds([]);
     setManualTemplateWorkoutId("");
     setManualWorkout(null);
-  }, [manualParam, manualWorkoutIdParam, dateKey]);
+  }, [
+    autoWorkoutParam,
+    dateKey,
+    manualParam,
+    manualWorkoutIdParam,
+    trainingWorkouts,
+    weeklyTransferPayload,
+    workoutIdParam,
+    workoutPayloadIdParam,
+  ]);
 
   useEffect(() => {
     void manualStorageVersion;
@@ -665,12 +748,6 @@ function WorkoutsPageContent() {
   }, [trainingExercises, workoutForExecution.exercises]);
   
   const currentExerciseMeta = exerciseMeta[safeExerciseIndex];
-  const [trainingGoalsSnap, setTrainingGoalsSnap] = useState(0);
-  useEffect(() => {
-    const handler = () => setTrainingGoalsSnap((value) => value + 1);
-    window.addEventListener("bt:training-goals-updated", handler);
-    return () => window.removeEventListener("bt:training-goals-updated", handler);
-  }, []);
 
   const gymGoalHint = useMemo(() => {
     void trainingGoalsSnap;
@@ -907,10 +984,16 @@ function WorkoutsPageContent() {
       applyRecoverySuggestionChoice(recoveryChoice, store);
     }
     const existingForDate = store[dateKey] ?? [];
-    store[dateKey] = [
-      entry,
-      ...existingForDate.filter((item) => item.id !== manualWorkoutIdParam && item.id !== entry.id),
-    ];
+    const isReplacingAutoCard = Boolean(replaceCardIdParam && !manualWorkoutIdParam);
+    if (replaceCardIdParam) {
+      hideAutoWorkoutCardForDate(dateKey, replaceCardIdParam);
+    }
+    store[dateKey] = isReplacingAutoCard
+      ? [entry]
+      : [
+          entry,
+          ...existingForDate.filter((item) => item.id !== manualWorkoutIdParam && item.id !== entry.id),
+        ];
 
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
     window.dispatchEvent(new Event("bt:plan-updated"));
@@ -976,8 +1059,12 @@ function WorkoutsPageContent() {
         : "";
     const autoDerivedTitle = deriveSmartWorkoutTitle(manualCategory, selectedExercises);
 
+    const exercisesById = Object.fromEntries(trainingExercises.map((exercise) => [exercise.id, exercise]));
+    const durationMin = sumExerciseIdsDurationMin(orderedExerciseIds, exercisesById);
+
     const nextEntry: ManualDayWorkout = {
       id: newManualDayWorkoutId(manualWorkoutIdParam),
+      durationMin,
       title:
         isStructuredBasketball
           ? manualBasketballMode === "game"
@@ -1200,7 +1287,7 @@ function WorkoutsPageContent() {
 
       const sessionEntry = {
         id: `ws-${Date.now()}-${completedProgress.workoutId}`,
-        dateISO: nowIso,
+        dateISO: new Date(`${dateKey}T12:00:00`).toISOString(),
         workoutId: completedProgress.workoutId,
         workoutName: completedProgress.title,
         workoutCategory: completedProgress.sport,
@@ -1459,9 +1546,21 @@ function WorkoutsPageContent() {
       ) : null}
 
       {manualParam === "1" ? (
-        <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/20 p-4">
-          <h2 className="text-lg font-semibold text-emerald-200">Workout manuell erstellen</h2>
-          <p className="mt-1 text-xs text-emerald-100">Fehlende Unterkategorien diese Woche: {recommendations.missingSubcategories.join(", ") || "keine"}</p>
+        <section className="mt-4 app-card">
+          <p className="section-eyebrow">
+            {manualWorkoutIdParam || replaceCardIdParam ? "Workout bearbeiten" : "Workout planen"}
+          </p>
+          <h2 className="section-title mt-1">
+            {manualWorkoutIdParam || replaceCardIdParam ? "Plan anpassen" : "Manuelles Workout"}
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            {manualWorkoutIdParam || replaceCardIdParam
+              ? "Speichern ersetzt das bisherige Workout an diesem Tag — es wird kein zweites angelegt."
+              : "Wähle Übungen und speichere den Tag im Weekly-Plan."}
+          </p>
+          <p className="mt-2 text-xs text-faint">
+            Fehlende Unterkategorien diese Woche: {recommendations.missingSubcategories.join(", ") || "keine"}
+          </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <select
               value={manualCategory}
@@ -1475,7 +1574,7 @@ function WorkoutsPageContent() {
                 setManualTemplateWorkoutId("");
                 setSelectedManualExerciseIds([]);
               }}
-              className="w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+              className="input w-full"
             >
               <option value="Basketball">Basketball</option>
               <option value="Gym">Gym</option>
@@ -1486,7 +1585,7 @@ function WorkoutsPageContent() {
               <select
                 value={manualBasketballMode}
                 onChange={(event) => setManualBasketballMode(event.target.value as BasketballMode)}
-                className="w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+                className="input w-full"
               >
                 <option value="basketball_training">Basketball-Training</option>
                 <option value="game_training">Spieltraining (30 Min Warmup)</option>
@@ -1501,7 +1600,7 @@ function WorkoutsPageContent() {
             <select
               value={manualSubcategory}
               onChange={(event) => setManualSubcategory(event.target.value)}
-              className="w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+              className="input w-full"
             >
               <option value="">Kein fester Schwerpunkt</option>
               {manualSubcategoryOptions.map((subcategory) => (
@@ -1516,7 +1615,7 @@ function WorkoutsPageContent() {
           <select
             value={manualTemplateWorkoutId}
             onChange={(event) => applyTemplateWorkout(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+            className="input mt-2 w-full"
           >
             <option value="">Workout-Template optional wählen</option>
             {manualTemplateOptions.map((workout) => (
@@ -1529,7 +1628,7 @@ function WorkoutsPageContent() {
           <input
             value={manualTitle}
             onChange={(event) => setManualTitle(event.target.value)}
-            className="mt-3 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+            className="input mt-3 w-full"
             placeholder={previewAutoTitle ? `Auto: ${previewAutoTitle}` : "Workout-Name (leer = Auto-Name)"}
           />
           {previewAutoTitle && (!manualTitle.trim() || manualTitle.trim() === DEFAULT_MANUAL_TITLE) ? (
@@ -1540,7 +1639,7 @@ function WorkoutsPageContent() {
           <textarea
             value={manualNotes}
             onChange={(event) => setManualNotes(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+            className="input mt-2 w-full"
             placeholder="Notizen"
             rows={2}
           />
@@ -1549,7 +1648,7 @@ function WorkoutsPageContent() {
             <input
               value={manualSearch}
               onChange={(event) => setManualSearch(event.target.value)}
-              className="mt-3 w-full rounded-lg border border-emerald-700 bg-black px-3 py-2 text-white"
+              className="input mt-3 w-full"
               placeholder="Exercise suchen..."
             />
             <div className="mt-3 max-h-48 space-y-2 overflow-auto rounded-lg border border-zinc-700 p-2">
@@ -1593,21 +1692,16 @@ function WorkoutsPageContent() {
             ) : null}
           </>
           )}
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={() => saveManualWorkoutForDay(false)}
-              className="w-full rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-200"
-            >
-              Workout für diesen Tag speichern
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={() => saveManualWorkoutForDay(false)} className="btn btn-ghost btn-sm flex-1">
+              {manualWorkoutIdParam || replaceCardIdParam ? "Änderungen speichern" : "Für diesen Tag speichern"}
             </button>
-            <button
-              type="button"
-              onClick={() => saveManualWorkoutForDay(true)}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold"
-            >
-              Speichern & direkt starten
+            <button type="button" onClick={() => saveManualWorkoutForDay(true)} className="btn btn-primary btn-sm flex-1">
+              Speichern & starten
             </button>
+            <Link href="/Weekly-Workout" className="btn btn-ghost btn-sm flex-1 text-center">
+              Abbrechen
+            </Link>
           </div>
         </section>
       ) : null}

@@ -967,7 +967,9 @@ const refreshProfileAndWeekly = () => {
       <button
         type="button"
         onClick={async () => {
-          refreshProfileAndWeekly();
+          saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+          const updatedDailyPlan = applyWeekConfigToCalendar(weekConfig, 28);
+          setDailyPlanMap(updatedDailyPlan);
           await persistProfileToSupabase();
           await pushProgressToCloud();
           setSavedToastVisible(true);

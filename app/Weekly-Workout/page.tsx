@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { type Category, type Exercise, type Workout } from "@/lib/training-data";
 import { getWorkoutSessions } from "@/lib/session-storage";
@@ -8,11 +9,8 @@ import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import {
   WORKOUT_OVERRIDE_PREFIX,
   WEEKLY_WORKOUT_PLAN,
-  buildWorkoutStorageKey,
-  getDefaultWorkoutProgress,
   getDateForWeekday,
   getTodayDateKey,
-  parseWorkoutProgress,
   toLocalDateKey,
 } from "@/lib/workout";
 import { buildWeeklyPlan, type DayKey, type WeekConfig } from "@/lib/planner";
@@ -23,12 +21,16 @@ import {
 } from "@/lib/player-workout-engine";
 import {
   MANUAL_DAY_WORKOUTS_KEY,
+  readHiddenAutoWorkoutsMap,
   storedRegenerationSignals,
   type PlannedWorkoutTag,
   readManualDayDisabledMap,
+  writeHiddenAutoWorkoutsMap,
   writeManualDayDisabledMap,
   writeWeeklyRegenSlotMap,
 } from "@/lib/activity-calendar";
+import { sumExerciseIdsDurationMin } from "@/lib/workout-duration";
+import { navigateToWeeklyWorkout, type WeeklyWorkoutNavCard } from "@/lib/weekly-workout-nav";
 import { weeklyRecoverySuggestionSlotVisible } from "@/lib/weekly-regeneration";
 import WeeklyBasketballCoach from "@/components/WeeklyBasketballCoach";
 import TopSubTabs from "@/components/TopSubTabs";
@@ -38,8 +40,6 @@ import { getProgressionState } from "@/lib/level-system";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
-const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
-
 const weekdayNames: Record<(typeof weekdayOrder)[number], string> = {
   0: "Sonntag",
   1: "Montag",
@@ -155,20 +155,28 @@ function dedupeManualMap(map: Record<string, ManualDayWorkout[]>): Record<string
   return changed ? out : map;
 }
 
-function readHiddenAutoWorkoutsMap(): HiddenAutoWorkoutsMap {
-  const raw = window.localStorage.getItem(HIDDEN_AUTO_WORKOUTS_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as HiddenAutoWorkoutsMap;
-  } catch {
-    return {};
-  }
+function toNavCard(card: WorkoutCardItem): WeeklyWorkoutNavCard {
+  return {
+    id: card.id,
+    title: card.title,
+    sport: card.sport,
+    subcategory: card.subcategory,
+    notes: card.notes,
+    manualWorkoutId: card.manualWorkoutId,
+    workoutId: card.workoutId,
+    autoSuggestion: card.autoSuggestion
+      ? {
+          title: card.autoSuggestion.title,
+          sport: card.autoSuggestion.sport,
+          subcategory: card.autoSuggestion.subcategory,
+          notes: card.autoSuggestion.notes,
+          exerciseIds: card.autoSuggestion.exerciseIds,
+          exercises: card.autoSuggestion.exercises,
+          workoutId: card.autoSuggestion.workoutId,
+        }
+      : undefined,
+  };
 }
-
-function writeHiddenAutoWorkoutsMap(value: HiddenAutoWorkoutsMap) {
-  window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(value));
-}
-
 
 function encodeAutoWorkoutSuggestion(suggestion: SuggestedWorkout) {
   const payload = {
@@ -542,6 +550,7 @@ function selectBestWorkout(
 }
 
 export default function WeeklyWorkoutPage() {
+  const router = useRouter();
   const todayIndex = new Date().getDay() as (typeof weekdayOrder)[number];
   const orderedDays = useMemo(
     () => [...weekdayOrder]
@@ -561,6 +570,10 @@ export default function WeeklyWorkoutPage() {
   /** Nur nach Mount gesetzt — vermeidet Hydration-Mismatch (localStorage vs. SSR-Default). */
   const [mesocycleLabel, setMesocycleLabel] = useState<string | null>(null);
   const availableExercises = useMemo(() => loadExercises(), []);
+  const exercisesById = useMemo(
+    () => Object.fromEntries(availableExercises.map((exercise) => [exercise.id, exercise])),
+    [availableExercises],
+  );
   const sessions = getWorkoutSessions();
   const completedDateSet = new Set(sessions.map((session) => toLocalDateKey(new Date(session.dateISO))));
   const completedWorkoutIdsByDate = sessions.reduce<Record<string, Set<string>>>((acc, session) => {
@@ -1064,7 +1077,11 @@ export default function WeeklyWorkoutPage() {
                 subcategory: manualEntry.subcategory,
                 notes: manualEntry.notes || "Manuell geplant.",
                 manualWorkoutId: manualEntry.id,
-                durationMin: profilePlan?.minutes ?? suggestedWorkout?.durationMin ?? 0,
+                durationMin:
+                  manualEntry.durationMin ??
+                  (manualEntry.exerciseIds?.length
+                    ? sumExerciseIdsDurationMin(manualEntry.exerciseIds, exercisesById)
+                    : suggestedWorkout?.durationMin ?? 0),
               });
             });
           }
@@ -1115,47 +1132,6 @@ export default function WeeklyWorkoutPage() {
               (selectedCard.workoutId && completedIdsForDate.has(selectedCard.workoutId))),
           );
           const allCardsCompleted = workoutCards.length > 0 && completedCardsCount === workoutCards.length;
-          const isSelectedCardInProgress = (() => {
-            if (!selectedCard || typeof window === "undefined") return false;
-            const selectedWorkoutId =
-              selectedCard.manualWorkoutId ??
-              selectedCard.workoutId ??
-              selectedCard.autoSuggestion?.workoutId ??
-              selectedCard.id;
-            const fallbackProgress = getDefaultWorkoutProgress(manualDateKey, {
-              id: selectedWorkoutId,
-              title: selectedCard.title,
-              sport: (selectedCard.sport as "Gym" | "Basketball" | "Home" | "Regeneration" | "Rest") ?? "Basketball",
-              subcategory: selectedCard.subcategory,
-              exercises: [],
-            });
-            const progress = parseWorkoutProgress(
-              window.localStorage.getItem(buildWorkoutStorageKey(manualDateKey)),
-              fallbackProgress,
-            );
-            return progress.status === "in_progress" && progress.workoutId === selectedWorkoutId;
-          })();
-          const startHref = (() => {
-            if (!selectedCard) return `/workouts?day=${day}`;
-            if (selectedCard.manualWorkoutId) return `/workouts?day=${day}&manualWorkoutId=${selectedCard.manualWorkoutId}`;
-            const hasSyntheticId =
-              selectedCard.workoutId?.startsWith("auto-") ||
-              selectedCard.workoutId?.startsWith("recovery-");
-            // Synthetische IDs (Recovery/Auto-Generated) haben kein echtes Workout im Katalog
-            // → immer ueber autoSuggestion-Pfad gehen, sonst landet man auf dem Default-Wochenplan.
-            if (selectedCard.autoSuggestion && (!selectedCard.workoutId || hasSyntheticId)) {
-              const autoSuggestion = encodeAutoWorkoutSuggestion(selectedCard.autoSuggestion);
-              return `/workouts?day=${day}${autoSuggestion ? `&autoWorkout=${autoSuggestion}` : ""}`;
-            }
-            if (selectedCard.workoutId && !hasSyntheticId) {
-              return `/workouts?day=${day}&workoutId=${selectedCard.workoutId}`;
-            }
-            return `/workouts?day=${day}`;
-          })();
-          const editHref = selectedCard?.manualWorkoutId
-            ? `/workouts?day=${day}&manual=1&manualWorkoutId=${selectedCard.manualWorkoutId}`
-            : `/workouts?day=${day}&manual=1`;
-
           const dateLabel = getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
 
           return (
@@ -1238,16 +1214,32 @@ export default function WeeklyWorkoutPage() {
                       Spiel tracken
                     </Link>
                   ) : null}
-                  <Link href={startHref} className="btn btn-primary btn-xs">
-                    {showTodayCompletionState && isSelectedCardCompleted
-                      ? "Workout ansehen"
-                      : isSelectedCardInProgress
-                        ? "Workout bearbeiten"
-                        : "Workout starten"}
-                  </Link>
-                  <Link href={editHref} className="btn btn-outline btn-xs">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-xs"
+                    onClick={() =>
+                      navigateToWeeklyWorkout(router, {
+                        day,
+                        mode: "start",
+                        card: toNavCard(selectedCard),
+                      })
+                    }
+                  >
+                    {showTodayCompletionState && isSelectedCardCompleted ? "Workout ansehen" : "Workout starten"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-xs"
+                    onClick={() =>
+                      navigateToWeeklyWorkout(router, {
+                        day,
+                        mode: "edit",
+                        card: toNavCard(selectedCard),
+                      })
+                    }
+                  >
                     Bearbeiten
-                  </Link>
+                  </button>
                   <Link href={`/workouts?day=${day}&manual=1`} className="btn btn-emerald btn-xs">
                     Hinzufügen
                   </Link>
