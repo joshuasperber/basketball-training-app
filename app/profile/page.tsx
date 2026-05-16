@@ -279,10 +279,10 @@ export default function ProfilePage() {
     if (data) {
       const mergedProfile: ProfileRow = {
         username: data.username ?? localCache?.profile.username ?? username,
-        full_name: data.full_name ?? localCache?.profile.full_name ?? "",
-        favorite_position: data.favorite_position ?? localCache?.profile.favorite_position ?? "sg",
-        height_cm: data.height_cm ?? localCache?.profile.height_cm ?? null,
-        weight_kg: data.weight_kg ?? localCache?.profile.weight_kg ?? null,
+        full_name: localCache?.profile.full_name ?? data.full_name ?? "",
+        favorite_position: localCache?.profile.favorite_position ?? data.favorite_position ?? "sg",
+        height_cm: localCache?.profile.height_cm ?? data.height_cm ?? null,
+        weight_kg: localCache?.profile.weight_kg ?? data.weight_kg ?? null,
         email: authEmail ?? localCache?.profile.email ?? null,
       };
       setProfile(mergedProfile);
@@ -573,6 +573,7 @@ const refreshProfileAndWeekly = () => {
           className="btn btn-ghost btn-sm mt-3"
           onClick={() => {
             clearPlayerIntake();
+            void pushProgressToCloud();
             setMessage("Kennenlern-Chat zurückgesetzt. Beim nächsten Laden der App wirst du erneut befragt.");
           }}
         >

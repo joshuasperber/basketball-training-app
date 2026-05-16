@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import CoachIntakeChat from "@/components/CoachIntakeChat";
 import { isPlayerIntakeComplete, PLAYER_INTAKE_UPDATED_EVENT } from "@/lib/coach-intake";
+import { pullProgressFromCloud } from "@/lib/progress-sync";
 
 const HIDDEN_PREFIXES = ["/login", "/auth/"];
 
@@ -14,11 +15,21 @@ export default function CoachIntakeLauncher() {
   const hiddenRoute = HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
   useEffect(() => {
+    let cancelled = false;
     if (hiddenRoute) {
       setOpen(false);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
-    setOpen(!isPlayerIntakeComplete());
+    const sync = async () => {
+      await pullProgressFromCloud();
+      if (!cancelled) setOpen(!isPlayerIntakeComplete());
+    };
+    void sync();
+    return () => {
+      cancelled = true;
+    };
   }, [pathname, hiddenRoute]);
 
   useEffect(() => {

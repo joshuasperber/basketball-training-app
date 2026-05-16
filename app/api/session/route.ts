@@ -11,13 +11,22 @@ type ProgressRecord = {
   dailyPlanMap: DailyPlanMap;
   manualDayWorkoutsMap: Record<string, unknown[]>;
   manualDayDisabledMap: Record<string, boolean>;
+  manualPlanOverrides: string | null;
+  weeklyRegenSlotMap: Record<string, boolean>;
   profileCache: string | null;
+  profileUsername: string | null;
+  playerIntake: string | null;
   xpHistory: string | null;
   xpProgression: string | null;
   hiddenAutoWorkoutsMap: Record<string, string[]>;
   performanceTips: string | null;
   gameStats: string | null;
   trainingGoals: string | null;
+  customSubcategories: string | null;
+  workoutHistory: string | null;
+  reminderPrefs: string | null;
+  coachWeeklyNote: string | null;
+  remoteExists?: boolean;
 };
 
 type ProgressRow = {
@@ -27,13 +36,22 @@ type ProgressRow = {
   daily_plan_map: DailyPlanMap | null;
   manual_day_workouts_map: Record<string, unknown[]> | null;
   manual_day_disabled_map: Record<string, boolean> | null;
+  manual_plan_overrides: string | null;
+  weekly_regen_slot_map: Record<string, boolean> | null;
   hidden_auto_workouts_map: Record<string, string[]> | null;
   profile_cache: string | null;
+  profile_username: string | null;
+  player_intake: string | null;
   xp_history: string | null;
   xp_progression: string | null;
   performance_tips: string | null;
   game_stats: string | null;
   training_goals: string | null;
+  custom_subcategories: string | null;
+  workout_history: string | null;
+  reminder_prefs: string | null;
+  coach_weekly_note: string | null;
+  updated_at?: string | null;
 };
 
 type AuthedUser = { id: string; email: string };
@@ -50,13 +68,22 @@ function getDefaultProgress(): ProgressRecord {
     dailyPlanMap: {},
     manualDayWorkoutsMap: {},
     manualDayDisabledMap: {},
+    manualPlanOverrides: null,
+    weeklyRegenSlotMap: {},
     profileCache: null,
+    profileUsername: null,
+    playerIntake: null,
     xpHistory: null,
     xpProgression: null,
     hiddenAutoWorkoutsMap: {},
     performanceTips: null,
     gameStats: null,
     trainingGoals: null,
+    customSubcategories: null,
+    workoutHistory: null,
+    reminderPrefs: null,
+    coachWeeklyNote: null,
+    remoteExists: false,
   };
 }
 
@@ -88,13 +115,22 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
     dailyPlanMap: row.daily_plan_map ?? {},
     manualDayWorkoutsMap: row.manual_day_workouts_map ?? {},
     manualDayDisabledMap: row.manual_day_disabled_map ?? {},
+    manualPlanOverrides: row.manual_plan_overrides ?? null,
+    weeklyRegenSlotMap: row.weekly_regen_slot_map ?? {},
     profileCache: row.profile_cache ?? null,
+    profileUsername: row.profile_username ?? null,
+    playerIntake: row.player_intake ?? null,
     xpHistory: row.xp_history ?? null,
     xpProgression: row.xp_progression ?? null,
     hiddenAutoWorkoutsMap: row.hidden_auto_workouts_map ?? {},
     performanceTips: row.performance_tips ?? null,
     gameStats: row.game_stats ?? null,
     trainingGoals: row.training_goals ?? null,
+    customSubcategories: row.custom_subcategories ?? null,
+    workoutHistory: row.workout_history ?? null,
+    reminderPrefs: row.reminder_prefs ?? null,
+    coachWeeklyNote: row.coach_weekly_note ?? null,
+    remoteExists: true,
   };
 }
 
@@ -124,14 +160,15 @@ async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecor
   if (!rows || rows.length === 0) {
     rows = await tryFetch(`email=eq.${user.email}`);
   }
-  return mapRowToProgressRecord(rows?.[0] ?? null);
+  const row = rows?.[0] ?? null;
+  return row ? mapRowToProgressRecord(row) : null;
 }
 
 async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
 
   const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
-  url.searchParams.set("on_conflict", "user_id");
+  url.searchParams.set("on_conflict", "email");
 
   const row: ProgressRow = {
     email: user.email,
@@ -140,13 +177,21 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
     daily_plan_map: payload.dailyPlanMap ?? {},
     manual_day_workouts_map: payload.manualDayWorkoutsMap ?? {},
     manual_day_disabled_map: payload.manualDayDisabledMap ?? {},
+    manual_plan_overrides: payload.manualPlanOverrides ?? null,
+    weekly_regen_slot_map: payload.weeklyRegenSlotMap ?? {},
     hidden_auto_workouts_map: payload.hiddenAutoWorkoutsMap ?? {},
     profile_cache: payload.profileCache ?? null,
+    profile_username: payload.profileUsername ?? null,
+    player_intake: payload.playerIntake ?? null,
     xp_history: payload.xpHistory ?? null,
     xp_progression: payload.xpProgression ?? null,
     performance_tips: payload.performanceTips ?? null,
     game_stats: payload.gameStats ?? null,
     training_goals: payload.trainingGoals ?? null,
+    custom_subcategories: payload.customSubcategories ?? null,
+    workout_history: payload.workoutHistory ?? null,
+    reminder_prefs: payload.reminderPrefs ?? null,
+    coach_weekly_note: payload.coachWeeklyNote ?? null,
   };
 
   const response = await fetch(url.toString(), {
@@ -163,12 +208,22 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
 
   if (response.ok) return true;
 
-  // Fallback: ältere Datenbanken ohne user_id-Spalte – Upsert über email.
-  const legacyUrl = new URL(`${supabaseUrl}/rest/v1/user_progress`);
-  legacyUrl.searchParams.set("on_conflict", "email");
-  const legacyRow: ProgressRow = { ...row };
-  delete legacyRow.user_id;
-  const legacyResponse = await fetch(legacyUrl.toString(), {
+  // Fallback: ältere Datenbanken ohne neue optionale Spalten.
+  const legacyRow = {
+    email: row.email,
+    sessions: row.sessions,
+    daily_plan_map: row.daily_plan_map,
+    manual_day_workouts_map: row.manual_day_workouts_map,
+    manual_day_disabled_map: row.manual_day_disabled_map,
+    hidden_auto_workouts_map: row.hidden_auto_workouts_map,
+    profile_cache: row.profile_cache,
+    xp_history: row.xp_history,
+    xp_progression: row.xp_progression,
+    performance_tips: row.performance_tips,
+    game_stats: row.game_stats,
+    training_goals: row.training_goals,
+  };
+  const legacyResponse = await fetch(url.toString(), {
     method: "POST",
     headers: {
       apikey: supabaseServiceRoleKey!,

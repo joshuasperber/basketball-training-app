@@ -4,13 +4,21 @@ create table if not exists public.user_progress (
   daily_plan_map jsonb not null default '{}'::jsonb,
   manual_day_workouts_map jsonb not null default '{}'::jsonb,
   manual_day_disabled_map jsonb not null default '{}'::jsonb,
+  manual_plan_overrides text,
+  weekly_regen_slot_map jsonb not null default '{}'::jsonb,
   hidden_auto_workouts_map jsonb not null default '{}'::jsonb,
   profile_cache text,
+  profile_username text,
+  player_intake text,
   xp_history text,
   xp_progression text,
   performance_tips text,
   game_stats text,
   training_goals text,
+  custom_subcategories text,
+  workout_history text,
+  reminder_prefs text,
+  coach_weekly_note text,
   updated_at timestamptz not null default now()
 );
 
@@ -18,6 +26,15 @@ create table if not exists public.user_progress (
 -- Email bleibt als Legacy-Fallback erhalten.
 alter table public.user_progress
   add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.user_progress
+  add column if not exists manual_plan_overrides text,
+  add column if not exists weekly_regen_slot_map jsonb not null default '{}'::jsonb,
+  add column if not exists profile_username text,
+  add column if not exists player_intake text,
+  add column if not exists custom_subcategories text,
+  add column if not exists workout_history text,
+  add column if not exists reminder_prefs text,
+  add column if not exists coach_weekly_note text;
 
 create unique index if not exists user_progress_user_id_uidx on public.user_progress(user_id);
 
@@ -75,4 +92,7 @@ create policy user_progress_update_own
 -- alter table public.user_progress add column if not exists game_stats text;
 -- alter table public.user_progress add column if not exists training_goals text;
 -- alter table public.user_progress add column if not exists user_id uuid references auth.users(id) on delete cascade;
+-- alter table public.user_progress add column if not exists player_intake text;
+-- alter table public.user_progress add column if not exists weekly_regen_slot_map jsonb not null default '{}'::jsonb;
+-- alter table public.user_progress add column if not exists manual_plan_overrides text;
 -- update public.user_progress p set user_id = u.id from auth.users u where p.user_id is null and lower(u.email) = p.email;

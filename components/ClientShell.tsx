@@ -1,7 +1,9 @@
 "use client";
 
 import { ErrorBoundary } from "@sentry/nextjs";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
+import { pullProgressFromCloud } from "@/lib/progress-sync";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
   return (
@@ -21,9 +23,27 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
 
 import CoachIntakeLauncher from "@/components/CoachIntakeLauncher";
 
+function CloudSyncBridge() {
+  useEffect(() => {
+    const sync = () => {
+      void pullProgressFromCloud();
+    };
+    sync();
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, []);
+
+  return null;
+}
+
 export default function ClientShell({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary fallback={({ resetError }) => <CoachFallback resetError={resetError} />}>
+      <CloudSyncBridge />
       <CoachIntakeLauncher />
       {children}
     </ErrorBoundary>
