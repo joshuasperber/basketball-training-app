@@ -18,10 +18,15 @@ import {
   getWeekdayName,
   parseWorkoutProgress,
 } from "@/lib/workout";
-import { MANUAL_DAY_WORKOUTS_KEY, readDailyPlanMap } from "@/lib/activity-calendar";
+import {
+  HIDE_ALL_AUTO_WORKOUTS_ID,
+  MANUAL_DAY_WORKOUTS_KEY,
+  readDailyPlanMap,
+  readHiddenAutoWorkoutsMap,
+} from "@/lib/activity-calendar";
 import { pullProgressFromCloud } from "@/lib/progress-sync";
 import { loadPerformanceTips } from "@/lib/performance-tips";
-import { isWorkoutCompletedOnDate } from "@/lib/workout-completion";
+import { getCompletedWorkoutIdsForDate } from "@/lib/workout-completion";
 
 const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
 
@@ -50,6 +55,14 @@ function getWorkoutFromTodayTags(tags: string[]) {
   return null;
 }
 
+type TodayWorkoutCard = {
+  id: string;
+  title: string;
+  sport: SportType;
+  subcategory: string;
+  href: string;
+};
+
 const PLAYER_QUOTES = [
   "Hard work beats talent when talent fails to work hard. — Kevin Durant",
   "Excellence is not a singular act, but a habit. — Shaquille O’Neal",
@@ -75,6 +88,7 @@ function getInitials(name: string) {
 
 export default function DashboardPage({ forceProfileSetup = false }: { forceProfileSetup?: boolean }) {
   const dateKey = useMemo(() => getTodayDateKey(), []);
+  const todayDayIndex = useMemo(() => new Date(`${dateKey}T12:00:00`).getDay(), [dateKey]);
   const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
   const weekdayLabel = useMemo(() => getWeekdayName(new Date(`${dateKey}T00:00:00.000Z`)), [dateKey]);
   const fallbackProgress = useMemo(
@@ -98,6 +112,15 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   const [dashboardTips, setDashboardTips] = useState<string[]>([]);
   const [levelPopup, setLevelPopup] = useState<string | null>(null);
   const [todayWorkoutIds, setTodayWorkoutIds] = useState<string[]>([todayWorkout.id]);
+  const [todayWorkoutCards, setTodayWorkoutCards] = useState<TodayWorkoutCard[]>([
+    {
+      id: todayWorkout.id,
+      title: todayWorkout.title,
+      sport: todayWorkout.sport,
+      subcategory: todayWorkout.subcategory,
+      href: `/workouts?day=${todayDayIndex}`,
+    },
+  ]);
 
   useEffect(() => {
     const refreshTodayData = () => {
@@ -105,7 +128,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
         fallbackProgress,
       );
-      const plannedIds = new Set<string>([todayWorkout.id, parsed.workoutId]);
+      const plannedIds = new Set<string>();
+      const nextCards: TodayWorkoutCard[] = [];
       setProgress(parsed);
       try {
         setHasWorkoutPlanned(true);
@@ -113,6 +137,21 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         setTodaySport(todayWorkout.sport);
         setTodaySubcategory(todayWorkout.subcategory);
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
+        const dailyPlans = readDailyPlanMap();
+        const tags = dailyPlans[dateKey] ?? [];
+        const workoutFromWeekly = getWorkoutFromTodayTags(tags);
+        const hiddenAutoForToday = new Set(readHiddenAutoWorkoutsMap()[dateKey] ?? []);
+        const autoHidden = hiddenAutoForToday.has(HIDE_ALL_AUTO_WORKOUTS_ID);
+        if (workoutFromWeekly && !autoHidden) {
+          nextCards.push({
+            id: todayWorkout.id,
+            title: workoutFromWeekly.title,
+            sport: workoutFromWeekly.sport,
+            subcategory: workoutFromWeekly.subcategory,
+            href: `/workouts?day=${todayDayIndex}`,
+          });
+          plannedIds.add(todayWorkout.id);
+        }
         if (rawManual) {
           const parsedManual = JSON.parse(rawManual) as Record<
             string,
@@ -120,7 +159,16 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           >;
           const todayManuals = parsedManual[dateKey] ?? [];
           todayManuals.forEach((entry) => {
-            if (entry.id) plannedIds.add(entry.id);
+            if (!entry.id) return;
+            const sport = entry.sport && isSportType(entry.sport) ? entry.sport : "Basketball";
+            nextCards.push({
+              id: entry.id,
+              title: entry.title,
+              sport,
+              subcategory: entry.subcategory ?? "-",
+              href: `/workouts?day=${todayDayIndex}&manualWorkoutId=${encodeURIComponent(entry.id)}`,
+            });
+            plannedIds.add(entry.id);
           });
           const todayManual = todayManuals[0];
           if (todayManual?.title) {
@@ -130,11 +178,19 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           if (todayManual?.sport && isSportType(todayManual.sport)) setTodaySport(todayManual.sport);
           if (todayManual?.subcategory) setTodaySubcategory(todayManual.subcategory);
         }
+        if (nextCards.length === 0 && !autoHidden && tags.length > 0) {
+          nextCards.push({
+            id: todayWorkout.id,
+            title: todayWorkout.title,
+            sport: todayWorkout.sport,
+            subcategory: todayWorkout.subcategory,
+            href: `/workouts?day=${todayDayIndex}`,
+          });
+          plannedIds.add(todayWorkout.id);
+        }
+        if (parsed.workoutId) plannedIds.add(parsed.workoutId);
         setTodayWorkoutIds(Array.from(plannedIds));
-        const dailyPlans = readDailyPlanMap();
-        const tags = dailyPlans[dateKey] ?? [];
         setPlannedTags(tags);
-        const workoutFromWeekly = getWorkoutFromTodayTags(tags);
         if (workoutFromWeekly) {
           setHasWorkoutPlanned(true);
           setTodayLabel(workoutFromWeekly.title);
@@ -143,6 +199,13 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         } else {
           setHasWorkoutPlanned(false);
           setTodayLabel(null);
+        }
+        setTodayWorkoutCards(nextCards);
+        if (nextCards.length > 0) {
+          setHasWorkoutPlanned(true);
+          setTodayLabel(nextCards[0].title);
+          setTodaySport(nextCards[0].sport);
+          setTodaySubcategory(nextCards[0].subcategory);
         }
         const profileUsername = window.localStorage.getItem("profile_username");
         if (profileUsername) setUsername(profileUsername);
@@ -163,7 +226,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       window.removeEventListener("storage", refreshTodayData);
       window.removeEventListener("bt:plan-updated", refreshTodayData);
     };
-  }, [dateKey, fallbackProgress, todayWorkout.sport, todayWorkout.subcategory]);
+  }, [dateKey, fallbackProgress, todayDayIndex, todayWorkout.id, todayWorkout.sport, todayWorkout.subcategory, todayWorkout.title]);
 
   useEffect(() => {
     void pullProgressFromCloud();
@@ -235,9 +298,10 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     return Math.min(100, Math.round((weeklyCompleted / weeklyPlannedCount) * 100));
   }, [weeklyCompleted, weeklyPlannedCount]);
 
+  const completedTodayIds = useMemo(() => getCompletedWorkoutIdsForDate(dateKey), [dateKey, weeklyCompleted]);
   const isCompleted = useMemo(
-    () => isWorkoutCompletedOnDate(dateKey, todayWorkoutIds),
-    [dateKey, todayWorkoutIds],
+    () => todayWorkoutIds.length > 0 && todayWorkoutIds.every((id) => completedTodayIds.has(id)),
+    [completedTodayIds, todayWorkoutIds],
   );
   const isInProgress =
     !isCompleted && progress.status === "in_progress" && progress.date === dateKey;
@@ -276,15 +340,15 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         </section>
       ) : null}
 
-      {/* Hero: today's workout */}
+      {/* Hero: today's workouts */}
       <section className="mt-6">
         {!isCompleted && hasWorkoutPlanned ? (
           <article className="app-card--brand">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="section-eyebrow">Heutiges Workout</p>
+                <p className="section-eyebrow">{todayWorkoutCards.length > 1 ? "Heutige Workouts" : "Heutiges Workout"}</p>
                 <h2 className="mt-1 text-2xl font-extrabold tracking-tight">
-                  {todayLabel ?? todayWorkout.title}
+                  {todayWorkoutCards.length > 1 ? `${todayWorkoutCards.length} Einheiten geplant` : todayLabel ?? todayWorkout.title}
                 </h2>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className="chip chip-active">{todaySport}</span>
@@ -307,13 +371,33 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
             <p className="mt-4 text-sm text-muted">
               {isInProgress
                 ? "Workout läuft – fortsetzen und Sätze loggen."
-                : "Bereit? Starte jetzt deine Einheit."}
+                : todayWorkoutCards.length > 1
+                  ? "Wähle die Einheit, die du jetzt starten möchtest."
+                  : "Bereit? Starte jetzt deine Einheit."}
             </p>
 
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Link href="/workouts" className="btn btn-primary">
-                {isInProgress ? "Workout fortsetzen" : "Workout starten"}
-              </Link>
+            <div className="mt-5 space-y-2">
+              {todayWorkoutCards.map((card, index) => {
+                const cardDone = completedTodayIds.has(card.id);
+                return (
+                  <div
+                    key={`${card.id}-${index}`}
+                    className="rounded-2xl border border-white/10 bg-black/15 p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-faint">
+                          {index + 1}. {card.sport} · {card.subcategory}
+                        </p>
+                        <p className="mt-0.5 font-semibold text-strong">{card.title}</p>
+                      </div>
+                      <Link href={card.href} className={cardDone ? "btn btn-ghost btn-sm" : "btn btn-primary btn-sm"}>
+                        {cardDone ? "Ansehen" : isInProgress ? "Fortsetzen" : "Workout starten"}
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
               <Link href="/Weekly-Workout" className="btn btn-ghost">
                 Weekly öffnen
               </Link>

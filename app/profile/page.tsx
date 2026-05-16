@@ -34,6 +34,7 @@ import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
+const PROFILE_WEEK_CONFIG_KEY = "bt.profile-week-config.v1";
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 const LAST_SEEN_LEVEL_KEY = "bt.profile.last-seen-level.v1";
@@ -96,6 +97,80 @@ function getDefaultPlayStyle(position: string | null) {
   return PLAY_STYLE_BY_POSITION[safePosition]?.[0] ?? "Shooter";
 }
 
+const DAY_KEYS: DayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const DAY_INDEX_TO_KEY: Record<number, DayKey> = { 0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday" };
+const VALID_DAY_MODES = new Set<DayMode>([
+  "unavailable",
+  "rest",
+  "recovery",
+  "game_day",
+  "game_training",
+  "basketball_training",
+  "gym",
+  "custom",
+]);
+
+function isWeekConfig(value: unknown): value is WeekConfig {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<Record<DayKey, { mode?: unknown; minutes?: unknown }>>;
+  return DAY_KEYS.every((day) => {
+    const config = record[day];
+    return Boolean(
+      config &&
+        typeof config.mode === "string" &&
+        VALID_DAY_MODES.has(config.mode as DayMode) &&
+        typeof config.minutes === "number" &&
+        Number.isFinite(config.minutes),
+    );
+  });
+}
+
+function loadPersistedWeekConfig(): WeekConfig | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(PROFILE_WEEK_CONFIG_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return isWeekConfig(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedWeekConfig(config: WeekConfig) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PROFILE_WEEK_CONFIG_KEY, JSON.stringify(config));
+}
+
+function deriveWeekConfigFromDailyPlan(dailyPlan: Record<string, PlannedWorkoutTag[]>): WeekConfig | null {
+  const entries = Object.entries(dailyPlan);
+  if (entries.length === 0) return null;
+  const next = DAY_KEYS.reduce((acc, day) => {
+    acc[day] = { mode: "unavailable", minutes: 0 };
+    return acc;
+  }, {} as WeekConfig);
+
+  entries
+    .sort(([left], [right]) => left.localeCompare(right))
+    .forEach(([dateKey, tags]) => {
+      const date = new Date(`${dateKey}T12:00:00`);
+      const dayKey = DAY_INDEX_TO_KEY[date.getDay()];
+      next[dayKey] = mapTagToDayConfig(tags);
+    });
+
+  return next;
+}
+
+function weekConfigMatchesDailyPlan(config: WeekConfig, dailyPlan: Record<string, PlannedWorkoutTag[]>) {
+  const entries = Object.entries(dailyPlan);
+  if (entries.length === 0) return true;
+  return entries.every(([dateKey, tags]) => {
+    const date = new Date(`${dateKey}T12:00:00`);
+    const dayKey = DAY_INDEX_TO_KEY[date.getDay()];
+    return config[dayKey]?.mode === mapTagToDayConfig(tags).mode;
+  });
+}
+
 function loadLocalCache() {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
@@ -110,6 +185,7 @@ function loadLocalCache() {
 function saveLocalCache(payload: ProfileLocalCache) {
   if (typeof window === "undefined") return;
   const overrides = Array.from(readManualPlanOverrides());
+  savePersistedWeekConfig(payload.weekConfig);
   window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify({ ...payload, manualPlanOverrides: overrides }));
 }
 
@@ -231,14 +307,30 @@ export default function ProfilePage() {
   const loadProfile = useCallback(async (usernameOverride?: string) => {
     await pullProgressFromCloud();
     const localCache = loadLocalCache();
+    const latestDailyPlan = readDailyPlanMap();
+    const storedWeekConfig = loadPersistedWeekConfig();
+    const dailyPlanWeekConfig = deriveWeekConfigFromDailyPlan(latestDailyPlan);
+    const cachedWeekConfig =
+      localCache?.weekConfig && weekConfigMatchesDailyPlan(localCache.weekConfig, latestDailyPlan)
+        ? localCache.weekConfig
+        : null;
+    const resolvedWeekConfig =
+      storedWeekConfig ??
+      cachedWeekConfig ??
+      dailyPlanWeekConfig ??
+      localCache?.weekConfig ??
+      getDefaultWeekConfig();
+
     if (localCache) {
       setProfile(localCache.profile);
       setPlayStyle(localCache.playStyle);
-      setWeekConfig(localCache.weekConfig);
+      setWeekConfig(resolvedWeekConfig);
       setBodyMetrics(localCache.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null });
       if (localCache.manualPlanOverrides?.length) {
         writeManualPlanOverrides(new Set(localCache.manualPlanOverrides));
       }
+    } else {
+      setWeekConfig(resolvedWeekConfig);
     }
 
     const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
@@ -296,7 +388,9 @@ export default function ProfilePage() {
     }
 
     setCompletedDates(getCompletedWorkoutDateSet());
-    setDailyPlanMap(readDailyPlanMap());
+    setDailyPlanMap(latestDailyPlan);
+    savePersistedWeekConfig(resolvedWeekConfig);
+    void pushProgressToCloud();
     setLoading(false);
   }, []);
 

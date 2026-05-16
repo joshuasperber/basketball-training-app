@@ -9,6 +9,7 @@ create table if not exists public.user_progress (
   hidden_auto_workouts_map jsonb not null default '{}'::jsonb,
   profile_cache text,
   profile_username text,
+  profile_week_config text,
   player_intake text,
   xp_history text,
   xp_progression text,
@@ -19,6 +20,9 @@ create table if not exists public.user_progress (
   workout_history text,
   reminder_prefs text,
   coach_weekly_note text,
+  training_exercises text,
+  training_workouts text,
+  workout_overrides jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 
@@ -30,11 +34,15 @@ alter table public.user_progress
   add column if not exists manual_plan_overrides text,
   add column if not exists weekly_regen_slot_map jsonb not null default '{}'::jsonb,
   add column if not exists profile_username text,
+  add column if not exists profile_week_config text,
   add column if not exists player_intake text,
   add column if not exists custom_subcategories text,
   add column if not exists workout_history text,
   add column if not exists reminder_prefs text,
-  add column if not exists coach_weekly_note text;
+  add column if not exists coach_weekly_note text,
+  add column if not exists training_exercises text,
+  add column if not exists training_workouts text,
+  add column if not exists workout_overrides jsonb not null default '{}'::jsonb;
 
 create unique index if not exists user_progress_user_id_uidx on public.user_progress(user_id);
 
@@ -93,6 +101,10 @@ create policy user_progress_update_own
 -- alter table public.user_progress add column if not exists training_goals text;
 -- alter table public.user_progress add column if not exists user_id uuid references auth.users(id) on delete cascade;
 -- alter table public.user_progress add column if not exists player_intake text;
+-- alter table public.user_progress add column if not exists profile_week_config text;
 -- alter table public.user_progress add column if not exists weekly_regen_slot_map jsonb not null default '{}'::jsonb;
 -- alter table public.user_progress add column if not exists manual_plan_overrides text;
+-- alter table public.user_progress add column if not exists training_exercises text;
+-- alter table public.user_progress add column if not exists training_workouts text;
+-- alter table public.user_progress add column if not exists workout_overrides jsonb not null default '{}'::jsonb;
 -- update public.user_progress p set user_id = u.id from auth.users u where p.user_id is null and lower(u.email) = p.email;

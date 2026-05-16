@@ -15,6 +15,7 @@ type ProgressRecord = {
   weeklyRegenSlotMap: Record<string, boolean>;
   profileCache: string | null;
   profileUsername: string | null;
+  profileWeekConfig: string | null;
   playerIntake: string | null;
   xpHistory: string | null;
   xpProgression: string | null;
@@ -26,6 +27,9 @@ type ProgressRecord = {
   workoutHistory: string | null;
   reminderPrefs: string | null;
   coachWeeklyNote: string | null;
+  trainingExercises: string | null;
+  trainingWorkouts: string | null;
+  workoutOverrides: Record<string, string>;
   remoteExists?: boolean;
 };
 
@@ -41,6 +45,7 @@ type ProgressRow = {
   hidden_auto_workouts_map: Record<string, string[]> | null;
   profile_cache: string | null;
   profile_username: string | null;
+  profile_week_config: string | null;
   player_intake: string | null;
   xp_history: string | null;
   xp_progression: string | null;
@@ -51,6 +56,9 @@ type ProgressRow = {
   workout_history: string | null;
   reminder_prefs: string | null;
   coach_weekly_note: string | null;
+  training_exercises: string | null;
+  training_workouts: string | null;
+  workout_overrides: Record<string, string> | null;
   updated_at?: string | null;
 };
 
@@ -72,6 +80,7 @@ function getDefaultProgress(): ProgressRecord {
     weeklyRegenSlotMap: {},
     profileCache: null,
     profileUsername: null,
+    profileWeekConfig: null,
     playerIntake: null,
     xpHistory: null,
     xpProgression: null,
@@ -83,6 +92,9 @@ function getDefaultProgress(): ProgressRecord {
     workoutHistory: null,
     reminderPrefs: null,
     coachWeeklyNote: null,
+    trainingExercises: null,
+    trainingWorkouts: null,
+    workoutOverrides: {},
     remoteExists: false,
   };
 }
@@ -119,6 +131,7 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
     weeklyRegenSlotMap: row.weekly_regen_slot_map ?? {},
     profileCache: row.profile_cache ?? null,
     profileUsername: row.profile_username ?? null,
+    profileWeekConfig: row.profile_week_config ?? null,
     playerIntake: row.player_intake ?? null,
     xpHistory: row.xp_history ?? null,
     xpProgression: row.xp_progression ?? null,
@@ -130,6 +143,9 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
     workoutHistory: row.workout_history ?? null,
     reminderPrefs: row.reminder_prefs ?? null,
     coachWeeklyNote: row.coach_weekly_note ?? null,
+    trainingExercises: row.training_exercises ?? null,
+    trainingWorkouts: row.training_workouts ?? null,
+    workoutOverrides: row.workout_overrides ?? {},
     remoteExists: true,
   };
 }
@@ -182,6 +198,7 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
     hidden_auto_workouts_map: payload.hiddenAutoWorkoutsMap ?? {},
     profile_cache: payload.profileCache ?? null,
     profile_username: payload.profileUsername ?? null,
+    profile_week_config: payload.profileWeekConfig ?? null,
     player_intake: payload.playerIntake ?? null,
     xp_history: payload.xpHistory ?? null,
     xp_progression: payload.xpProgression ?? null,
@@ -192,6 +209,9 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
     workout_history: payload.workoutHistory ?? null,
     reminder_prefs: payload.reminderPrefs ?? null,
     coach_weekly_note: payload.coachWeeklyNote ?? null,
+    training_exercises: payload.trainingExercises ?? null,
+    training_workouts: payload.trainingWorkouts ?? null,
+    workout_overrides: payload.workoutOverrides ?? {},
   };
 
   const response = await fetch(url.toString(), {

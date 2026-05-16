@@ -13,6 +13,7 @@ export const WEEKLY_REGEN_SLOT_MAP_KEY = "bt.weekly-regen-slot.v1";
 
 /** Auto-Vorschlagskarten, die der Nutzer ersetzt oder ausgeblendet hat. */
 export const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
+export const HIDE_ALL_AUTO_WORKOUTS_ID = "__all_auto_workouts__";
 
 export type HiddenAutoWorkoutsMap = Record<string, string[]>;
 

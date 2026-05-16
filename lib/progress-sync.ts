@@ -11,11 +11,13 @@ import { GAME_STATS_KEY } from "@/lib/game-stats";
 import { getExerciseHistoryMap, getWorkoutSessions } from "@/lib/session-storage";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
 import { SessionDatabase } from "@/lib/session-types";
+import { WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
 
 const EXERCISE_HISTORY_KEY = "bt.exercise-history.v1";
 const WORKOUT_SESSIONS_KEY = "bt.workout-sessions.v1";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
 const PROFILE_USERNAME_KEY = "profile_username";
+const PROFILE_WEEK_CONFIG_KEY = "bt.profile-week-config.v1";
 const XP_HISTORY_KEY = "bt.xp-history.v1";
 const XP_PROGRESSION_KEY = "bt.progression.v1";
 const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
@@ -24,6 +26,8 @@ const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 const WORKOUT_HISTORY_KEY = "bt.workout-history.v1";
 const REMINDER_PREFS_KEY = "bt.workout-reminders.v1";
 const COACH_WEEKLY_NOTE_STORAGE_KEY = "bt.coach-weekly-context";
+const TRAINING_EXERCISES_KEY = "training-exercises-v1";
+const TRAINING_WORKOUTS_KEY = "training-workouts-v1";
 
 type RemoteProgress = {
   sessions: SessionDatabase;
@@ -34,6 +38,7 @@ type RemoteProgress = {
   weeklyRegenSlotMap: Record<string, boolean>;
   profileCache: string | null;
   profileUsername: string | null;
+  profileWeekConfig: string | null;
   playerIntake: string | null;
   xpHistory: string | null;
   xpProgression: string | null;
@@ -45,6 +50,9 @@ type RemoteProgress = {
   workoutHistory: string | null;
   reminderPrefs: string | null;
   coachWeeklyNote: string | null;
+  trainingExercises: string | null;
+  trainingWorkouts: string | null;
+  workoutOverrides: Record<string, string>;
   remoteExists?: boolean;
 };
 
@@ -75,6 +83,19 @@ function readLocalJsonMap<T>(key: string, fallback: T): T {
   }
 }
 
+function readWorkoutOverrides(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const overrides: Record<string, string> = {};
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key?.startsWith(WORKOUT_OVERRIDE_PREFIX)) continue;
+    const dateKey = key.slice(WORKOUT_OVERRIDE_PREFIX.length);
+    const workoutId = window.localStorage.getItem(key);
+    if (dateKey && workoutId) overrides[dateKey] = workoutId;
+  }
+  return overrides;
+}
+
 export function buildLocalProgressSnapshot(): RemoteProgress {
   return {
     sessions: {
@@ -88,6 +109,7 @@ export function buildLocalProgressSnapshot(): RemoteProgress {
     weeklyRegenSlotMap: readLocalJsonMap<Record<string, boolean>>(WEEKLY_REGEN_SLOT_MAP_KEY, {}),
     profileCache: readRawString(PROFILE_LOCAL_CACHE_KEY),
     profileUsername: readRawString(PROFILE_USERNAME_KEY),
+    profileWeekConfig: readRawString(PROFILE_WEEK_CONFIG_KEY),
     playerIntake: readRawString(PLAYER_INTAKE_STORAGE_KEY),
     xpHistory: readRawString(XP_HISTORY_KEY),
     xpProgression: readRawString(XP_PROGRESSION_KEY),
@@ -99,6 +121,9 @@ export function buildLocalProgressSnapshot(): RemoteProgress {
     workoutHistory: readRawString(WORKOUT_HISTORY_KEY),
     reminderPrefs: readRawString(REMINDER_PREFS_KEY),
     coachWeeklyNote: readRawString(COACH_WEEKLY_NOTE_STORAGE_KEY),
+    trainingExercises: readRawString(TRAINING_EXERCISES_KEY),
+    trainingWorkouts: readRawString(TRAINING_WORKOUTS_KEY),
+    workoutOverrides: readWorkoutOverrides(),
   };
 }
 
@@ -114,6 +139,7 @@ function hasLocalUserData(snapshot: RemoteProgress) {
     Object.keys(snapshot.hiddenAutoWorkoutsMap ?? {}).length > 0 ||
     Boolean(snapshot.profileCache) ||
     Boolean(snapshot.profileUsername) ||
+    Boolean(snapshot.profileWeekConfig) ||
     Boolean(snapshot.playerIntake) ||
     Boolean(snapshot.xpHistory) ||
     Boolean(snapshot.xpProgression) ||
@@ -123,7 +149,10 @@ function hasLocalUserData(snapshot: RemoteProgress) {
     Boolean(snapshot.customSubcategories) ||
     Boolean(snapshot.workoutHistory) ||
     Boolean(snapshot.reminderPrefs) ||
-    Boolean(snapshot.coachWeeklyNote)
+    Boolean(snapshot.coachWeeklyNote) ||
+    Boolean(snapshot.trainingExercises) ||
+    Boolean(snapshot.trainingWorkouts) ||
+    Object.keys(snapshot.workoutOverrides ?? {}).length > 0
   );
 }
 
@@ -155,6 +184,7 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(mergeLocalMap(HIDDEN_AUTO_WORKOUTS_KEY, remote.hiddenAutoWorkoutsMap, {})));
   writeRawStringIfPresent(PROFILE_LOCAL_CACHE_KEY, remote.profileCache);
   writeRawStringIfPresent(PROFILE_USERNAME_KEY, remote.profileUsername);
+  writeRawStringIfPresent(PROFILE_WEEK_CONFIG_KEY, remote.profileWeekConfig);
   writeRawStringIfPresent(PLAYER_INTAKE_STORAGE_KEY, remote.playerIntake);
   writeRawStringIfPresent(XP_HISTORY_KEY, remote.xpHistory);
   writeRawStringIfPresent(XP_PROGRESSION_KEY, remote.xpProgression);
@@ -165,6 +195,11 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   writeRawStringIfPresent(WORKOUT_HISTORY_KEY, remote.workoutHistory);
   writeRawStringIfPresent(REMINDER_PREFS_KEY, remote.reminderPrefs);
   writeRawStringIfPresent(COACH_WEEKLY_NOTE_STORAGE_KEY, remote.coachWeeklyNote);
+  writeRawStringIfPresent(TRAINING_EXERCISES_KEY, remote.trainingExercises);
+  writeRawStringIfPresent(TRAINING_WORKOUTS_KEY, remote.trainingWorkouts);
+  for (const [dateKey, workoutId] of Object.entries(remote.workoutOverrides ?? {})) {
+    window.localStorage.setItem(`${WORKOUT_OVERRIDE_PREFIX}${dateKey}`, workoutId);
+  }
   window.dispatchEvent(new Event("bt:plan-updated"));
   window.dispatchEvent(new Event(PLAYER_INTAKE_UPDATED_EVENT));
   if (remote.trainingGoals) {

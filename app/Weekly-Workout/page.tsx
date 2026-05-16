@@ -21,6 +21,7 @@ import {
 } from "@/lib/player-workout-engine";
 import {
   MANUAL_DAY_WORKOUTS_KEY,
+  HIDE_ALL_AUTO_WORKOUTS_ID,
   readHiddenAutoWorkoutsMap,
   storedRegenerationSignals,
   type PlannedWorkoutTag,
@@ -702,10 +703,7 @@ export default function WeeklyWorkoutPage() {
           const manualFirstDuration = manualFirst
             ? manualFirst.durationMin
               ?? (manualFirst.exerciseIds?.length
-                ? manualFirst.exerciseIds.reduce(
-                    (sum, exerciseId) => sum + (exercisesById[exerciseId]?.durationMin ?? 10),
-                    0,
-                  )
+                ? sumExerciseIdsDurationMin(manualFirst.exerciseIds, exercisesById)
                 : entry.minutes)
             : entry.minutes;
 
@@ -871,10 +869,7 @@ export default function WeeklyWorkoutPage() {
       // Original-Dauer auf der Karte beibehalten – nicht an Ziel-Tag anpassen.
       if (movedEntry.durationMin == null && Array.isArray(movedEntry.exerciseIds) && movedEntry.exerciseIds.length > 0) {
         const exercisesById = Object.fromEntries(availableExercises.map((exercise) => [exercise.id, exercise]));
-        const computed = movedEntry.exerciseIds.reduce(
-          (sum, exerciseId) => sum + (exercisesById[exerciseId]?.durationMin ?? 10),
-          0,
-        );
+        const computed = sumExerciseIdsDurationMin(movedEntry.exerciseIds, exercisesById);
         if (computed > 0) movedEntry.durationMin = computed;
       }
       parsed[targetDateKey] = dedupeManualEntries([movedEntry, ...existingTargetEntries]);
@@ -1059,10 +1054,12 @@ export default function WeeklyWorkoutPage() {
           const manualDateKey = toLocalDateKey(getDateForWeekday(day));
           const dayManualEntries = manualWorkoutsByDate[manualDateKey] ?? [];
           const hiddenCardIds = new Set(hiddenAutoWorkoutsByDate[manualDateKey] ?? []);
+          const autoWorkoutsHidden = hiddenCardIds.has(HIDE_ALL_AUTO_WORKOUTS_ID);
           const isDayDisabled = disabledManualDays[manualDateKey] === true;
           const hasManualWorkout = dayManualEntries.length > 0;
-          const isRestDisplay = !hasManualWorkout && (isDayDisabled || (suggestedWorkout?.durationMin ?? 0) <= 0 || suggestedWorkout?.sport === "-");
-                    const workoutCards: WorkoutCardItem[] = [];
+          const visibleSuggestedWorkout = autoWorkoutsHidden && hasManualWorkout ? null : suggestedWorkout;
+          const isRestDisplay = !hasManualWorkout && (isDayDisabled || (visibleSuggestedWorkout?.durationMin ?? 0) <= 0 || visibleSuggestedWorkout?.sport === "-");
+          const workoutCards: WorkoutCardItem[] = [];
           const shouldAddRecoveryCard =
             !isRestDisplay &&
             autoSuggestedWorkout?.sport !== "Regeneration" &&
@@ -1085,7 +1082,7 @@ export default function WeeklyWorkoutPage() {
               });
             });
           }
-          if (autoSuggestedWorkout && !isDayDisabled) {
+          if (autoSuggestedWorkout && !isDayDisabled && !autoWorkoutsHidden) {
             const autoWorkoutId = autoSuggestedWorkout.workoutId ?? buildAutoWorkoutId(day, autoSuggestedWorkout.sport);
             if (!hiddenCardIds.has(autoWorkoutId)) {
               workoutCards.push({
@@ -1117,6 +1114,7 @@ export default function WeeklyWorkoutPage() {
               });
             }
           }
+          const totalWorkoutMinutes = workoutCards.reduce((sum, card) => sum + Math.max(0, card.durationMin || 0), 0);
           const selectedCardId = selectedWorkoutByDay[dayByIndex[day]] ?? workoutCards[0]?.id;
           const selectedCard = workoutCards.find((entry) => entry.id === selectedCardId) ?? workoutCards[0] ?? null;
           const showTodayCompletionState = day === todayIndex;
@@ -1149,13 +1147,13 @@ export default function WeeklyWorkoutPage() {
                     <span className="chip chip-success">Alle erledigt ✅</span>
                   ) : null}
                   {profilePlan ? (
-                    <span className="chip">{profilePlan.minutes} Min</span>
+                    <span className="chip">{totalWorkoutMinutes || profilePlan.minutes} Min</span>
                   ) : null}
                 </div>
               </header>
 
               <p className="mt-3 text-base font-semibold text-strong">
-                {isRestDisplay ? "Frei · Kein Workout geplant" : selectedCard?.title ?? suggestedWorkout?.title ?? workout.title}
+                {isRestDisplay ? "Frei · Kein Workout geplant" : selectedCard?.title ?? visibleSuggestedWorkout?.title ?? workout.title}
               </p>
               {profilePlan ? (
                 <p className="mt-1 text-xs text-muted">

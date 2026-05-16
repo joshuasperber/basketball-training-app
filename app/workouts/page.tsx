@@ -29,6 +29,7 @@ import { appendWorkoutXpEntry } from "@/lib/level-system";
 
 import {
   MANUAL_DAY_WORKOUTS_KEY,
+  HIDE_ALL_AUTO_WORKOUTS_ID,
   dayHasRegenerationCoverage,
   hideAutoWorkoutCardForDate,
   readManualDayDisabledMap,
@@ -874,6 +875,10 @@ function WorkoutsPageContent() {
     );
   };
 
+  const removeManualExercise = (exerciseId: string) => {
+    setSelectedManualExerciseIds((previous) => previous.filter((id) => id !== exerciseId));
+  };
+
   const moveManualExercise = (exerciseId: string, direction: "up" | "down") => {
     setSelectedManualExerciseIds((previous) => {
       const index = previous.indexOf(exerciseId);
@@ -940,6 +945,7 @@ function WorkoutsPageContent() {
       subcategory: generated.subcategory,
       notes: generated.notes,
       exerciseIds: generated.exerciseIds,
+      durationMin: generated.durationMin,
     };
   };
 
@@ -987,9 +993,15 @@ function WorkoutsPageContent() {
     const isReplacingAutoCard = Boolean(replaceCardIdParam && !manualWorkoutIdParam);
     if (replaceCardIdParam) {
       hideAutoWorkoutCardForDate(dateKey, replaceCardIdParam);
+      if (!replaceCardIdParam.startsWith("recovery-")) {
+        hideAutoWorkoutCardForDate(dateKey, HIDE_ALL_AUTO_WORKOUTS_ID);
+      }
     }
     store[dateKey] = isReplacingAutoCard
-      ? [entry]
+      ? [
+          entry,
+          ...existingForDate.filter((item) => item.id !== entry.id),
+        ]
       : [
           entry,
           ...existingForDate.filter((item) => item.id !== manualWorkoutIdParam && item.id !== entry.id),
@@ -997,6 +1009,7 @@ function WorkoutsPageContent() {
 
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
     window.dispatchEvent(new Event("bt:plan-updated"));
+    void pushProgressToCloud();
 
     const disabledMap = readManualDayDisabledMap();
     if (disabledMap[dateKey]) {
@@ -1678,12 +1691,27 @@ function WorkoutsPageContent() {
                 {selectedManualExerciseIds.map((exerciseId, index) => {
                   const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
                   if (!exercise) return null;
+                  const isFirst = index === 0;
+                  const isLast = index === selectedManualExerciseIds.length - 1;
                   return (
-                    <div key={`order-${exerciseId}`} className="flex items-center justify-between text-sm">
-                      <span>{index + 1}. {exercise.name}</span>
-                      <div className="flex gap-1">
-                        <button type="button" onClick={() => moveManualExercise(exerciseId, "up")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↑</button>
-                        <button type="button" onClick={() => moveManualExercise(exerciseId, "down")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↓</button>
+                    <div key={`order-${exerciseId}`} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="min-w-0 flex-1 truncate">{index + 1}. {exercise.name}</span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {isFirst ? null : (
+                          <button type="button" onClick={() => moveManualExercise(exerciseId, "up")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↑</button>
+                        )}
+                        {isLast ? null : (
+                          <button type="button" onClick={() => moveManualExercise(exerciseId, "down")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↓</button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeManualExercise(exerciseId)}
+                          className="rounded border border-rose-500/50 px-2 py-1 text-xs text-rose-200"
+                          aria-label={`${exercise.name} entfernen`}
+                          title="Übung löschen"
+                        >
+                          🗑
+                        </button>
                       </div>
                     </div>
                   );
