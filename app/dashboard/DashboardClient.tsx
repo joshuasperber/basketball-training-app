@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SportsNewsSection from "@/components/SportsNewsSection";
 import PageHeader from "@/components/PageHeader";
+import CoachInsight from "@/components/CoachInsight";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildPlayerBadges, computeBadgeStats, type PlayerBadge } from "@/lib/badge-system";
 import { getLevelFromXp, getProgressionState } from "@/lib/level-system";
@@ -450,6 +451,10 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         <p className="section-eyebrow">Motivation des Tages</p>
         <p className="mt-2 text-base italic text-strong">“{quoteOfTheDay}”</p>
       </section>
+
+      <div className="mt-6">
+        <CoachInsight />
+      </div>
 
       <SportsNewsSection />
 

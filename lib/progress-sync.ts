@@ -127,36 +127,44 @@ function hasLocalUserData(snapshot: RemoteProgress) {
   );
 }
 
-function writeRawStringOrRemove(key: string, value: string | null | undefined) {
-  if (value == null) {
-    window.localStorage.removeItem(key);
-    return;
-  }
+function writeRawStringIfPresent(key: string, value: string | null | undefined) {
+  if (value == null) return;
   window.localStorage.setItem(key, value);
+}
+
+function mergeLocalMap<T extends Record<string, unknown>>(key: string, remote: T | null | undefined, fallback: T): T {
+  const local = readLocalJsonMap<T>(key, fallback);
+  return { ...local, ...(remote ?? fallback) };
 }
 
 export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(WORKOUT_SESSIONS_KEY, JSON.stringify(remote.sessions.workoutSessions ?? []));
-  window.localStorage.setItem(EXERCISE_HISTORY_KEY, JSON.stringify(remote.sessions.exerciseHistory ?? {}));
-  window.localStorage.setItem(DAILY_PLAN_KEY, JSON.stringify(remote.dailyPlanMap ?? {}));
-  window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(remote.manualDayWorkoutsMap ?? {}));
-  window.localStorage.setItem(MANUAL_DAY_DISABLED_KEY, JSON.stringify(remote.manualDayDisabledMap ?? {}));
-  writeRawStringOrRemove(MANUAL_PLAN_OVERRIDES_KEY, remote.manualPlanOverrides);
-  window.localStorage.setItem(WEEKLY_REGEN_SLOT_MAP_KEY, JSON.stringify(remote.weeklyRegenSlotMap ?? {}));
-  window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(remote.hiddenAutoWorkoutsMap ?? {}));
-  writeRawStringOrRemove(PROFILE_LOCAL_CACHE_KEY, remote.profileCache);
-  writeRawStringOrRemove(PROFILE_USERNAME_KEY, remote.profileUsername);
-  writeRawStringOrRemove(PLAYER_INTAKE_STORAGE_KEY, remote.playerIntake);
-  writeRawStringOrRemove(XP_HISTORY_KEY, remote.xpHistory);
-  writeRawStringOrRemove(XP_PROGRESSION_KEY, remote.xpProgression);
-  writeRawStringOrRemove(PERFORMANCE_TIPS_KEY, remote.performanceTips);
-  writeRawStringOrRemove(GAME_STATS_KEY, remote.gameStats);
-  writeRawStringOrRemove(TRAINING_GOALS_STORAGE_KEY, remote.trainingGoals);
-  writeRawStringOrRemove(CUSTOM_SUBCATEGORY_KEY, remote.customSubcategories);
-  writeRawStringOrRemove(WORKOUT_HISTORY_KEY, remote.workoutHistory);
-  writeRawStringOrRemove(REMINDER_PREFS_KEY, remote.reminderPrefs);
-  writeRawStringOrRemove(COACH_WEEKLY_NOTE_STORAGE_KEY, remote.coachWeeklyNote);
+  const localSessions = getWorkoutSessions();
+  const mergedSessions = [...localSessions];
+  const seenSessionIds = new Set(localSessions.map((session) => session.id));
+  for (const session of remote.sessions.workoutSessions ?? []) {
+    if (!seenSessionIds.has(session.id)) mergedSessions.push(session);
+  }
+  window.localStorage.setItem(WORKOUT_SESSIONS_KEY, JSON.stringify(mergedSessions));
+  window.localStorage.setItem(EXERCISE_HISTORY_KEY, JSON.stringify(mergeLocalMap(EXERCISE_HISTORY_KEY, remote.sessions.exerciseHistory ?? {}, {})));
+  window.localStorage.setItem(DAILY_PLAN_KEY, JSON.stringify(mergeLocalMap(DAILY_PLAN_KEY, remote.dailyPlanMap, {})));
+  window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(mergeLocalMap(MANUAL_DAY_WORKOUTS_KEY, remote.manualDayWorkoutsMap, {})));
+  window.localStorage.setItem(MANUAL_DAY_DISABLED_KEY, JSON.stringify(mergeLocalMap(MANUAL_DAY_DISABLED_KEY, remote.manualDayDisabledMap, {})));
+  writeRawStringIfPresent(MANUAL_PLAN_OVERRIDES_KEY, remote.manualPlanOverrides);
+  window.localStorage.setItem(WEEKLY_REGEN_SLOT_MAP_KEY, JSON.stringify(mergeLocalMap(WEEKLY_REGEN_SLOT_MAP_KEY, remote.weeklyRegenSlotMap, {})));
+  window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(mergeLocalMap(HIDDEN_AUTO_WORKOUTS_KEY, remote.hiddenAutoWorkoutsMap, {})));
+  writeRawStringIfPresent(PROFILE_LOCAL_CACHE_KEY, remote.profileCache);
+  writeRawStringIfPresent(PROFILE_USERNAME_KEY, remote.profileUsername);
+  writeRawStringIfPresent(PLAYER_INTAKE_STORAGE_KEY, remote.playerIntake);
+  writeRawStringIfPresent(XP_HISTORY_KEY, remote.xpHistory);
+  writeRawStringIfPresent(XP_PROGRESSION_KEY, remote.xpProgression);
+  writeRawStringIfPresent(PERFORMANCE_TIPS_KEY, remote.performanceTips);
+  writeRawStringIfPresent(GAME_STATS_KEY, remote.gameStats);
+  writeRawStringIfPresent(TRAINING_GOALS_STORAGE_KEY, remote.trainingGoals);
+  writeRawStringIfPresent(CUSTOM_SUBCATEGORY_KEY, remote.customSubcategories);
+  writeRawStringIfPresent(WORKOUT_HISTORY_KEY, remote.workoutHistory);
+  writeRawStringIfPresent(REMINDER_PREFS_KEY, remote.reminderPrefs);
+  writeRawStringIfPresent(COACH_WEEKLY_NOTE_STORAGE_KEY, remote.coachWeeklyNote);
   window.dispatchEvent(new Event("bt:plan-updated"));
   window.dispatchEvent(new Event(PLAYER_INTAKE_UPDATED_EVENT));
   if (remote.trainingGoals) {

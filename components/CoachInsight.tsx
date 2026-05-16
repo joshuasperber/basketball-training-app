@@ -278,7 +278,7 @@ export default function CoachInsight() {
 
   const badge = useMemo(() => {
     if (!data?.source) return null;
-    if (data.source === "llm") return { label: "KI-Coach", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200" };
+    if (data.source === "llm") return null;
     return { label: "Regel-Coach", className: "border-cyan-400/40 bg-cyan-500/10 text-cyan-200" };
   }, [data]);
 
