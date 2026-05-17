@@ -22,6 +22,7 @@ import {
 import {
   MANUAL_DAY_WORKOUTS_KEY,
   HIDE_ALL_AUTO_WORKOUTS_ID,
+  readDailyPlanMap,
   readHiddenAutoWorkoutsMap,
   storedRegenerationSignals,
   type PlannedWorkoutTag,
@@ -39,6 +40,8 @@ import PageHeader from "@/components/PageHeader";
 import { buildBasketballCoachingPriorities } from "@/lib/basketball-coaching";
 import { getProgressionState } from "@/lib/level-system";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
+import { loadGameStats } from "@/lib/game-stats";
+import { getWarmupWorkouts, isWarmupWorkout } from "@/lib/warmup-workouts";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
 const weekdayNames: Record<(typeof weekdayOrder)[number], string> = {
@@ -117,6 +120,7 @@ type WorkoutCardItem = {
   autoSuggestion?: SuggestedWorkout;
   manualWorkoutId?: string;
   durationMin: number;
+  kind?: "training" | "game";
 };
 
 type HiddenAutoWorkoutsMap = Record<string, string[]>;
@@ -124,6 +128,56 @@ type HiddenAutoWorkoutsMap = Record<string, string[]>;
 function buildAutoWorkoutId(dayIndex: (typeof weekdayOrder)[number], sport: string) {
   if (sport === "Regeneration") return `auto-weekly-recovery-${dayIndex}`;
   return `auto-weekly-${dayIndex}`;
+}
+
+function getGameCardFromTags(dateKey: string, tags: PlannedWorkoutTag[], fallbackMinutes: number, sessionType?: string): WorkoutCardItem | null {
+  if (tags.includes("Spieltag") || sessionType === "game") {
+    return {
+      id: `game-${dateKey}`,
+      title: "Spieltag",
+      sport: "Basketball",
+      subcategory: "Spiel",
+      notes: "Tracke Minuten, Intensität, Punkte und Notizen zum Spiel.",
+      durationMin: Math.max(0, fallbackMinutes || 60),
+      kind: "game",
+    };
+  }
+  if (tags.includes("Spieltraining") || sessionType === "game-training") {
+    return {
+      id: `game-training-${dateKey}`,
+      title: "Spieltraining",
+      sport: "Basketball",
+      subcategory: "Spieltraining",
+      notes: "Tracke Minuten, Intensität, Punkte und Notizen zum Spieltraining.",
+      durationMin: Math.max(0, fallbackMinutes || 45),
+      kind: "game",
+    };
+  }
+  return null;
+}
+
+function isEmptyRestCard(card: WorkoutCardItem) {
+  return (
+    (card.durationMin ?? 0) <= 0 ||
+    card.sport === "-" ||
+    card.subcategory.toLowerCase() === "frei" ||
+    card.title.toLowerCase().includes("freier tag")
+  );
+}
+
+function isRegenerationCard(card: WorkoutCardItem) {
+  return card.sport === "Regeneration" || card.subcategory.toLowerCase().includes("recovery");
+}
+
+function isWarmupCard(card: WorkoutCardItem) {
+  return isWarmupWorkout({
+    id: card.workoutId ?? card.manualWorkoutId ?? card.id,
+    name: card.title,
+    category: card.sport === "Basketball" ? "Basketball" : "Gym",
+    subcategory: card.subcategory,
+    level: 1,
+    exerciseIds: [],
+  });
 }
 
 function createManualEntryId(): string {
@@ -281,16 +335,6 @@ function buildFallbackSuggestion(mode: string, minutes: number): SuggestedWorkou
     };
   }
 
-  if (mode === "game") {
-    return {
-      title: "Spieltag",
-      durationMin: minutes,
-      notes: "Nur Match-Fokus, kein zusätzliches Workout.",
-      sport: "Basketball",
-      subcategory: "Game",
-    };
-  }
-
   return null;
 }
 
@@ -366,9 +410,9 @@ function selectBestWorkout(
   lastAssignedSubcategoryByCategory: Partial<Record<Category, string>>,
   basketballCoachingPriorities: string[] = [],
 ): SuggestedWorkout {
-  const isGameMode = mode === "game_day" || mode === "game_training";
-  const targetWithExtra = isGameMode ? (mode === "game_day" ? 60 : 30) : targetMinutes;
-  const modeLabel = isGameMode ? (mode === "game_day" ? "Spieltag Warm-Up" : "Spieltraining Warm-Up") : "Direktes Training";
+  const isGameMode = mode === "game" || mode === "game-training" || mode === "game_day" || mode === "game_training";
+  const targetWithExtra = isGameMode ? (mode === "game" || mode === "game_day" ? 20 : 15) : targetMinutes;
+  const modeLabel = isGameMode ? (mode === "game" || mode === "game_day" ? "Spieltag Warm-Up" : "Spieltraining Warm-Up") : "Direktes Training";
   if (mode === "recovery") {
     return buildRecoverySuggestion(day, exercises);
   }
@@ -564,9 +608,12 @@ export default function WeeklyWorkoutPage() {
   const [autoSuggestionsByDay, setAutoSuggestionsByDay] = useState<Record<DayKey, SuggestedWorkout> | null>(null);
   const [manualWorkoutsByDate, setManualWorkoutsByDate] = useState<Record<string, ManualDayWorkout[]>>({});
   const [selectedWorkoutByDay, setSelectedWorkoutByDay] = useState<Partial<Record<DayKey, string>>>({});
+  const [selectedWarmupByDate, setSelectedWarmupByDate] = useState<Record<string, string>>({});
   const [manualVersion, setManualVersion] = useState(0);
   const [disabledManualDays, setDisabledManualDays] = useState<Record<string, boolean>>({});
   const [hiddenAutoWorkoutsByDate, setHiddenAutoWorkoutsByDate] = useState<HiddenAutoWorkoutsMap>({});
+  const [dailyPlanByDate, setDailyPlanByDate] = useState<Record<string, PlannedWorkoutTag[]>>({});
+  const [warmupCatalogWorkouts, setWarmupCatalogWorkouts] = useState<Workout[]>([]);
   const [profileVersion, setProfileVersion] = useState(0);
   /** Nur nach Mount gesetzt — vermeidet Hydration-Mismatch (localStorage vs. SSR-Default). */
   const [mesocycleLabel, setMesocycleLabel] = useState<string | null>(null);
@@ -605,6 +652,7 @@ export default function WeeklyWorkoutPage() {
 
         const exercises = loadExercises();
         const workouts = loadWorkouts();
+        setWarmupCatalogWorkouts(getWarmupWorkouts(workouts));
         const exercisesById = Object.fromEntries(exercises.map((exercise) => [exercise.id, exercise]));
         const sessions = getWorkoutSessions();
         const workoutLookup = new Map(workouts.map((workout) => [workout.id, workout]));
@@ -639,6 +687,7 @@ export default function WeeklyWorkoutPage() {
         }
         const disabledMap = readManualDayDisabledMap();
         const hiddenAutoMap = readHiddenAutoWorkoutsMap();
+        setDailyPlanByDate(readDailyPlanMap());
         setManualWorkoutsByDate(manualByDate);
         setDisabledManualDays(disabledMap);
         setHiddenAutoWorkoutsByDate(hiddenAutoMap);
@@ -762,14 +811,21 @@ export default function WeeklyWorkoutPage() {
   }, [todayIndex, manualVersion, profileVersion]);
 
   useEffect(() => {
-    const refreshProfilePlan = () => setProfileVersion((current) => current + 1);
+    const refreshProfilePlan = () => {
+      setDailyPlanByDate(readDailyPlanMap());
+      setWarmupCatalogWorkouts(getWarmupWorkouts(loadWorkouts()));
+      setProfileVersion((current) => current + 1);
+    };
+    const refreshGameStats = () => setManualVersion((current) => current + 1);
     window.addEventListener("storage", refreshProfilePlan);
     window.addEventListener("focus", refreshProfilePlan);
     window.addEventListener("bt:plan-updated", refreshProfilePlan);
+    window.addEventListener("bt:game-stats-updated", refreshGameStats);
     return () => {
       window.removeEventListener("storage", refreshProfilePlan);
       window.removeEventListener("focus", refreshProfilePlan);
       window.removeEventListener("bt:plan-updated", refreshProfilePlan);
+      window.removeEventListener("bt:game-stats-updated", refreshGameStats);
     };
   }, []);
 
@@ -891,6 +947,7 @@ export default function WeeklyWorkoutPage() {
   };
 
   const moveAutoWorkoutToTomorrow = (dayIndex: (typeof weekdayOrder)[number], selectedCard: WorkoutCardItem) => {
+    if (isEmptyRestCard(selectedCard)) return;
     const sourceDateKey = toLocalDateKey(getDateForWeekday(dayIndex));
     const sourceDate = new Date(`${sourceDateKey}T00:00:00`);
     sourceDate.setDate(sourceDate.getDate() + 1);
@@ -1013,7 +1070,12 @@ export default function WeeklyWorkoutPage() {
     setHiddenAutoWorkoutsByDate(nextMap);
     const isRecoveryCard = cardId.startsWith("recovery-");
     const hasCompleted = completedDateSet.has(dateKey);
-    if (!isRecoveryCard && isTodayOrFutureDate(dateKey) && !hasCompleted) {
+    const isSingleOnlyCard = cardId.startsWith("game-") || warmupCatalogWorkouts.some((workout) => workout.id === cardId);
+    const dayKey = dayByIndex[dayIndex];
+    const isGameDay =
+      (dailyPlanByDate[dateKey] ?? []).some((tag) => tag === "Spieltag" || tag === "Spieltraining") ||
+      plannedEntries?.some((entry) => entry.day === dayKey && (entry.sessionType === "game" || entry.sessionType === "game-training"));
+    if (!isRecoveryCard && !isSingleOnlyCard && !isGameDay && isTodayOrFutureDate(dateKey) && !hasCompleted) {
       const disabledMap = { ...readManualDayDisabledMap(), [dateKey]: true };
       writeManualDayDisabledMap(disabledMap);
       setDisabledManualDays(disabledMap);
@@ -1053,13 +1115,19 @@ export default function WeeklyWorkoutPage() {
           const autoSuggestedWorkout = autoSuggestionsByDay?.[dayByIndex[day]] ?? null;
           const manualDateKey = toLocalDateKey(getDateForWeekday(day));
           const dayManualEntries = manualWorkoutsByDate[manualDateKey] ?? [];
+          const gameCard = getGameCardFromTags(
+            manualDateKey,
+            dailyPlanByDate[manualDateKey] ?? [],
+            profilePlan?.minutes ?? 0,
+            profilePlan?.sessionType,
+          );
           const hiddenCardIds = new Set(hiddenAutoWorkoutsByDate[manualDateKey] ?? []);
           const autoWorkoutsHidden = hiddenCardIds.has(HIDE_ALL_AUTO_WORKOUTS_ID);
           const isDayDisabled = disabledManualDays[manualDateKey] === true;
           const hasManualWorkout = dayManualEntries.length > 0;
           const visibleSuggestedWorkout = autoWorkoutsHidden && hasManualWorkout ? null : suggestedWorkout;
           const isRestDisplay = !hasManualWorkout && (isDayDisabled || (visibleSuggestedWorkout?.durationMin ?? 0) <= 0 || visibleSuggestedWorkout?.sport === "-");
-          const workoutCards: WorkoutCardItem[] = [];
+          let workoutCards: WorkoutCardItem[] = [];
           const shouldAddRecoveryCard =
             !isRestDisplay &&
             autoSuggestedWorkout?.sport !== "Regeneration" &&
@@ -1114,12 +1182,50 @@ export default function WeeklyWorkoutPage() {
               });
             }
           }
-          const totalWorkoutMinutes = workoutCards.reduce((sum, card) => sum + Math.max(0, card.durationMin || 0), 0);
-          const selectedCardId = selectedWorkoutByDay[dayByIndex[day]] ?? workoutCards[0]?.id;
-          const selectedCard = workoutCards.find((entry) => entry.id === selectedCardId) ?? workoutCards[0] ?? null;
+          if (gameCard) {
+            const existingWarmupCards = workoutCards.filter(isWarmupCard);
+            workoutCards = workoutCards.filter((card) => !isWarmupCard(card));
+            const visibleWarmups = warmupCatalogWorkouts.filter((workout) => !hiddenCardIds.has(workout.id));
+            const selectedWarmupId = selectedWarmupByDate[manualDateKey] ?? visibleWarmups[0]?.id;
+            const workout = visibleWarmups.find((item) => item.id === selectedWarmupId) ?? visibleWarmups[0];
+            if (workout) {
+              workoutCards.push({
+                id: workout.id,
+                title: workout.name,
+                sport: workout.category,
+                subcategory: workout.subcategory,
+                notes: workout.notes ?? "Warm-Up vor Spieltag/Spieltraining.",
+                workoutId: workout.id,
+                durationMin: computeWorkoutDuration(workout, exercisesById),
+              });
+            } else if (existingWarmupCards[0]) {
+              workoutCards.push(existingWarmupCards[0]);
+            }
+          }
+          if (gameCard) {
+            workoutCards.push(gameCard);
+          }
+          const hasWarmupBeforeGame = gameCard
+            ? workoutCards.some((card) => card.id !== gameCard.id && isWarmupCard(card))
+            : false;
+          const orderedWorkoutCards = [...workoutCards].sort((left, right) => {
+            const leftRecovery = isRegenerationCard(left);
+            const rightRecovery = isRegenerationCard(right);
+            if (leftRecovery === rightRecovery) return 0;
+            return leftRecovery ? 1 : -1;
+          });
+          const totalWorkoutMinutes = orderedWorkoutCards.reduce((sum, card) => sum + Math.max(0, card.durationMin || 0), 0);
+          const selectedCardId = selectedWorkoutByDay[dayByIndex[day]] ?? orderedWorkoutCards[0]?.id;
+          const selectedCard = orderedWorkoutCards.find((entry) => entry.id === selectedCardId) ?? orderedWorkoutCards[0] ?? null;
           const showTodayCompletionState = day === todayIndex;
           const completedIdsForDate = completedWorkoutIdsByDate[manualDateKey] ?? new Set<string>();
-          const completedCardsCount = workoutCards.filter((card) => {
+          const gameCompletedIdsForDate = new Set(
+            loadGameStats()
+              .filter((entry) => entry.date === manualDateKey)
+              .map((entry) => (entry.context === "game_training" ? `game-training-${manualDateKey}` : `game-${manualDateKey}`)),
+          );
+          const completedCardsCount = orderedWorkoutCards.filter((card) => {
+            if (card.kind === "game") return gameCompletedIdsForDate.has(card.id);
             if (card.manualWorkoutId) return completedIdsForDate.has(card.manualWorkoutId);
             if (card.workoutId) return completedIdsForDate.has(card.workoutId);
             return false;
@@ -1127,15 +1233,18 @@ export default function WeeklyWorkoutPage() {
           const isSelectedCardCompleted = Boolean(
             selectedCard &&
             ((selectedCard.manualWorkoutId && completedIdsForDate.has(selectedCard.manualWorkoutId)) ||
+              (selectedCard.kind === "game" && gameCompletedIdsForDate.has(selectedCard.id)) ||
               (selectedCard.workoutId && completedIdsForDate.has(selectedCard.workoutId))),
           );
-          const allCardsCompleted = workoutCards.length > 0 && completedCardsCount === workoutCards.length;
+          const allCardsCompleted = orderedWorkoutCards.length > 0 && completedCardsCount === orderedWorkoutCards.length;
           const dateLabel = getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
 
           return (
             <article
               key={day}
-              className={day === todayIndex ? "app-card app-card--today" : "app-card"}
+              className={`${day === todayIndex ? "app-card app-card--today" : "app-card"} ${
+                allCardsCompleted ? "border-emerald-400/70 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]" : ""
+              }`}
             >
               <header className="flex items-center justify-between gap-3">
                 <div>
@@ -1143,8 +1252,8 @@ export default function WeeklyWorkoutPage() {
                   <h3 className="mt-1 text-lg font-bold tracking-tight">{weekdayNames[day]}</h3>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  {showTodayCompletionState && allCardsCompleted ? (
-                    <span className="chip chip-success">Alle erledigt ✅</span>
+                  {allCardsCompleted ? (
+                    <span className="chip chip-success">Großer Tages-Haken ✅</span>
                   ) : null}
                   {profilePlan ? (
                     <span className="chip">{totalWorkoutMinutes || profilePlan.minutes} Min</span>
@@ -1160,12 +1269,47 @@ export default function WeeklyWorkoutPage() {
                   Profil-Plan: <span className="text-strong">{profilePlan.sessionType}</span> · {profilePlan.intensity}
                 </p>
               ) : null}
+              {allCardsCompleted ? (
+                <div className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 p-3 text-sm font-semibold text-emerald-100">
+                  ✅ Tag abgeschlossen: Alle Workouts dieses Tages sind erledigt.
+                </div>
+              ) : null}
+              {gameCard && !hasWarmupBeforeGame ? (
+                <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-2 text-xs text-amber-100">
+                  Kein Warm-Up-Workout gefunden. Erstelle am besten ein Basketball-Workout in der Unterkategorie <strong>Warm-Up</strong>, damit es vor {gameCard.title} angezeigt wird.
+                </p>
+              ) : null}
+              {gameCard && warmupCatalogWorkouts.filter((warmup) => !hiddenCardIds.has(warmup.id)).length > 1 ? (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                  <label className="input-label">Warm-Up auswählen</label>
+                  <select
+                    value={
+                      selectedWarmupByDate[manualDateKey] ??
+                      warmupCatalogWorkouts.find((warmup) => !hiddenCardIds.has(warmup.id))?.id ??
+                      ""
+                    }
+                    onChange={(event) => {
+                      const warmupId = event.target.value;
+                      setSelectedWarmupByDate((current) => ({ ...current, [manualDateKey]: warmupId }));
+                      setSelectedWorkoutByDay((current) => ({ ...current, [dayByIndex[day]]: warmupId }));
+                    }}
+                    className="select mt-2"
+                  >
+                    {warmupCatalogWorkouts.filter((warmup) => !hiddenCardIds.has(warmup.id)).map((warmup) => (
+                      <option key={warmup.id} value={warmup.id}>
+                        {warmup.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
               <div className="mt-4 grid gap-2 md:grid-cols-2">
-                {workoutCards.length > 0 && !isRestDisplay ? workoutCards.map((card, cardIndex) => {
-                  const isDone = showTodayCompletionState &&
-                    ((card.manualWorkoutId && completedIdsForDate.has(card.manualWorkoutId)) ||
-                      (card.workoutId && completedIdsForDate.has(card.workoutId)));
+                {orderedWorkoutCards.length > 0 && !isRestDisplay ? orderedWorkoutCards.map((card, cardIndex) => {
+                  const isDone =
+                    (card.kind === "game" && gameCompletedIdsForDate.has(card.id)) ||
+                      (card.manualWorkoutId && completedIdsForDate.has(card.manualWorkoutId)) ||
+                      (card.workoutId && completedIdsForDate.has(card.workoutId));
                   const isSelected = selectedCardId === card.id;
                   return (
                     <button
@@ -1212,6 +1356,7 @@ export default function WeeklyWorkoutPage() {
                       Spiel tracken
                     </Link>
                   ) : null}
+                  {selectedCard.kind === "game" ? null : (
                   <button
                     type="button"
                     className="btn btn-primary btn-xs"
@@ -1225,6 +1370,7 @@ export default function WeeklyWorkoutPage() {
                   >
                     {showTodayCompletionState && isSelectedCardCompleted ? "Workout ansehen" : "Workout starten"}
                   </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-outline btn-xs"

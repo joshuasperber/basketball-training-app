@@ -27,8 +27,12 @@ import {
 import { pullProgressFromCloud } from "@/lib/progress-sync";
 import { loadPerformanceTips } from "@/lib/performance-tips";
 import { getCompletedWorkoutIdsForDate } from "@/lib/workout-completion";
+import { loadGameStats } from "@/lib/game-stats";
+import { loadWorkouts } from "@/lib/training-storage";
+import { getWarmupWorkouts } from "@/lib/warmup-workouts";
 
 const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
+const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
 
 function isSportType(value: string): value is SportType {
   return ALLOWED_SPORTS.includes(value as SportType);
@@ -40,7 +44,13 @@ function getWorkoutFromTodayTags(tags: string[]) {
   const homeTag = tags.find((tag) => tag.startsWith("Home:"))?.replace("Home:", "");
   const recoveryTag = tags.find((tag) => tag.startsWith("Recovery:"))?.replace("Recovery:", "");
 
-  if (tags.includes("Trainingstag") || tags.includes("Spieltraining") || tags.includes("Spieltag")) {
+  if (tags.includes("Spieltag")) {
+    return { sport: "Basketball" as SportType, title: "Spieltag", subcategory: "Spiel", kind: "game" as const };
+  }
+  if (tags.includes("Spieltraining")) {
+    return { sport: "Basketball" as SportType, title: "Spieltraining", subcategory: "Spieltraining", kind: "game_training" as const };
+  }
+  if (tags.includes("Trainingstag")) {
     return { sport: "Basketball" as SportType, title: basketballTag ? `Basketball – ${basketballTag}` : "Basketball Training", subcategory: basketballTag ?? "Training" };
   }
   if (tags.includes("Gym")) {
@@ -55,12 +65,43 @@ function getWorkoutFromTodayTags(tags: string[]) {
   return null;
 }
 
+function getTodayTagsFromProfileFallback(dayIndex: number): string[] {
+  if (typeof window === "undefined") return [];
+  const raw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as {
+      weekConfig?: Record<string, { mode?: string; minutes?: number }>;
+    };
+    const dayMap: Record<number, string> = {
+      0: "sunday",
+      1: "monday",
+      2: "tuesday",
+      3: "wednesday",
+      4: "thursday",
+      5: "friday",
+      6: "saturday",
+    };
+    const mode = parsed.weekConfig?.[dayMap[dayIndex]]?.mode;
+    if (mode === "game_day") return ["Spieltag"];
+    if (mode === "game_training") return ["Spieltraining"];
+    if (mode === "basketball_training") return ["Trainingstag"];
+    if (mode === "gym") return ["Gym"];
+    if (mode === "custom") return ["Home-Workout"];
+    if (mode === "recovery") return ["Regeneration"];
+  } catch {
+    // noop
+  }
+  return [];
+}
+
 type TodayWorkoutCard = {
   id: string;
   title: string;
   sport: SportType;
   subcategory: string;
   href: string;
+  kind?: "training" | "game" | "game_training";
 };
 
 const PLAYER_QUOTES = [
@@ -138,19 +179,38 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         setTodaySubcategory(todayWorkout.subcategory);
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
         const dailyPlans = readDailyPlanMap();
-        const tags = dailyPlans[dateKey] ?? [];
+        const tags = dailyPlans[dateKey]?.length ? dailyPlans[dateKey] : getTodayTagsFromProfileFallback(todayDayIndex);
         const workoutFromWeekly = getWorkoutFromTodayTags(tags);
+        const hasGameToday = tags.includes("Spieltag") || tags.includes("Spieltraining");
         const hiddenAutoForToday = new Set(readHiddenAutoWorkoutsMap()[dateKey] ?? []);
         const autoHidden = hiddenAutoForToday.has(HIDE_ALL_AUTO_WORKOUTS_ID);
-        if (workoutFromWeekly && !autoHidden) {
+        if (workoutFromWeekly) {
+          const workoutId = workoutFromWeekly.kind ? `${workoutFromWeekly.kind}-${dateKey}` : todayWorkout.id;
           nextCards.push({
-            id: todayWorkout.id,
+            id: workoutId,
             title: workoutFromWeekly.title,
             sport: workoutFromWeekly.sport,
             subcategory: workoutFromWeekly.subcategory,
-            href: `/workouts?day=${todayDayIndex}`,
+            href: workoutFromWeekly.kind
+              ? `/game-track?date=${dateKey}&context=${workoutFromWeekly.kind === "game_training" ? "game_training" : "game"}`
+              : `/workouts?day=${todayDayIndex}`,
+            kind: workoutFromWeekly.kind,
           });
-          plannedIds.add(todayWorkout.id);
+          plannedIds.add(workoutId);
+        }
+        if (hasGameToday) {
+          const workout = getWarmupWorkouts(loadWorkouts())[0];
+          if (workout) {
+            nextCards.push({
+              id: workout.id,
+              title: workout.name,
+              sport: "Basketball",
+              subcategory: workout.subcategory,
+              href: `/workouts?day=${todayDayIndex}&workoutId=${encodeURIComponent(workout.id)}`,
+              kind: "training",
+            });
+            plannedIds.add(workout.id);
+          }
         }
         if (rawManual) {
           const parsedManual = JSON.parse(rawManual) as Record<
@@ -298,7 +358,13 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     return Math.min(100, Math.round((weeklyCompleted / weeklyPlannedCount) * 100));
   }, [weeklyCompleted, weeklyPlannedCount]);
 
-  const completedTodayIds = useMemo(() => getCompletedWorkoutIdsForDate(dateKey), [dateKey, weeklyCompleted]);
+  const completedTodayIds = useMemo(() => {
+    const ids = getCompletedWorkoutIdsForDate(dateKey);
+    loadGameStats()
+      .filter((entry) => entry.date === dateKey)
+      .forEach((entry) => ids.add(entry.context === "game_training" ? `game_training-${dateKey}` : `game-${dateKey}`));
+    return ids;
+  }, [dateKey, weeklyCompleted]);
   const isCompleted = useMemo(
     () => todayWorkoutIds.length > 0 && todayWorkoutIds.every((id) => completedTodayIds.has(id)),
     [completedTodayIds, todayWorkoutIds],
@@ -392,7 +458,13 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                         <p className="mt-0.5 font-semibold text-strong">{card.title}</p>
                       </div>
                       <Link href={card.href} className={cardDone ? "btn btn-ghost btn-sm" : "btn btn-primary btn-sm"}>
-                        {cardDone ? "Ansehen" : isInProgress ? "Fortsetzen" : "Workout starten"}
+                        {card.kind === "game" || card.kind === "game_training"
+                          ? "Spiel tracken"
+                          : cardDone
+                            ? "Ansehen"
+                            : isInProgress
+                              ? "Fortsetzen"
+                              : "Workout starten"}
                       </Link>
                     </div>
                   </div>

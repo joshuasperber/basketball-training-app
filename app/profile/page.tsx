@@ -11,10 +11,11 @@ import {
   type WeekConfig,
 } from "@/lib/planner";
 import { getWorkoutSessions } from "@/lib/session-storage";
-import { toLocalDateKey } from "@/lib/workout";
+import { WORKOUT_OVERRIDE_PREFIX, toLocalDateKey } from "@/lib/workout";
 import {
   applyWeekConfigToCalendar,
   getCompletedWorkoutDateSet,
+  HIDDEN_AUTO_WORKOUTS_KEY,
   markDateAsManualOverride,
   readDailyPlanMap,
   readManualDayDisabledMap,
@@ -254,6 +255,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [savedToastVisible, setSavedToastVisible] = useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
 
   const [profile, setProfile] = useState<ProfileRow>({ username: "", full_name: "", favorite_position: "sg", height_cm: null, weight_kg: null, email: null });
   const [playStyle, setPlayStyle] = useState<string>("Shooter");
@@ -370,7 +372,7 @@ export default function ProfilePage() {
 
     if (data) {
       const mergedProfile: ProfileRow = {
-        username: data.username ?? localCache?.profile.username ?? username,
+        username: localCache?.profile.username ?? data.username ?? username,
         full_name: localCache?.profile.full_name ?? data.full_name ?? "",
         favorite_position: localCache?.profile.favorite_position ?? data.favorite_position ?? "sg",
         height_cm: localCache?.profile.height_cm ?? data.height_cm ?? null,
@@ -478,11 +480,22 @@ export default function ProfilePage() {
   const updateSelectedDatePlan = (nextTags: PlannedWorkoutTag[]) => {
     if (selectedDateKey < todayKey) return;
     markDateAsManualOverride(selectedDateKey);
+    try {
+      const rawHidden = window.localStorage.getItem(HIDDEN_AUTO_WORKOUTS_KEY);
+      const hidden = rawHidden ? (JSON.parse(rawHidden) as Record<string, string[]>) : {};
+      if (hidden[selectedDateKey]) {
+        const nextHidden = { ...hidden };
+        delete nextHidden[selectedDateKey];
+        window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(nextHidden));
+      }
+      window.localStorage.removeItem(`${WORKOUT_OVERRIDE_PREFIX}${selectedDateKey}`);
+    } catch {
+      // Keep calendar edits working even if old local data is malformed.
+    }
     setDailyPlanMap((current) => {
       const next = { ...current, [selectedDateKey]: nextTags };
       if (nextTags.length === 0) delete next[selectedDateKey];
       writeDailyPlanMap(next);
-      window.dispatchEvent(new Event("bt:plan-updated"));
       if (nextTags.length > 0) {
         const disabledMap = readManualDayDisabledMap();
         if (disabledMap[selectedDateKey]) {
@@ -498,7 +511,11 @@ export default function ProfilePage() {
       const dayMap: Record<number, DayKey> = { 0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday" };
       const targetDay = dayMap[dayIndex];
       const config = mapTagToDayConfig(nextTags);
-      setWeekConfig((prev) => ({ ...prev, [targetDay]: config }));
+      const nextWeekConfig = { ...weekConfig, [targetDay]: config };
+      setWeekConfig(nextWeekConfig);
+      savePersistedWeekConfig(nextWeekConfig);
+      saveLocalCache({ profile, playStyle, weekConfig: nextWeekConfig, weeklyGoalSessions, bodyMetrics });
+      window.dispatchEvent(new Event("bt:plan-updated"));
 
       return next;
     });
@@ -792,11 +809,36 @@ const refreshProfileAndWeekly = () => {
       </section>
 
       <section className="mt-4 app-card">
-        <p className="section-eyebrow">Wochen-Verfügbarkeit</p>
-        <h2 className="section-title mt-1">An welchen Tagen hast du Zeit?</h2>
-        <p className="text-xs text-muted">
-          Wähle pro Tag den Standard-Schwerpunkt. Der Wochenplan wird automatisch gefüllt – einzelne Tage kannst du unten im Kalender immer noch überschreiben.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="section-eyebrow">Wochen-Verfügbarkeit</p>
+            <h2 className="section-title mt-1">Grundrhythmus</h2>
+            <p className="text-xs text-muted">
+              Deine Basiswoche. Alltag-Änderungen machst du unten über Workout Activity.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAvailabilityOpen((current) => !current)}
+            className="btn btn-ghost btn-sm shrink-0"
+            aria-expanded={availabilityOpen}
+          >
+            {availabilityOpen ? "Einklappen" : "Bearbeiten"}
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {DAY_KEYS.map((dayKey) => {
+            const dayConfig = weekConfig[dayKey] ?? { mode: "unavailable" as DayMode, minutes: 0 };
+            const isAvailable = dayConfig.mode !== "unavailable" && dayConfig.mode !== "rest";
+            return (
+              <span key={`summary-${dayKey}`} className={`chip ${isAvailable ? "chip-active" : ""}`}>
+                {DAY_LABELS[dayKey].slice(0, 2)} {isAvailable ? `${dayConfig.minutes}m` : "frei"}
+              </span>
+            );
+          })}
+        </div>
+        {availabilityOpen ? (
+          <>
         <div className="mt-4 space-y-2">
           {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as DayKey[]).map((dayKey) => {
             const dayConfig = weekConfig[dayKey] ?? { mode: "unavailable" as DayMode, minutes: 0 };
@@ -901,6 +943,8 @@ const refreshProfileAndWeekly = () => {
         <p className="mt-3 text-[11px] text-faint">
           Tipp: 3–5 Trainings/Woche sind ein guter Start. Mehr ist nur sinnvoll, wenn Regeneration und Schlaf passen.
         </p>
+          </>
+        ) : null}
       </section>
 
       <section className="mt-4 app-card">
@@ -934,17 +978,22 @@ const refreshProfileAndWeekly = () => {
                 key={key}
                 type="button"
                 onClick={() => setSelectedDateKey(key)}
-                className={`relative h-12 rounded-lg border text-sm font-semibold transition ${
+                className={`relative rounded-lg border text-sm font-semibold transition ${
                   isSelected
-                    ? "border-orange-400 bg-orange-500/20 text-white shadow-[0_0_0_2px_rgba(255,122,24,0.25)]"
+                    ? `border-orange-400 bg-orange-500/20 text-white shadow-[0_0_0_2px_rgba(255,122,24,0.25)] ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300/70 z-10" : "h-12"}`
                     : trained
-                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
+                      ? `border-emerald-500/40 bg-emerald-500/15 text-emerald-100 ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300/70 z-10 shadow-[0_0_20px_rgba(34,211,238,0.25)]" : "h-12"}`
                       : isToday
-                        ? "border-cyan-400/60 bg-cyan-500/10 text-cyan-100"
-                        : "border-white/10 bg-white/[0.02] text-strong hover:bg-white/[0.05]"
+                        ? "h-16 scale-[1.08] z-10 border-cyan-300 bg-cyan-400/20 text-white ring-2 ring-cyan-300/70 shadow-[0_0_22px_rgba(34,211,238,0.35)]"
+                        : "h-12 border-white/10 bg-white/[0.02] text-strong hover:bg-white/[0.05]"
                 }`}
               >
-                <span>{cell.getDate()}</span>
+                {isToday ? (
+                  <span className="absolute left-1/2 top-1 -translate-x-1/2 rounded-full bg-cyan-300 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-slate-950">
+                    Heute
+                  </span>
+                ) : null}
+                <span className={isToday ? "mt-3 block text-lg font-black" : ""}>{cell.getDate()}</span>
                 {trained ? <span className="block text-[9px] opacity-80">✓</span> : null}
                 {hasPlannedTags ? (
                   <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-orange-400" />

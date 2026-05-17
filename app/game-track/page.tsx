@@ -6,6 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { loadGameStats } from "@/lib/game-stats";
 import { saveGameStatAndSync } from "@/lib/services/game-stats-sync";
 import { deleteGamePhoto, getGamePhotoUrl, uploadGamePhoto } from "@/lib/game-photo-storage";
+import { loadPerformanceTips } from "@/lib/performance-tips";
+import { loadWorkouts } from "@/lib/training-storage";
+import { getWarmupWorkouts } from "@/lib/warmup-workouts";
 
 function toNullableNumber(value: string) {
   const parsed = Number(value);
@@ -23,6 +26,7 @@ export default function GameTrackPage() {
   const [resolvedContext, setResolvedContext] = useState<"game" | "game_training">(paramContext);
   const [opponentLabel, setOpponentLabel] = useState("");
   const [minutes, setMinutes] = useState("");
+  const [intensity, setIntensity] = useState("");
   const [points, setPoints] = useState("");
   const [assists, setAssists] = useState("");
   const [rebounds, setRebounds] = useState("");
@@ -32,6 +36,7 @@ export default function GameTrackPage() {
   const [saving, setSaving] = useState(false);
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [warmupWorkouts, setWarmupWorkouts] = useState<ReturnType<typeof getWarmupWorkouts>>([]);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -45,6 +50,7 @@ export default function GameTrackPage() {
           setResolvedContext(entry.context);
           setOpponentLabel(entry.opponentLabel ?? "");
           setMinutes(entry.minutes != null ? String(entry.minutes) : "");
+          setIntensity(entry.intensity != null ? String(entry.intensity) : "");
           setPoints(entry.points != null ? String(entry.points) : "");
           setAssists(entry.assists != null ? String(entry.assists) : "");
           setRebounds(entry.rebounds != null ? String(entry.rebounds) : "");
@@ -59,6 +65,7 @@ export default function GameTrackPage() {
       setResolvedContext(paramContext);
       setOpponentLabel("");
       setMinutes("");
+      setIntensity("");
       setPoints("");
       setAssists("");
       setRebounds("");
@@ -126,9 +133,25 @@ export default function GameTrackPage() {
     () => (resolvedContext === "game" ? "Spieltag" : "Spieltraining"),
     [resolvedContext],
   );
+  useEffect(() => {
+    const syncWarmups = () => setWarmupWorkouts(getWarmupWorkouts(loadWorkouts()));
+    syncWarmups();
+    window.addEventListener("storage", syncWarmups);
+    return () => window.removeEventListener("storage", syncWarmups);
+  }, []);
+  const prepNotes = useMemo(() => {
+    const tips = loadPerformanceTips()
+      .filter((tip) => tip.active)
+      .map((tip) => `${tip.title}: ${tip.content}`);
+    const gameNotes = loadGameStats()
+      .filter((entry) => entry.date === resolvedDate && entry.context === resolvedContext && entry.notes?.trim())
+      .map((entry) => entry.notes?.trim() ?? "");
+    return [...tips, ...gameNotes];
+  }, [resolvedContext, resolvedDate]);
 
   const statFields = [
     { label: "Minuten", value: minutes, set: setMinutes, hint: "optional" },
+    { label: "Intensität (1-10)", value: intensity, set: setIntensity, hint: "optional" },
     { label: "Punkte", value: points, set: setPoints, hint: "" },
     { label: "Assists", value: assists, set: setAssists, hint: "" },
     { label: "Rebounds", value: rebounds, set: setRebounds, hint: "" },
@@ -176,6 +199,31 @@ export default function GameTrackPage() {
 
         <section className="mt-4 app-card--accent-violet">
           <p className="section-eyebrow">Gegner</p>
+          <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-sm font-semibold text-strong">Vorbereitung</p>
+            {warmupWorkouts.length > 0 ? (
+              <div className="mt-2 space-y-1">
+                {warmupWorkouts.slice(0, 3).map((workout) => (
+                  <p key={workout.id} className="text-xs text-muted">
+                    Warm-Up verfügbar: <span className="text-strong">{workout.name}</span>
+                    {workout.notes ? ` · ${workout.notes}` : ""}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-amber-200">
+                Noch kein Warm-Up-Workout vorhanden. Erstelle unter Training ein Basketball-Workout mit Unterkategorie Warm-Up.
+              </p>
+            )}
+            {prepNotes.length > 0 ? (
+              <div className="mt-3 space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-faint">Alle Notizen</p>
+                {prepNotes.map((note, index) => (
+                  <p key={`${note}-${index}`} className="text-xs text-muted">{note}</p>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <label className="input-label mt-2" htmlFor="opponent">Spiel / Gegner</label>
           <input
             id="opponent"
@@ -267,6 +315,7 @@ export default function GameTrackPage() {
                 context: resolvedContext,
                 opponentLabel: opponentLabel.trim() || null,
                 minutes: toNullableNumber(minutes),
+                intensity: toNullableNumber(intensity),
                 points: toNullableNumber(points),
                 assists: toNullableNumber(assists),
                 rebounds: toNullableNumber(rebounds),

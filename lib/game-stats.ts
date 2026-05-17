@@ -7,6 +7,7 @@ export type GameStatEntry = {
   /** z. B. Gegner oder Turniername */
   opponentLabel?: string | null;
   minutes: number | null;
+  intensity?: number | null;
   points: number | null;
   assists: number | null;
   rebounds: number | null;

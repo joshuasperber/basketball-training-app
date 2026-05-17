@@ -1242,31 +1242,45 @@ function WorkoutsPageContent() {
     const sessionLogs = workoutForExecution.exercises.flatMap((exercise, exerciseIndex) => {
       const exerciseDef = trainingExercises.find((item) => item.name === exercise.name);
       if (!exerciseDef) return [];
-      return exercise.sets.map((_, setIndex) => {
-        const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
-        const makes = parseNonNegative(log?.makes);
-        const repsTotal = parseNonNegative(log?.reps);
-        const triesLegacy = parseNonNegative(log?.tries);
-        const misses = parseNonNegative(log?.misses);
-        const computedTries = repsTotal > 0 ? repsTotal : triesLegacy > 0 ? triesLegacy : makes + misses;
-        const computedMisses = computedTries > 0 ? Math.max(0, computedTries - makes) : misses;
-        const fallbackReps = parseNonNegative(log?.reps);
-        const usesCompletionFlag = exerciseDef.metricKeys.includes("completed");
-        const isCompleted = usesCompletionFlag ? log?.completed === true : true;
-        const completedValue = !isCompleted ? null : makes > 0 ? makes : fallbackReps > 0 ? fallbackReps : null;
-        const rpe = parseSetRpe(log?.rpe);
-        return {
-          exerciseId: exerciseDef.id,
-          completedValue,
-          note: (log?.note ?? "").trim(),
-          made: makes > 0 ? makes : null,
-          misses: computedMisses > 0 ? computedMisses : null,
-          attempts: computedTries > 0 ? computedTries : null,
-          weightKg: parseNonNegative(log?.weight) || null,
-          completed: isCompleted,
-          rpe: rpe ?? null,
-        };
-      });
+      const usesCompletionFlag = exerciseDef.metricKeys.includes("completed");
+      const setLogs = exercise.sets.map((_, setIndex) => completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)]);
+      const anyExplicitlyCompleted = setLogs.some((log) => log?.completed === true);
+      const anyExplicitlyIncomplete = setLogs.some((log) => log?.completed === false);
+      const hasAnyMetric = setLogs.some((log) =>
+        Boolean(
+          parseNonNegative(log?.makes) ||
+          parseNonNegative(log?.reps) ||
+          parseNonNegative(log?.tries) ||
+          parseNonNegative(log?.misses) ||
+          parseNonNegative(log?.weight) ||
+          log?.note?.trim(),
+        ),
+      );
+      const isCompleted = usesCompletionFlag
+        ? anyExplicitlyCompleted || (!anyExplicitlyIncomplete && !hasAnyMetric)
+        : !anyExplicitlyIncomplete;
+      if (!isCompleted) return [];
+      const makes = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.makes), 0);
+      const repsTotal = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.reps), 0);
+      const triesLegacy = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.tries), 0);
+      const misses = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.misses), 0);
+      const computedTries = repsTotal > 0 ? repsTotal : triesLegacy > 0 ? triesLegacy : makes + misses;
+      const computedMisses = computedTries > 0 ? Math.max(0, computedTries - makes) : misses;
+      const weightKg = Math.max(...setLogs.map((log) => parseNonNegative(log?.weight)), 0);
+      const rpeSamples = setLogs.map((log) => parseSetRpe(log?.rpe)).filter((value): value is number => value != null);
+      const rpe = rpeSamples.length > 0 ? Math.round((rpeSamples.reduce((a, b) => a + b, 0) / rpeSamples.length) * 10) / 10 : null;
+      const note = setLogs.map((log) => log?.note?.trim()).filter(Boolean).join(" · ");
+      return [{
+        exerciseId: exerciseDef.id,
+        completedValue: makes > 0 ? makes : repsTotal > 0 ? repsTotal : 1,
+        note,
+        made: makes > 0 ? makes : null,
+        misses: computedMisses > 0 ? computedMisses : null,
+        attempts: computedTries > 0 ? computedTries : null,
+        weightKg: weightKg || null,
+        completed: true,
+        rpe,
+      }];
     });
 
     const historyEntry: CompletedWorkoutHistoryEntry = {
@@ -1322,8 +1336,9 @@ function WorkoutsPageContent() {
     workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {
       const exerciseDef = trainingExercises.find((item) => item.name === exercise.name);
       const usesCompletionFlag = Boolean(exerciseDef?.metricKeys.includes("completed"));
+      let exerciseWasCompleted = false;
+      let exerciseTargetMet = false;
       exercise.sets.forEach((set, setIndex) => {
-        totalSets += 1;
         const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
         const reps = Number(log?.reps) || 0;
         const makes = Number(log?.makes) || 0;
@@ -1339,15 +1354,20 @@ function WorkoutsPageContent() {
           setCompleted &&
           (effectiveReps > 0 || weight > 0 || tries > 0 || misses > 0 || makes > 0 || completionCounted)
         ) {
-          completedSetCount += 1;
+          exerciseWasCompleted = true;
           completedExercises.add(exerciseIndex);
         }
         if (setCompleted && repsMet && weightMet) {
-          achievedSets += 1;
+          exerciseTargetMet = true;
         }
       });
+      totalSets += 1;
+      if (exerciseWasCompleted) completedSetCount += 1;
+      if (exerciseTargetMet) achievedSets += 1;
     });
 
+    const trackedExerciseIds = new Set(sessionLogs.map((log) => log.exerciseId));
+    completedSetCount = Math.max(completedSetCount, trackedExerciseIds.size);
     const qualityScore = totalSets > 0 ? achievedSets / totalSets : 0;
     const completedMinutes = workoutForExecution.exercises.reduce((sum, workoutExercise, exerciseIndex) => {
       const meta = exerciseMeta[exerciseIndex];
@@ -1388,7 +1408,7 @@ function WorkoutsPageContent() {
     }, 0);
     const percentFactor = targetMakes > 0 ? Math.min(1.5, Math.max(0.5, actualMakes / targetMakes)) : 1;
     const durationFactor = Math.min(2, Math.max(1, completedMinutes / 20));
-    const completedExerciseCount = Math.min(completedExercises.size, completedSetCount);
+    const completedExerciseCount = Math.max(completedExercises.size, trackedExerciseIds.size);
     const completedWorkoutCount = completedExerciseCount > 0 ? 1 : 0;
     const boundedWorkoutCount = Math.min(completedWorkoutCount, completedExerciseCount, completedSetCount);
     const exerciseXp = Math.round(completedExerciseCount * 12 * durationFactor);
