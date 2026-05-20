@@ -23,16 +23,63 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
 
 import CoachIntakeLauncher from "@/components/CoachIntakeLauncher";
 
+// #region agent log
+function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
+  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
+    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "components/ClientShell.tsx", message, data, timestamp: Date.now() }),
+  }).catch(() => {});
+}
+// #endregion
+
 function CloudSyncBridge() {
   useEffect(() => {
     const sync = () => {
-      void pullProgressFromCloud();
+      void pullProgressFromCloud()
+        .then((remote) => {
+          // #region agent log
+          agentDebugLog("H1,H2", "cloud sync bridge result", {
+            remoteExists: remote && typeof remote === "object" && "remoteExists" in remote ? remote.remoteExists : undefined,
+            hasRemote: Boolean(remote),
+            href: window.location.pathname,
+          });
+          // #endregion
+        })
+        .catch((error) => {
+          // #region agent log
+          agentDebugLog("H1", "cloud sync bridge failure", {
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            href: window.location.pathname,
+          });
+          // #endregion
+        });
+    };
+    const onError = (event: ErrorEvent) => {
+      // #region agent log
+      agentDebugLog("H1", "global runtime error", { message: event.message, filename: event.filename, href: window.location.pathname });
+      // #endregion
+    };
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      // #region agent log
+      agentDebugLog("H1", "global unhandled rejection", {
+        reasonName: reason instanceof Error ? reason.name : typeof reason,
+        reasonMessage: reason instanceof Error ? reason.message : String(reason),
+        href: window.location.pathname,
+      });
+      // #endregion
     };
     sync();
     window.addEventListener("focus", sync);
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandled);
     document.addEventListener("visibilitychange", sync);
     return () => {
       window.removeEventListener("focus", sync);
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandled);
       document.removeEventListener("visibilitychange", sync);
     };
   }, []);

@@ -8,6 +8,7 @@ export type WorkoutSet = {
 };
 
 export type WorkoutExercise = {
+  exerciseId?: string;
   name: string;
   sets: WorkoutSet[];
 };
@@ -17,6 +18,7 @@ export type WorkoutPlan = {
   title: string;
   sport: SportType;
   subcategory: string;
+  durationMin?: number;
   exercises: WorkoutExercise[];
 };
 
@@ -26,6 +28,10 @@ export type SetLog = {
   tries?: string;
   makes?: string;
   misses?: string;
+  time?: string;
+  distance?: string;
+  distanceUnit?: "m" | "km";
+  points?: string;
   /** Kurz-Notiz pro Satz (optional). */
   note?: string;
   completed?: boolean;
@@ -60,6 +66,8 @@ export type WorkoutProgress = {
   startedAtIso?: string;
   /** ISO-Zeitpunkt, an dem das Workout abgeschlossen wurde. */
   endedAtIso?: string;
+  /** Aufgelaufene aktive Workout-Zeit ohne Pausen zwischen Stop/Resume. */
+  elapsedSeconds?: number;
 };
 
 export type CompletedWorkoutHistoryEntry = {

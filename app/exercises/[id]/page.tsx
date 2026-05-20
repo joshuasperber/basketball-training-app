@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { type Exercise } from "@/lib/training-data";
+import { defaultExercises, type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
 import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
@@ -12,7 +12,6 @@ import { appendWorkoutXpEntry } from "@/lib/level-system";
 type ExerciseSet = {
   id: string;
   values: Partial<Record<string, string>>;
-  completed?: boolean;
 };
 
 function getNumeric(values: Partial<Record<string, string>>, key: string) {
@@ -39,11 +38,47 @@ function validateMetricValues(values: Partial<Record<string, string>>) {
   return null;
 }
 
+function getCompletedValue(values: Partial<Record<string, string>>) {
+  const reps = getNumeric(values, "reps") ?? getNumeric(values, "tries");
+  if (reps !== null) return reps;
+
+  const makes = getNumeric(values, "makes");
+  const misses = getNumeric(values, "misses");
+  if (makes !== null && misses !== null) return makes + misses;
+  if (makes !== null) return makes;
+
+  return (
+    getNumeric(values, "time") ??
+    getNumeric(values, "points") ??
+    getNumeric(values, "distance") ??
+    getNumeric(values, "weight") ??
+    null
+  );
+}
+
+function roundUpToFiveMinutes(minutes: number) {
+  if (minutes <= 0) return 0;
+  return Math.ceil(minutes / 5) * 5;
+}
+
+function getExerciseDurationForSetCount(exercise: Exercise, setCount: number) {
+  const baseSetCount = Math.max(1, exercise.setCount ?? 1);
+  const perSetMinutes = Math.max(0, exercise.durationMin) / baseSetCount;
+  return roundUpToFiveMinutes(perSetMinutes * Math.max(1, setCount));
+}
+
 export default function ExerciseExecutionPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const exerciseId = params.id;
-  const [exercises] = useState<Exercise[]>(() => loadExercises());
+  const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setExercises(loadExercises());
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const exercise = useMemo(
     () => exercises.find((entry) => entry.id === exerciseId),
@@ -52,7 +87,7 @@ export default function ExerciseExecutionPage() {
 
   const [sets, setSets] = useState<ExerciseSet[]>(() => {
     const setCount = Math.max(1, exercise?.setCount ?? 1);
-    return Array.from({ length: setCount }, (_, index) => ({ id: `set-${index + 1}`, values: {}, completed: false }));
+    return Array.from({ length: setCount }, (_, index) => ({ id: `set-${index + 1}`, values: {} }));
   });
   const [sessionNote, setSessionNote] = useState("");
   const [saved, setSaved] = useState(false);
@@ -86,11 +121,7 @@ export default function ExerciseExecutionPage() {
 
   function addSet() {
     setSaved(false);
-    setSets((previous) => [...previous, { id: `set-${Date.now()}`, values: {}, completed: false }]);
-  }
-
-  function updateSetCompleted(id: string, completed: boolean) {
-    setSets((previous) => previous.map((entry) => (entry.id === id ? { ...entry, completed } : entry)));
+    setSets((previous) => [...previous, { id: `set-${Date.now()}`, values: {} }]);
   }
 
   async function handleSaveExercise() {
@@ -114,15 +145,13 @@ export default function ExerciseExecutionPage() {
     }> = [];
 
     sets.forEach((set) => {
-      const primaryMetric = exercise.metricKeys[0];
-      const rawPrimaryValue = set.values[primaryMetric];
-      const usesCompletionFlag = exercise.metricKeys.includes("completed");
-      const isCompleted = usesCompletionFlag ? set.completed === true : true;
-      const value = Number(rawPrimaryValue);
-      if (!Number.isFinite(value) && !usesCompletionFlag) return;
+      const value = getCompletedValue(set.values);
+      const hasAnyMetric = Object.values(set.values).some((entry) => entry != null && entry.trim() !== "");
+      const isCompleted = hasAnyMetric;
+      if (value === null) return;
       if (!isCompleted) return;
       hasAnyCompleted = true;
-      const numericValue = Number.isFinite(value) ? value : 1;
+      const numericValue = value ?? 1;
       bestValue = Math.max(bestValue, numericValue);
       appendExerciseHistory({
         id: `eh-${Date.now()}-${set.id}`,
@@ -152,6 +181,7 @@ export default function ExerciseExecutionPage() {
         workoutName: `Einzel-Exercise: ${exercise.name}`,
         workoutCategory: exercise.category,
         workoutSubcategory: exercise.subcategory,
+        durationSeconds: Math.max(60, getExerciseDurationForSetCount(exercise, sets.length) * 60),
         logs: sessionLogs.length > 0 ? sessionLogs : [{
           exerciseId: exercise.id,
           completedValue: bestValue || 1,
@@ -245,16 +275,6 @@ export default function ExerciseExecutionPage() {
                     </div>
                   ))}
                 </div>
-                {exercise.metricKeys.includes("completed") ? (
-                  <label className="mt-2 flex items-center gap-2 text-sm text-strong">
-                    <input
-                      type="checkbox"
-                      checked={set.completed === true}
-                      onChange={(event) => updateSetCompleted(set.id, event.target.checked)}
-                    />
-                    Geschafft?
-                  </label>
-                ) : null}
                 {validateMetricValues(set.values) ? (
                   <p className="mt-2 text-xs text-rose-300">{validateMetricValues(set.values)}</p>
                 ) : null}

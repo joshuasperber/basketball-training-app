@@ -9,30 +9,9 @@ import {
   type Workout,
 } from "@/lib/training-data";
 import type { DrillCatalogFilters } from "@/lib/drill-catalog-filters";
+import { METRIC_LABELS, METRICS_BY_CATEGORY } from "@/lib/workout-metrics";
 
 export type TrainingTab = "Workouts" | "Exercises";
-
-const METRIC_OPTIONS: MetricKey[] = [
-  "reps",
-  "weight",
-  "time",
-  "distance",
-  "makes",
-  "misses",
-  "points",
-  "completed",
-];
-
-const METRIC_LABELS: Record<MetricKey, string> = {
-  reps: "Reps",
-  weight: "Gewicht",
-  time: "Zeit",
-  distance: "Distanz",
-  makes: "Makes",
-  misses: "Misses",
-  points: "Punkte",
-  completed: "Geschafft (Ja/Nein)",
-};
 
 function formatMetricTargets(exercise: Exercise) {
   if (!exercise.targetByMetric) return "-";
@@ -40,7 +19,6 @@ function formatMetricTargets(exercise: Exercise) {
     .map((metric) => {
       const value = exercise.targetByMetric?.[metric];
       if (value === undefined) return null;
-      if (metric === "completed") return `${METRIC_LABELS[metric]} ${value >= 1 ? "Ja" : "Nein"}`;
       return `${METRIC_LABELS[metric]} ${value}`;
     })
     .filter((entry): entry is string => Boolean(entry))
@@ -51,6 +29,14 @@ function calculateWorkoutMinutes(exercises: Exercise[]) {
   const baseMinutes = exercises.reduce((sum, exercise) => sum + Math.max(0, exercise.durationMin || 0), 0);
   const boostedMinutes = baseMinutes * 1.1;
   return Math.ceil(boostedMinutes / 5) * 5;
+}
+
+function isGameWorkout(workout: Workout) {
+  return workout.category === "Basketball" && workout.subcategory === "Spiel";
+}
+
+function gameContextForWorkout(workout: Workout) {
+  return workout.name.toLowerCase().includes("training") ? "game_training" : "game";
 }
 
 type WorkoutsTabProps = {
@@ -186,10 +172,14 @@ export function WorkoutsTab({
                   </p>
                   <div className="mt-2 flex flex-wrap items-center justify-start gap-2">
                     <Link
-                      href={`/workouts/${workout.id}`}
+                      href={
+                        isGameWorkout(workout)
+                          ? `/game-track?context=${gameContextForWorkout(workout)}`
+                          : `/workouts/${workout.id}`
+                      }
                       className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
                     >
-                      Workout starten
+                      {isGameWorkout(workout) ? "Spiel tracken" : "Workout starten"}
                     </Link>
                     <button
                       type="button"
@@ -247,7 +237,11 @@ export function WorkoutsTab({
           />
 
           <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            {createWorkoutExerciseOptions.length === 0 ? (
+            {newWorkoutCategory === "Basketball" && newWorkoutSubcategory === "Spiel" ? (
+              <p className="text-sm text-zinc-400">
+                Für Spiel-Workouts brauchst du keine Exercises. Beim Start öffnet sich automatisch das Game-Tracking für Minuten, Punkte, Intensität und Notizen.
+              </p>
+            ) : createWorkoutExerciseOptions.length === 0 ? (
               <p className="text-sm text-zinc-400">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
             ) : (
               createWorkoutExerciseOptions.map((exercise) => {
@@ -689,7 +683,7 @@ export function ExercisesTab({
             <div>
               <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
               <div className="flex flex-wrap gap-2">
-                {METRIC_OPTIONS.map((metric) => {
+                {METRICS_BY_CATEGORY[newExerciseCategory].map((metric) => {
                   const active = newExerciseMetrics.includes(metric);
                   return (
                     <button
@@ -707,22 +701,14 @@ export function ExercisesTab({
                   );
                 })}
               </div>
+              {newExerciseMetrics.includes("distance") ? (
+                <p className="mt-2 text-xs text-cyan-200">Bei Distanz wird Zeit automatisch mit erfasst.</p>
+              ) : null}
             </div>
 
             {newExerciseMetrics.length > 0 ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {newExerciseMetrics.map((metric) =>
-                  metric === "completed" ? (
-                    <select
-                      key={metric}
-                      value={newExerciseTargets[metric] ?? "1"}
-                      onChange={(event) => onNewExerciseTargetChange(metric, event.target.value)}
-                      className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                    >
-                      <option value="1">Ziel: Ja</option>
-                      <option value="0">Ziel: Nein</option>
-                    </select>
-                  ) : (
                     <input
                       key={metric}
                       type="number"
@@ -731,7 +717,6 @@ export function ExercisesTab({
                       placeholder={`Ziel ${METRIC_LABELS[metric]}`}
                       className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
                     />
-                  ),
                 )}
               </div>
             ) : (
@@ -745,7 +730,7 @@ export function ExercisesTab({
                     <div key={`new-set-goal-${setIndex}`} className="w-full rounded-lg border border-zinc-700 p-2">
                       <p className="text-xs text-cyan-200">Satz {setIndex + 1}</p>
                       <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        {newExerciseMetrics.filter((metric) => metric !== "completed").map((metric) => (
+                        {newExerciseMetrics.map((metric) => (
                           <input
                             key={`new-set-${setIndex}-${metric}`}
                             type="number"
@@ -870,7 +855,7 @@ export function ExercisesTab({
               <div>
                 <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
                 <div className="flex flex-wrap gap-2">
-                  {METRIC_OPTIONS.map((metric) => {
+                  {METRICS_BY_CATEGORY[editExerciseCategory].map((metric) => {
                     const active = editExerciseMetrics.includes(metric);
                     return (
                       <button
@@ -888,22 +873,14 @@ export function ExercisesTab({
                     );
                   })}
                 </div>
+                {editExerciseMetrics.includes("distance") ? (
+                  <p className="mt-2 text-xs text-cyan-200">Bei Distanz wird Zeit automatisch mit erfasst.</p>
+                ) : null}
               </div>
 
               {editExerciseMetrics.length > 0 ? (
                 <div className="grid gap-2 sm:grid-cols-2">
                   {editExerciseMetrics.map((metric) =>
-                    metric === "completed" ? (
-                      <select
-                        key={metric}
-                        value={editExerciseTargets[metric] ?? "1"}
-                        onChange={(event) => onEditExerciseTargetChange(metric, event.target.value)}
-                        className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                      >
-                        <option value="1">Ziel: Ja</option>
-                        <option value="0">Ziel: Nein</option>
-                      </select>
-                    ) : (
                       <input
                         key={metric}
                         type="number"
@@ -912,7 +889,6 @@ export function ExercisesTab({
                         placeholder={`Ziel ${METRIC_LABELS[metric]}`}
                         className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
                       />
-                    ),
                   )}
                 </div>
               ) : (
@@ -926,7 +902,7 @@ export function ExercisesTab({
                       <div key={`edit-set-goal-${setIndex}`} className="w-full rounded-lg border border-zinc-700 p-2">
                         <p className="text-xs text-cyan-200">Satz {setIndex + 1}</p>
                         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                          {editExerciseMetrics.filter((metric) => metric !== "completed").map((metric) => (
+                          {editExerciseMetrics.map((metric) => (
                             <input
                               key={`edit-set-${setIndex}-${metric}`}
                               type="number"

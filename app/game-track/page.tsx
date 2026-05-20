@@ -130,7 +130,7 @@ export default function GameTrackPage() {
   };
 
   const modeBadge = useMemo(
-    () => (resolvedContext === "game" ? "Spieltag" : "Spieltraining"),
+    () => (resolvedContext === "game" ? "Spieltag" : "Trainingsspiel"),
     [resolvedContext],
   );
   useEffect(() => {
@@ -151,14 +151,13 @@ export default function GameTrackPage() {
 
   const statFields = [
     { label: "Minuten", value: minutes, set: setMinutes, hint: "optional" },
-    { label: "Intensität (1-10)", value: intensity, set: setIntensity, hint: "optional" },
     { label: "Punkte", value: points, set: setPoints, hint: "" },
     { label: "Assists", value: assists, set: setAssists, hint: "" },
     { label: "Rebounds", value: rebounds, set: setRebounds, hint: "" },
     { label: "Steals", value: steals, set: setSteals, hint: "" },
   ] as const;
 
-  const heading = resolvedContext === "game" ? "Spiel tracken" : "Spieltraining tracken";
+  const heading = resolvedContext === "game" ? "Spiel tracken" : "Trainingsspiel tracken";
 
   return (
     <main className="app-container animate-in">
@@ -191,7 +190,7 @@ export default function GameTrackPage() {
                 className="select"
               >
                 <option value="game">Spieltag</option>
-                <option value="game_training">Spieltraining</option>
+                <option value="game_training">Trainingsspiel</option>
               </select>
             </div>
           </div>
@@ -235,6 +234,23 @@ export default function GameTrackPage() {
           <p className="mt-1 text-xs text-muted">So erkennst du später in der Suche, gegen wen du gespielt hast.</p>
 
           <p className="section-eyebrow mt-5">Box Score</p>
+          <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            <label className="input-label">Intensität: {intensity || "5"}/10</label>
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={1}
+              value={intensity || "5"}
+              onChange={(event) => setIntensity(event.target.value)}
+              className="mt-3 w-full accent-violet-400"
+            />
+            <div className="mt-1 flex justify-between text-[10px] text-faint">
+              <span>Locker</span>
+              <span>Game Speed</span>
+              <span>Max</span>
+            </div>
+          </div>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             {statFields.map((field) => (
               <div key={field.label}>

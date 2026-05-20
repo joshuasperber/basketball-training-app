@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { type Category } from "@/lib/training-data";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
 import {
@@ -12,20 +13,18 @@ import {
 } from "@/lib/session-storage";
 import { toLocalDateKey } from "@/lib/workout";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
-import BasketballCoachingCard from "@/components/BasketballCoachingCard";
 import GameStatsSearchPanel from "@/components/GameStatsSearchPanel";
 import GameTrainingInsights from "@/components/GameTrainingInsights";
 import GymGoalsManager from "@/components/GymGoalsManager";
 import TopSubTabs from "@/components/TopSubTabs";
 import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
-import { buildBasketballCoachingPlan } from "@/lib/basketball-coaching";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
 import { downloadWorkoutSessionsTcx } from "@/lib/export-workout-tcx";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
-import { getProgressionState } from "@/lib/level-system";
 import { countTrackedSetsInLogs, logCountsAsTrackedSet } from "@/lib/workout-session-metrics";
+import { repCountFromSessionLog } from "@/lib/workout-metrics";
 
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home" | "Regeneration";
@@ -60,6 +59,7 @@ type GymExerciseGoalStat = {
 };
 
 type StatsRange = "all" | "monthly" | "weekly";
+type StatsDetailTab = "overview" | "basketball" | "gym";
 
 type HistorySportBucket = "Basketball" | "Gym" | "Home" | "Regeneration";
 
@@ -112,17 +112,25 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   const workouts = loadWorkouts();
   const workoutLookup = new Map(workouts.map((workout) => [workout.id, workout]));
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const trackedSessions = getTrackedWorkoutSessions();
+  const trackedSessionKeys = new Set(
+    trackedSessions.map((session) => `${session.dateISO.slice(0, 10)}-${session.workoutId}`),
+  );
 
-  const sessionHistory = getTrackedWorkoutSessions().flatMap((session) => {
+  const sessionHistory = trackedSessions.flatMap((session) => {
     if (session.workoutId === "single-exercise-session") return [];
     const totalSets = countTrackedSetsInLogs(session.logs);
-    const totalReps = session.logs.reduce((sum, log) => sum + (log.completedValue ?? log.made ?? 0), 0);
+    const totalReps = session.logs.reduce((sum, log) => sum + repCountFromSessionLog(log, exerciseLookup.get(log.exerciseId)), 0);
+    const totalVolumeKg = session.logs.reduce(
+      (sum, log) => sum + repCountFromSessionLog(log, exerciseLookup.get(log.exerciseId)) * Math.max(0, log.weightKg ?? 0),
+      0,
+    );
     const workout = workoutLookup.get(session.workoutId);
     const fallbackExercise = session.logs.map((log) => exerciseLookup.get(log.exerciseId)).find(Boolean);
     const resolvedSport =
       (workout?.category ?? session.workoutCategory ?? fallbackExercise?.category ?? "Basketball") as SportCategory;
 
-    const grouped = session.logs.reduce<Record<string, { sets: number; reps: number }>>((acc, log) => {
+    const grouped = session.logs.reduce<Record<string, { sets: number; reps: number; volumeKg: number }>>((acc, log) => {
       const exercise = exerciseLookup.get(log.exerciseId);
       const raw =
         exercise?.subcategory ??
@@ -139,10 +147,12 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
             : raw;
       if (!normalized) return acc;
 
-      const current = acc[normalized] ?? { sets: 0, reps: 0 };
+      const current = acc[normalized] ?? { sets: 0, reps: 0, volumeKg: 0 };
+      const reps = repCountFromSessionLog(log, exercise);
       acc[normalized] = {
         sets: current.sets + (logCountsAsTrackedSet(log) ? 1 : 0),
-        reps: current.reps + (log.completedValue ?? log.made ?? 0),
+        reps: current.reps + reps,
+        volumeKg: current.volumeKg + Math.max(0, reps) * Math.max(0, log.weightKg ?? 0),
       };
       return acc;
     }, {});
@@ -157,7 +167,7 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
           subcategory,
           totalSets: values.sets,
           totalReps: values.reps,
-          totalVolumeKg: 0,
+          totalVolumeKg: values.volumeKg,
         }) satisfies CompletedWorkoutHistoryEntry,
     );
 
@@ -172,18 +182,25 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
         subcategory: resolvedSport === "Gym" ? "Core" : resolvedSport === "Basketball" ? "Shooting" : "Recovery",
         totalSets,
         totalReps,
-        totalVolumeKg: 0,
+        totalVolumeKg,
       } satisfies CompletedWorkoutHistoryEntry,
     ];
   });
 
   const unique = new Map<string, CompletedWorkoutHistoryEntry>();
-  [...sessionHistory, ...baseHistory].forEach((entry) => unique.set(entry.id, entry));
+  [
+    ...sessionHistory,
+    ...baseHistory.filter((entry) => !trackedSessionKeys.has(`${entry.date}-${entry.workoutId}`)),
+  ].forEach((entry) => unique.set(entry.id, entry));
   return Array.from(unique.values());
 }
 
 function getTrackedWorkoutSessions() {
   return getWorkoutSessions();
+}
+
+function countUniqueExercisesInSession(session: WorkoutSessionEntry) {
+  return new Set(session.logs.filter(logCountsAsTrackedSet).map((log) => log.exerciseId)).size;
 }
 
 function filterSessionsByRange<T extends { dateISO: string }>(sessions: T[], range: StatsRange) {
@@ -221,6 +238,7 @@ function buildBasketballExerciseStats(sessionsInput: WorkoutSessionEntry[], rang
     session.logs.forEach((log) => {
       const exercise = exerciseLookup.get(log.exerciseId);
       if (!exercise || exercise.category !== "Basketball") return;
+      if (exercise.metricKeys.includes("time") && !exercise.metricKeys.includes("makes") && !exercise.metricKeys.includes("misses")) return;
 
       const current = map.get(log.exerciseId) ?? { attempts: 0, made: 0, misses: 0, usesShotMetrics: false };
       const hasShotInput = log.made != null || log.misses != null || log.attempts != null;
@@ -266,7 +284,11 @@ function buildBasketballExerciseStats(sessionsInput: WorkoutSessionEntry[], rang
     .sort((a, b) => b.attempts - a.attempts);
 }
 
-function buildTimedExerciseTrends(sessionsInput: WorkoutSessionEntry[], range: StatsRange): TimedExerciseTrend[] {
+function buildTimedExerciseTrends(
+  sessionsInput: WorkoutSessionEntry[],
+  range: StatsRange,
+  category: "Basketball" | "Gym",
+): TimedExerciseTrend[] {
   const sessions = filterSessionsByRange(sessionsInput, range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
@@ -275,9 +297,9 @@ function buildTimedExerciseTrends(sessionsInput: WorkoutSessionEntry[], range: S
   sessions.forEach((session) => {
     session.logs.forEach((log) => {
       const exercise = exerciseLookup.get(log.exerciseId);
-      if (!exercise || exercise.category !== "Basketball") return;
-      if (!exercise.metricKeys.includes("time")) return;
-      const value = log.completedValue ?? 0;
+      if (!exercise || exercise.category !== category) return;
+      if (!exercise.metricKeys.includes("time") && !exercise.metricKeys.includes("distance")) return;
+      const value = log.timeSeconds ?? log.distanceMeters ?? 0;
       if (value <= 0) return;
       map.set(log.exerciseId, [...(map.get(log.exerciseId) ?? []), value]);
     });
@@ -287,7 +309,10 @@ function buildTimedExerciseTrends(sessionsInput: WorkoutSessionEntry[], range: S
     .map(([exerciseId, points]) => ({
       exerciseId,
       exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
-      subcategory: normalizeBasketballSubcategory(exerciseLookup.get(exerciseId)?.subcategory ?? "") ?? "Shooting",
+      subcategory:
+        category === "Basketball"
+          ? normalizeBasketballSubcategory(exerciseLookup.get(exerciseId)?.subcategory ?? "") ?? "Shooting"
+          : normalizeGymSubcategory(exerciseLookup.get(exerciseId)?.subcategory ?? "") ?? "Core",
       points: points.slice(-10),
     }))
     .sort((a, b) => b.points.length - a.points.length);
@@ -304,7 +329,7 @@ function buildGymExerciseGoals(sessionsInput: WorkoutSessionEntry[], range: Stat
       const exercise = exerciseLookup.get(log.exerciseId);
       if (!exercise || exercise.category !== "Gym") return;
       const weight = log.weightKg ?? 0;
-      const reps = log.completedValue ?? log.attempts ?? 0;
+      const reps = repCountFromSessionLog(log, exercise);
       const current = map.get(log.exerciseId) ?? { weights: [], reps: [], latestISO: null, maxWeight: 0, maxRepsAtMaxWeight: 0 };
       if (weight > 0) current.weights.push(weight);
       if (reps > 0 && reps <= 30) current.reps.push(reps);
@@ -403,6 +428,10 @@ function resolveHistorySport(session: WorkoutSessionEntry): HistorySportBucket {
 }
 
 export default function StatsPage() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const detailTab: StatsDetailTab =
+    tabParam === "basketball" || tabParam === "gym" ? tabParam : "overview";
   const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
   const [sessionDetails, setSessionDetails] = useState<WorkoutSessionEntry[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -412,12 +441,12 @@ export default function StatsPage() {
     timeExercises: false,
     history: false,
     gymGoals: false,
+    basketballHistory: false,
+    gymHistory: false,
   });
   const [username, setUsername] = useState("Champion");
-  const [gameStats, setGameStats] = useState(() => loadGameStats());
+  const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>([]);
   const [sessionNotesDraft, setSessionNotesDraft] = useState("");
-  const [coachingProfile, setCoachingProfile] = useState({ position: "sg", playStyle: "" });
-  const [coachingLevel, setCoachingLevel] = useState(1);
 
   const refreshSessionDetails = useCallback(() => {
     setSessionDetails(getTrackedWorkoutSessions());
@@ -429,23 +458,16 @@ useEffect(() => {
       if (!cached) return;
       const parsed = JSON.parse(cached) as {
         profile?: { username?: string | null; full_name?: string | null; favorite_position?: string | null };
-        playStyle?: string;
       };
       const nextName = parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
-      const pos = (parsed.profile?.favorite_position ?? "sg").trim().toLowerCase() || "sg";
       const timer = window.setTimeout(() => {
         setUsername(nextName);
-        setCoachingProfile({ position: pos, playStyle: (parsed.playStyle ?? "").trim() });
       }, 0);
       return () => window.clearTimeout(timer);
     } catch {
       return undefined;
     }
   }, []);
-
-  useEffect(() => {
-    setCoachingLevel(getProgressionState().level);
-  }, [sessionDetails.length, history.length]);
 
 useEffect(() => {
     void pullProgressFromCloud().then(() => setGameStats(loadGameStats()));
@@ -467,9 +489,16 @@ useEffect(() => {
   }, [refreshSessionDetails]);
 
   useEffect(() => {
-    const onSessions = () => refreshSessionDetails();
+    const onSessions = () => {
+      setHistory(loadCombinedHistory());
+      refreshSessionDetails();
+    };
     window.addEventListener("bt:sessions-updated", onSessions);
-    return () => window.removeEventListener("bt:sessions-updated", onSessions);
+    window.addEventListener("bt:workout-progress-updated", onSessions);
+    return () => {
+      window.removeEventListener("bt:sessions-updated", onSessions);
+      window.removeEventListener("bt:workout-progress-updated", onSessions);
+    };
   }, [refreshSessionDetails]);
 
   useEffect(() => {
@@ -494,6 +523,9 @@ useEffect(() => {
   }, [history, range]);
 
   const filteredSessions = useMemo(() => filterSessionsByRange(sessionDetails, range), [range, sessionDetails]);
+  const totalWorkoutCount = filteredSessions.length > 0
+    ? filteredSessions.length
+    : new Set(filteredHistory.map((entry) => `${entry.date}-${entry.workoutId ?? entry.title}`)).size;
 
   const weeklyLoadRpe = useMemo(() => {
     const monday = startOfIsoWeekMonday(new Date());
@@ -502,7 +534,7 @@ useEffect(() => {
 
     const weekSessions = sessionDetails.filter((s) => {
       const t = new Date(s.dateISO).getTime();
-      return t >= monday.getTime() && t < weekEnd.getTime();
+      return t >= monday.getTime() && t < weekEnd.getTime() && s.workoutCategory !== "Regeneration";
     });
 
     const dayLabels = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -556,14 +588,98 @@ useEffect(() => {
   }, [sessionDetails]);
 
   const basketballStats = useMemo(() => buildBasketballExerciseStats(sessionDetails, range), [sessionDetails, range]);
-  const timedTrends = useMemo(() => buildTimedExerciseTrends(sessionDetails, range), [sessionDetails, range]);
+  const basketballTimedTrends = useMemo(
+    () => buildTimedExerciseTrends(sessionDetails, range, "Basketball"),
+    [sessionDetails, range],
+  );
+  const gymTimedTrends = useMemo(
+    () => buildTimedExerciseTrends(sessionDetails, range, "Gym"),
+    [sessionDetails, range],
+  );
   const gymGoals = useMemo(() => buildGymExerciseGoals(sessionDetails, range), [sessionDetails, range]);
-
-  const totalSets = filteredHistory.reduce((sum, entry) => sum + entry.totalSets, 0);
-  const totalReps = filteredHistory.reduce((sum, entry) => sum + entry.totalReps, 0);
-  const totalCompletedExercises = filteredSessions.reduce((sum, session) => sum + session.logs.length, 0);
-  const totalVolume = filteredHistory.filter((entry) => entry.sport === "Gym").reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
   const exerciseLookupForSplit = useMemo(() => new Map(loadExercises().map((exercise) => [exercise.id, exercise])), []);
+
+  const totalSetsFromSessions = filteredSessions.reduce((sum, session) => sum + countTrackedSetsInLogs(session.logs), 0);
+  const totalSets = totalSetsFromSessions > 0
+    ? totalSetsFromSessions
+    : filteredHistory.reduce((sum, entry) => sum + entry.totalSets, 0);
+  const totalRepsFromSessions = filteredSessions.reduce(
+    (sum, session) =>
+      sum +
+      session.logs.reduce(
+        (sessionSum, log) => sessionSum + repCountFromSessionLog(log, exerciseLookupForSplit.get(log.exerciseId)),
+        0,
+      ),
+    0,
+  );
+  const totalReps = totalRepsFromSessions > 0
+    ? totalRepsFromSessions
+    : filteredHistory.reduce((sum, entry) => sum + entry.totalReps, 0);
+  const totalCompletedExercisesFromSessions = filteredSessions.reduce((sum, session) => sum + countUniqueExercisesInSession(session), 0);
+  const totalCompletedExercises =
+    totalCompletedExercisesFromSessions > 0
+      ? totalCompletedExercisesFromSessions
+      : filteredHistory.reduce((sum, entry) => sum + (entry.totalSets > 0 ? 1 : 0), 0);
+  const totalVolumeFromSessions = filteredSessions.reduce(
+    (sum, session) =>
+      sum +
+      session.logs.reduce(
+        (sessionSum, log) =>
+          sessionSum + repCountFromSessionLog(log, exerciseLookupForSplit.get(log.exerciseId)) * Math.max(0, log.weightKg ?? 0),
+        0,
+      ),
+    0,
+  );
+  const totalVolume = totalVolumeFromSessions > 0
+    ? totalVolumeFromSessions
+    : filteredHistory.filter((entry) => entry.sport === "Gym").reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
+
+  const basketballSessions = useMemo(
+    () => filteredSessions.filter((session) => resolveHistorySport(session) === "Basketball"),
+    [filteredSessions],
+  );
+  const basketballTotals = useMemo(() => {
+    const sets = basketballSessions.reduce((sum, session) => sum + countTrackedSetsInLogs(session.logs), 0);
+    const reps = basketballSessions.reduce(
+      (sum, session) =>
+        sum + session.logs.reduce((inner, log) => inner + repCountFromSessionLog(log, exerciseLookupForSplit.get(log.exerciseId)), 0),
+      0,
+    );
+    const exercises = basketballSessions.reduce((sum, session) => sum + countUniqueExercisesInSession(session), 0);
+    const minutes = Math.round(
+      basketballSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? session.logs.length * 240), 0) / 60,
+    );
+    return { workouts: basketballSessions.length, exercises, sets, reps, minutes };
+  }, [basketballSessions, exerciseLookupForSplit]);
+
+  const gymSessions = useMemo(
+    () => filteredSessions.filter((session) => resolveHistorySport(session) === "Gym"),
+    [filteredSessions],
+  );
+  const gymTotalsSummary = useMemo(() => {
+    const sets = gymSessions.reduce((sum, session) => sum + countTrackedSetsInLogs(session.logs), 0);
+    const reps = gymSessions.reduce(
+      (sum, session) =>
+        sum + session.logs.reduce((inner, log) => inner + repCountFromSessionLog(log, exerciseLookupForSplit.get(log.exerciseId)), 0),
+      0,
+    );
+    const exercises = gymSessions.reduce((sum, session) => sum + countUniqueExercisesInSession(session), 0);
+    const minutes = Math.round(
+      gymSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? session.logs.length * 240), 0) / 60,
+    );
+    const volume = gymSessions.reduce(
+      (sum, session) =>
+        sum +
+        session.logs.reduce(
+          (inner, log) =>
+            inner + repCountFromSessionLog(log, exerciseLookupForSplit.get(log.exerciseId)) * Math.max(0, log.weightKg ?? 0),
+          0,
+        ),
+      0,
+    );
+    return { workouts: gymSessions.length, exercises, sets, reps, minutes, volume };
+  }, [exerciseLookupForSplit, gymSessions]);
+
   const sportSlices = useMemo(() => {
     const counts: Record<SportCategory, number> = { Basketball: 0, Gym: 0, Home: 0, Regeneration: 0 };
     filteredSessions.forEach((session) => {
@@ -616,7 +732,7 @@ useEffect(() => {
       title: session.workoutName,
       dateISO: session.dateISO,
       sportBucket: resolveHistorySport(session),
-      exerciseCount: session.logs.length,
+      exerciseCount: countUniqueExercisesInSession(session),
       totalValue: session.logs.reduce((sum, log) => sum + Math.max(0, log.completedValue ?? 0), 0),
     }));
 
@@ -628,7 +744,9 @@ useEffect(() => {
     };
   }, [filteredSessions]);
 
-  const totalMinutesTrained = filteredSessions.reduce((sum, session) => sum + session.logs.length * 4, 0);
+  const totalMinutesTrained = Math.round(
+    filteredSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? session.logs.length * 240), 0) / 60,
+  );
   const filteredGameStats = useMemo(() => {
     if (range === "all") return gameStats;
     const start = new Date();
@@ -649,12 +767,13 @@ useEffect(() => {
           rebounds: acc.rebounds + (entry.rebounds ?? 0),
           steals: acc.steals + (entry.steals ?? 0),
           minutes: acc.minutes + (entry.minutes ?? 0),
+          intensitySum: acc.intensitySum + (entry.intensity ?? 0),
+          intensityCount: acc.intensityCount + (entry.intensity != null ? 1 : 0),
         }),
-        { games: 0, gameTrainings: 0, points: 0, assists: 0, rebounds: 0, steals: 0, minutes: 0 },
+        { games: 0, gameTrainings: 0, points: 0, assists: 0, rebounds: 0, steals: 0, minutes: 0, intensitySum: 0, intensityCount: 0 },
       ),
     [filteredGameStats],
   );
-
   const basketballShotSummary = useMemo(() => {
     const exercises = loadExercises();
     const exerciseLookupMap = new Map(exercises.map((exercise) => [exercise.id, exercise]));
@@ -687,22 +806,11 @@ useEffect(() => {
     return summary;
   }, [filteredSessions]);
 
-  const toggleSection = (key: "basketballQuotes" | "timeExercises" | "history" | "gymGoals") => {
+  const toggleSection = (
+    key: "basketballQuotes" | "timeExercises" | "history" | "gymGoals" | "basketballHistory" | "gymHistory",
+  ) => {
     setOpenSections((current) => ({ ...current, [key]: !current[key] }));
   };
-
-  const basketballCoachingPlan = useMemo(() => {
-    try {
-      return buildBasketballCoachingPlan({
-        sessions: sessionDetails,
-        position: coachingProfile.position,
-        playStyle: coachingProfile.playStyle,
-        level: coachingLevel,
-      });
-    } catch {
-      return null;
-    }
-  }, [sessionDetails, coachingProfile, coachingLevel]);
 
   return (
     <main className="app-container animate-in">
@@ -746,7 +854,6 @@ useEffect(() => {
           ]}
         />
       </div>
-
       <div className="mt-4">
         <div className="segmented">
           {[
@@ -766,270 +873,366 @@ useEffect(() => {
           ))}
         </div>
       </div>
-
-      <div className="grid-stats mt-6">
-        <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{filteredHistory.length}</p></div>
-        <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{totalCompletedExercises}</p></div>
-        <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{totalSets}</p></div>
-        <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{totalReps}</p></div>
-        <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{totalMinutesTrained}</p></div>
-        <div className="stat-tile"><p className="stat-tile__label">Volumen (kg)</p><p className="stat-tile__value">{totalVolume}</p></div>
+      <div className="mt-4">
+        <div className="top-tabs">
+          {([
+            { id: "overview", label: "Übersicht", href: "/stats?tab=overview" },
+            { id: "basketball", label: "Basketball", href: "/stats?tab=basketball" },
+            { id: "gym", label: "Gym", href: "/stats?tab=gym" },
+          ] as const).map((tab) => (
+            <Link
+              key={tab.id}
+              href={tab.href}
+              className={`top-tabs__btn ${detailTab === tab.id ? "top-tabs__btn--active" : ""}`}
+            >
+              {tab.label}
+            </Link>
+          ))}
+        </div>
       </div>
+      {detailTab === "overview" ? (
+        <>
+          <div className="grid-stats mt-6">
+            <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{totalWorkoutCount}</p></div>
+            <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{totalCompletedExercises}</p></div>
+            <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{totalSets}</p></div>
+            <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{totalReps}</p></div>
+            <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{totalMinutesTrained}</p></div>
+            <div className="stat-tile"><p className="stat-tile__label">Volumen (kg)</p><p className="stat-tile__value">{totalVolume}</p></div>
+          </div>
 
-      <section
-        className={`mt-6 app-card ${
-          weeklyLoadRpe.tone === "high"
-            ? "border-rose-500/30"
-            : weeklyLoadRpe.tone === "watch"
-              ? "border-amber-500/30"
-              : ""
-        }`}
-      >
-        <p className="section-eyebrow">Kalenderwoche</p>
-        <h2 className="section-title mt-1">Belastung diese Woche (RPE)</h2>
-        <p className="mt-1 text-xs text-muted">
-          Aus Sessions mit erfasstem RPE · Mo–So (lokale Zeit) · {weeklyLoadRpe.sessionCount} Workouts ·{" "}
-          {weeklyLoadRpe.rpeSampleCount} RPE-Mittelwerte
-        </p>
-        <div className="mt-4 flex flex-wrap items-end gap-6">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-faint">Ø RPE (Woche)</p>
-            <p className="text-3xl font-semibold tabular-nums text-strong">
-              {weeklyLoadRpe.weekAvg != null ? weeklyLoadRpe.weekAvg : "—"}
-              {weeklyLoadRpe.weekAvg != null ? <span className="ml-1 text-base font-medium text-muted">/ 10</span> : null}
+          <section
+            className={`mt-6 app-card ${
+              weeklyLoadRpe.tone === "high"
+                ? "border-rose-500/30"
+                : weeklyLoadRpe.tone === "watch"
+                  ? "border-amber-500/30"
+                  : ""
+            }`}
+          >
+            <p className="section-eyebrow">Kalenderwoche</p>
+            <h2 className="section-title mt-1">Belastung diese Woche (RPE)</h2>
+            <p className="mt-1 text-xs text-muted">
+              Aus Sessions mit erfasstem RPE · Mo–So (lokale Zeit) · {weeklyLoadRpe.sessionCount} Workouts ·{" "}
+              {weeklyLoadRpe.rpeSampleCount} RPE-Mittelwerte
             </p>
-          </div>
-          <p className="max-w-xl flex-1 text-sm text-strong">{weeklyLoadRpe.recommendation}</p>
-        </div>
-        <div className="mt-5">
-          {weeklyLoadRpe.chartPoints.length > 0 ? (
-            <TrendChart points={weeklyLoadRpe.chartPoints} yLabel="RPE" yMax={10} height={110} lowerIsBetter />
-          ) : (
-            <p className="text-xs text-faint">Keine Tages-RPE-Werte — nach ein paar protokollierten Sätzen erscheint der Verlauf.</p>
-          )}
-        </div>
-      </section>
-      <section className="mt-4 app-card--accent-violet">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="section-eyebrow">Game Tracking</p>
-            <h2 className="section-title mt-1">Spiel-Stats</h2>
-            <p className="text-xs text-muted">Summen für den gewählten Zeitraum · Einträge aus „Spiel tracken“</p>
-          </div>
-          <p className="text-xs font-medium text-faint">{filteredGameStats.length} Einträge</p>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { label: "Spiele", value: gameTotals.games },
-            { label: "Spieltraining", value: gameTotals.gameTrainings },
-            { label: "Minuten", value: gameTotals.minutes },
-            { label: "Punkte Σ", value: gameTotals.points },
-          ].map((card) => (
-            <div key={card.label} className="stat-tile">
-              <p className="stat-tile__label">{card.label}</p>
-              <p className="stat-tile__value">{card.value}</p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {[
-            { label: "Assists Σ", value: gameTotals.assists },
-            { label: "Rebounds Σ", value: gameTotals.rebounds },
-            { label: "Steals Σ", value: gameTotals.steals },
-          ].map((row) => (
-            <div key={row.label} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-              <span className="text-sm text-muted">{row.label}</span>
-              <span className="text-lg font-semibold tabular-nums text-strong">{row.value}</span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-5 border-t border-white/10 pt-4">
-          <GameStatsSearchPanel entries={filteredGameStats} variant="full" />
-        </div>
-      </section>
-
-      <div className="mt-6">
-        <GameTrainingInsights />
-      </div>
-
-      <GymGoalsManager />
-
-      {basketballCoachingPlan?.recommendations.length ? (
-        <BasketballCoachingCard
-          recommendations={basketballCoachingPlan.recommendations}
-          windowDays={basketballCoachingPlan.windowDays}
-        />
-      ) : null}
-
-      <section className="mt-6 app-card">
-        <p className="section-eyebrow">Wurfquoten</p>
-        <h2 className="section-title mt-1">Basketball aggregiert</h2>
-        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-          {[
-            { label: "Free Throws", value: basketballShotSummary.freeThrows },
-            { label: "2 Pointer", value: basketballShotSummary.twoPointers },
-            { label: "3 Pointer", value: basketballShotSummary.threePointers },
-          ].map((item) => {
-            const pct = item.value.attempts > 0 ? Math.round((item.value.made / item.value.attempts) * 100) : 0;
-            return (
-              <div key={item.label} className="stat-tile">
-                <p className="stat-tile__label">{item.label}</p>
-                <p className="stat-tile__value">{pct}<span className="ml-1 text-sm font-medium text-muted">%</span></p>
-                <p className="stat-tile__sub">{item.value.made}/{item.value.attempts}</p>
+            <div className="mt-4 flex flex-wrap items-end gap-6">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-faint">Ø RPE (Woche)</p>
+                <p className="text-3xl font-semibold tabular-nums text-strong">
+                  {weeklyLoadRpe.weekAvg != null ? weeklyLoadRpe.weekAvg : "—"}
+                  {weeklyLoadRpe.weekAvg != null ? <span className="ml-1 text-base font-medium text-muted">/ 10</span> : null}
+                </p>
               </div>
-            );
-          })}
-        </div>
-      </section>
+              <p className="max-w-xl flex-1 text-sm text-strong">{weeklyLoadRpe.recommendation}</p>
+            </div>
+            <div className="mt-5">
+              {weeklyLoadRpe.chartPoints.length > 0 ? (
+                <TrendChart points={weeklyLoadRpe.chartPoints} yLabel="RPE" yMax={10} height={110} lowerIsBetter />
+              ) : (
+                <p className="text-xs text-faint">Keine Tages-RPE-Werte — nach ein paar protokollierten Sätzen erscheint der Verlauf.</p>
+              )}
+            </div>
+          </section>
 
-      <div className="mt-6 space-y-4">
-        <section className="app-card">
-          <p className="section-eyebrow">Vergleich</p>
-          <h2 className="section-title mt-1">Kategorien</h2>
-          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
-            <div className="stat-tile text-center">
-              <p className="stat-tile__label">Basketball</p>
-              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Basketball")?.value ?? 0}</p>
-              <p className="stat-tile__sub">Exercises</p>
-            </div>
-            <div className="stat-tile text-center">
-              <p className="stat-tile__label">Gym</p>
-              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Gym")?.value ?? 0}</p>
-              <p className="stat-tile__sub">Exercises</p>
-            </div>
-            <div className="col-span-2 stat-tile md:row-span-2 md:col-span-1">
-              <p className="stat-tile__label text-center">Gesamtverteilung</p>
-              <div className="mt-3 flex justify-center">
-                <div className="h-36 w-36 rounded-full border border-white/10" style={{ background: pieGradient(sportSlices) }} />
+          <div className="mt-6 space-y-4">
+            <section className="app-card">
+              <p className="section-eyebrow">Vergleich</p>
+              <h2 className="section-title mt-1">Kategorien</h2>
+              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+                <div className="stat-tile text-center">
+                  <p className="stat-tile__label">Basketball</p>
+                  <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Basketball")?.value ?? 0}</p>
+                  <p className="stat-tile__sub">Exercises</p>
+                </div>
+                <div className="stat-tile text-center">
+                  <p className="stat-tile__label">Gym</p>
+                  <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Gym")?.value ?? 0}</p>
+                  <p className="stat-tile__sub">Exercises</p>
+                </div>
+                <div className="col-span-2 stat-tile md:row-span-2 md:col-span-1">
+                  <p className="stat-tile__label text-center">Gesamtverteilung</p>
+                  <div className="mt-3 flex justify-center">
+                    <div className="h-36 w-36 rounded-full border border-white/10" style={{ background: pieGradient(sportSlices) }} />
+                  </div>
+                  <div className="mt-3 space-y-1 text-xs text-strong">
+                    {sportSlices.map((slice) => (
+                      <p key={`center-${slice.label}`} className="text-muted">{slice.label}: <span className="font-semibold text-strong">{slice.value}</span></p>
+                    ))}
+                  </div>
+                </div>
+                <div className="stat-tile text-center">
+                  <p className="stat-tile__label">Home</p>
+                  <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Home")?.value ?? 0}</p>
+                  <p className="stat-tile__sub">Exercises</p>
+                </div>
+                <div className="stat-tile text-center">
+                  <p className="stat-tile__label">Regeneration</p>
+                  <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Regeneration")?.value ?? 0}</p>
+                  <p className="stat-tile__sub">Exercises</p>
+                </div>
               </div>
-              <div className="mt-3 space-y-1 text-xs text-strong">
-                {sportSlices.map((slice) => (
-                  <p key={`center-${slice.label}`} className="text-muted">{slice.label}: <span className="font-semibold text-strong">{slice.value}</span></p>
+            </section>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball ?? []} />
+              <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym ?? []} />
+              <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home ?? []} />
+              <PieCard title="Regeneration Unterkategorien" slices={subcategoryBySport.Regeneration ?? []} />
+            </div>
+          </div>
+
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("history")} className="flex w-full items-center justify-between text-left">
+              <span className="section-title">Historie (alle Exercises/Workouts)</span>
+              <span className="chip">{openSections.history ? "−" : "+"}</span>
+            </button>
+            {openSections.history ? (
+              <div className="mt-4 space-y-3">
+                {([
+                  ["Basketball-Historie", historyBuckets.Basketball],
+                  ["Gym-Historie", historyBuckets.Gym],
+                  ["Home-Workout-Historie", historyBuckets.Home],
+                  ["Regeneration-Historie", historyBuckets.Regeneration],
+                ] as const).map(([title, bucket]) => (
+                  <div key={title} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <p className="font-semibold text-strong">{title}</p>
+                    <div className="mt-2 space-y-2">
+                      {bucket.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : bucket.map((entry) => (
+                        <button
+                          type="button"
+                          key={entry.id}
+                          onClick={() => setSelectedSessionId(entry.id)}
+                          className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
+                        >
+                          <p className="font-semibold text-strong">{entry.title}</p>
+                          <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
+                          <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
-            <div className="stat-tile text-center">
-              <p className="stat-tile__label">Home</p>
-              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Home")?.value ?? 0}</p>
-              <p className="stat-tile__sub">Exercises</p>
-            </div>
-            <div className="stat-tile text-center">
-              <p className="stat-tile__label">Regeneration</p>
-              <p className="stat-tile__value">{sportSlices.find((slice) => slice.label === "Regeneration")?.value ?? 0}</p>
-              <p className="stat-tile__sub">Exercises</p>
-            </div>
-          </div>
-        </section>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <PieCard title="Basketball Unterkategorien" slices={subcategoryBySport.Basketball ?? []} />
-          <PieCard title="Gym Unterkategorien" slices={subcategoryBySport.Gym ?? []} />
-          <PieCard title="Home Unterkategorien" slices={subcategoryBySport.Home ?? []} />
-          <PieCard title="Regeneration Unterkategorien" slices={subcategoryBySport.Regeneration ?? []} />
-        </div>
-      </div>
+            ) : null}
+          </section>
+        </>
+      ) : null}
 
-      <section className="mt-6 app-card">
-        <button type="button" onClick={() => toggleSection("basketballQuotes")} className="flex w-full items-center justify-between text-left">
-          <span className="section-title">Basketball-Quoten je Übung</span>
-          <span className="chip">{openSections.basketballQuotes ? "−" : "+"}</span>
-        </button>
-        {openSections.basketballQuotes ? (
-          basketballStats.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Basketball-Übungsdaten vorhanden.</p> : (
-            <div className="mt-3 space-y-2">
-              {basketballStats.map((entry) => (
-                <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="font-semibold text-strong">{entry.exerciseName}</p>
-                  <p className="mt-1 text-sm text-muted">Quote: <strong className="text-strong">{entry.quote ?? 0}%</strong> · Makes: {entry.made} · Reps: {entry.attempts} · Misses: {entry.misses}</p>
+      {detailTab === "basketball" ? (
+        <>
+          <section className="mt-6 app-card">
+            <p className="section-eyebrow">Basketball</p>
+            <h2 className="section-title mt-1">Basketball Kennzahlen</h2>
+            <div className="mt-3 grid-stats">
+              <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{basketballTotals.workouts}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{basketballTotals.exercises}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{basketballTotals.sets}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{basketballTotals.reps}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{basketballTotals.minutes}</p></div>
+            </div>
+          </section>
+
+          <section className="mt-6 app-card--accent-violet">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="section-eyebrow">Game Tracking</p>
+                <h2 className="section-title mt-1">Spiel-Stats</h2>
+              </div>
+              <p className="text-xs font-medium text-faint">{filteredGameStats.length} Einträge</p>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: "Spiele", value: gameTotals.games },
+                { label: "Spieltraining", value: gameTotals.gameTrainings },
+                { label: "Minuten", value: gameTotals.minutes },
+                { label: "Punkte Σ", value: gameTotals.points },
+              ].map((card) => (
+                <div key={card.label} className="stat-tile">
+                  <p className="stat-tile__label">{card.label}</p>
+                  <p className="stat-tile__value">{card.value}</p>
                 </div>
               ))}
             </div>
-          )
-        ) : null}
-      </section>
+            <div className="mt-5 border-t border-white/10 pt-4">
+              <GameStatsSearchPanel entries={filteredGameStats} variant="full" />
+            </div>
+          </section>
 
-      <section className="mt-6 app-card">
-        <button type="button" onClick={() => toggleSection("timeExercises")} className="flex w-full items-center justify-between text-left">
-          <span className="section-title">Zeitbasierte Basketball-Übungen</span>
-          <span className="chip">{openSections.timeExercises ? "−" : "+"}</span>
-        </button>
-        {openSections.timeExercises ? (
-          timedTrends.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine zeitbasierten Verläufe vorhanden.</p> : (
-            <div className="mt-3 space-y-3">
-              {timedTrends.map((trend) => {
-                const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({
-                  label: `S${index + 1}`,
-                  value,
-                }));
+          <div className="mt-6">
+            <GameTrainingInsights />
+          </div>
+
+          <section className="mt-6 app-card">
+            <p className="section-eyebrow">Wurfquoten</p>
+            <h2 className="section-title mt-1">Basketball aggregiert</h2>
+            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+              {[
+                { label: "Free Throws", value: basketballShotSummary.freeThrows },
+                { label: "2 Pointer", value: basketballShotSummary.twoPointers },
+                { label: "3 Pointer", value: basketballShotSummary.threePointers },
+              ].map((item) => {
+                const pct = item.value.attempts > 0 ? Math.round((item.value.made / item.value.attempts) * 100) : 0;
                 return (
-                  <div key={trend.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                    <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
-                    <p className="mt-1 text-xs text-muted">
-                      Letzt: {trend.points[trend.points.length - 1]} s · Best: {Math.max(...trend.points)} s · Ø: {Math.round(trend.points.reduce((sum, point) => sum + point, 0) / trend.points.length)} s
-                    </p>
-                    <div className="mt-2"><TrendChart points={chartPoints} yLabel="Sekunden" /></div>
+                  <div key={item.label} className="stat-tile">
+                    <p className="stat-tile__label">{item.label}</p>
+                    <p className="stat-tile__value">{pct}<span className="ml-1 text-sm font-medium text-muted">%</span></p>
+                    <p className="stat-tile__sub">{item.value.made}/{item.value.attempts}</p>
                   </div>
                 );
               })}
             </div>
-          )
-        ) : null}
-      </section>
+          </section>
 
-      <section className="mt-6 app-card">
-        <button type="button" onClick={() => toggleSection("gymGoals")} className="flex w-full items-center justify-between text-left">
-          <span className="section-title">Gym Ziele je Exercise</span>
-          <span className="chip">{openSections.gymGoals ? "−" : "+"}</span>
-        </button>
-        {openSections.gymGoals ? (
-          gymGoals.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Gym-Daten vorhanden.</p> : (
-            <div className="mt-3 space-y-2">
-              {gymGoals.map((entry) => (
-                <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
-                  <p className="font-semibold text-strong">{entry.exerciseName}</p>
-                  <p className="text-muted">Ø Gewicht {entry.avgWeightKg} kg · Ø Reps {entry.avgReps} · Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
-                  <p className="text-emerald-300">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
-                  <p className="mt-1 text-xs text-faint">{entry.progressionHint}</p>
-                </div>
-              ))}
-            </div>
-          )
-        ) : null}
-      </section>
-
-      <section className="mt-6 app-card">
-        <button type="button" onClick={() => toggleSection("history")} className="flex w-full items-center justify-between text-left">
-          <span className="section-title">Historie</span>
-          <span className="chip">{openSections.history ? "−" : "+"}</span>
-        </button>
-        {openSections.history ? (
-          <div className="mt-4 space-y-3">
-            {([
-              ["Basketball-Historie", historyBuckets.Basketball],
-              ["Gym-Historie", historyBuckets.Gym],
-              ["Home-Workout-Historie", historyBuckets.Home],
-              ["Regeneration-Historie", historyBuckets.Regeneration],
-            ] as const).map(([title, bucket]) => (
-              <div key={title} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <p className="font-semibold text-strong">{title}</p>
-                <div className="mt-2 space-y-2">
-                  {bucket.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : bucket.map((entry) => (
-                    <button
-                      type="button"
-                      key={entry.id}
-                      onClick={() => setSelectedSessionId(entry.id)}
-                      className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
-                    >
-                      <p className="font-semibold text-strong">{entry.title}</p>
-                      <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
-                      <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
-                    </button>
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("basketballQuotes")} className="flex w-full items-center justify-between text-left">
+              <span className="section-title">Basketball-Übungen</span>
+              <span className="chip">{openSections.basketballQuotes ? "−" : "+"}</span>
+            </button>
+            {openSections.basketballQuotes ? (
+              basketballStats.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Basketball-Übungsdaten vorhanden.</p> : (
+                <div className="mt-3 space-y-2">
+                  {basketballStats.map((entry) => (
+                    <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <p className="font-semibold text-strong">{entry.exerciseName}</p>
+                      <p className="mt-1 text-sm text-muted">Quote: <strong className="text-strong">{entry.quote ?? 0}%</strong> · Makes: {entry.made} · Reps: {entry.attempts} · Misses: {entry.misses}</p>
+                    </div>
                   ))}
                 </div>
+              )
+            ) : null}
+          </section>
+
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("timeExercises")} className="flex w-full items-center justify-between text-left">
+              <span className="section-title">Distanz und zeitbasierte Übungen (Basketball)</span>
+              <span className="chip">{openSections.timeExercises ? "−" : "+"}</span>
+            </button>
+            {openSections.timeExercises ? (
+              basketballTimedTrends.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Distanz- oder zeitbasierten Basketball-Verläufe vorhanden.</p> : (
+                <div className="mt-3 space-y-3">
+                  {basketballTimedTrends.map((trend) => {
+                    const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({ label: `S${index + 1}`, value }));
+                    return (
+                      <div key={trend.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
+                        <div className="mt-2"><TrendChart points={chartPoints} yLabel="Wert" /></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : null}
+          </section>
+
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("basketballHistory")} className="flex w-full items-center justify-between text-left">
+              <span className="section-title">Historie Basketball</span>
+              <span className="chip">{openSections.basketballHistory ? "−" : "+"}</span>
+            </button>
+            {openSections.basketballHistory ? (
+              <div className="mt-3 space-y-2">
+                {historyBuckets.Basketball.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : historyBuckets.Basketball.map((entry) => (
+                  <button
+                    type="button"
+                    key={entry.id}
+                    onClick={() => setSelectedSessionId(entry.id)}
+                    className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
+                  >
+                    <p className="font-semibold text-strong">{entry.title}</p>
+                    <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
+                    <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : null}
-      </section>
+            ) : null}
+          </section>
+        </>
+      ) : null}
+
+      {detailTab === "gym" ? (
+        <>
+          <section className="mt-6 app-card">
+            <p className="section-eyebrow">Gym</p>
+            <h2 className="section-title mt-1">Gym Kennzahlen</h2>
+            <div className="mt-3 grid-stats">
+              <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{gymTotalsSummary.workouts}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{gymTotalsSummary.exercises}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{gymTotalsSummary.sets}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{gymTotalsSummary.reps}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{gymTotalsSummary.minutes}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Volumen (kg)</p><p className="stat-tile__value">{gymTotalsSummary.volume}</p></div>
+            </div>
+          </section>
+
+          <GymGoalsManager />
+
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("gymGoals")} className="flex w-full items-center justify-between text-left">
+              <span className="section-title">Gym Ziele je Exercise</span>
+              <span className="chip">{openSections.gymGoals ? "−" : "+"}</span>
+            </button>
+            {openSections.gymGoals ? (
+              gymGoals.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Gym-Daten vorhanden.</p> : (
+                <div className="mt-3 space-y-2">
+                  {gymGoals.map((entry) => (
+                    <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
+                      <p className="font-semibold text-strong">{entry.exerciseName}</p>
+                      <p className="text-muted">Ø Gewicht {entry.avgWeightKg} kg · Ø Reps {entry.avgReps} · Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
+                      <p className="text-emerald-300">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
+                      <p className="mt-1 text-xs text-faint">{entry.progressionHint}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : null}
+          </section>
+
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("timeExercises")} className="flex w-full items-center justify-between text-left">
+              <span className="section-title">Distanz und zeitbasierte Übungen (Gym)</span>
+              <span className="chip">{openSections.timeExercises ? "−" : "+"}</span>
+            </button>
+            {openSections.timeExercises ? (
+              gymTimedTrends.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Distanz- oder zeitbasierten Gym-Verläufe vorhanden.</p> : (
+                <div className="mt-3 space-y-3">
+                  {gymTimedTrends.map((trend) => {
+                    const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({ label: `S${index + 1}`, value }));
+                    return (
+                      <div key={trend.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
+                        <div className="mt-2"><TrendChart points={chartPoints} yLabel="Wert" /></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : null}
+          </section>
+
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("gymHistory")} className="flex w-full items-center justify-between text-left">
+              <span className="section-title">Historie Gym</span>
+              <span className="chip">{openSections.gymHistory ? "−" : "+"}</span>
+            </button>
+            {openSections.gymHistory ? (
+              <div className="mt-3 space-y-2">
+                {historyBuckets.Gym.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : historyBuckets.Gym.map((entry) => (
+                  <button
+                    type="button"
+                    key={entry.id}
+                    onClick={() => setSelectedSessionId(entry.id)}
+                    className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
+                  >
+                    <p className="font-semibold text-strong">{entry.title}</p>
+                    <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
+                    <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        </>
+      ) : null}
 
       {selectedSession ? (
         <section className="mt-6 app-card--accent-cyan">

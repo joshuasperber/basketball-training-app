@@ -14,6 +14,7 @@ export type Exercise = {
   metricKeys: MetricKey[];
   targetByMetric?: Partial<Record<MetricKey, number>>;
   setTargetsByMetric?: Partial<Record<MetricKey, number>>[];
+  distanceUnit?: "m" | "km";
   trackingType: "reps" | "weight";
   targetValue?: number;
   /** Optional URL zu einem Demo-/Drill-Video (YouTube, Vimeo etc.). */
@@ -29,8 +30,7 @@ export type MetricKey =
   | "distance"
   | "makes"
   | "misses"
-  | "points"
-  | "completed";
+  | "points";
 
 export type Workout = {
   id: string;
@@ -54,7 +54,7 @@ export type WeekdayKey =
 export const categories: Category[] = ["Basketball", "Gym", "Home", "Regeneration"];
 
 export const workoutSubcategoriesByCategory: Record<Category, string[]> = {
-  Basketball: ["Handles", "Finishing", "Shooting", "Defense", "Footwork", "Passing", "Taktik", "Conditioning", "Komplett"],
+  Basketball: ["Handles", "Finishing", "Shooting", "Defense", "Footwork", "Passing", "Taktik", "Conditioning", "Spiel", "Komplett"],
   Gym: ["Oberkörper", "Arme", "Core", "Beine", "Cardio", "Komplett"],
   Home: ["Mobility", "Conditioning", "Recovery"],
   Regeneration: ["Meditation", "Mobilität & Dehnung", "Leichte Ausdauer"],
@@ -127,6 +127,8 @@ export const defaultExercises: Exercise[] = [
 ];
 
 export const defaultWorkouts: Workout[] = [
+  { id: "wo-game-day", name: "Spieltag", category: "Basketball", subcategory: "Spiel", notes: "Box Score tracken: Minuten, Punkte, Intensität und Notizen.", level: 1, exerciseIds: [] },
+  { id: "wo-training-game", name: "Trainingsspiel", category: "Basketball", subcategory: "Spiel", notes: "Trainingsspiel tracken: Minuten, Punkte, Intensität und Notizen.", level: 1, exerciseIds: [] },
   { id: "wo-0", name: "Ballhandling Flow", category: "Basketball", subcategory: "Handles", notes: "Handle-Fokus vor Teamtraining", level: 1, exerciseIds: ["ex-0", "ex-10"] },
   { id: "wo-1", name: "Shooting 1", category: "Basketball", subcategory: "Shooting", notes: "Fokus Catch&Shoot", level: 1, exerciseIds: ["ex-3"] },
   { id: "wo-2", name: "Shooting 2", category: "Basketball", subcategory: "Shooting", notes: "Mehr Volumen", level: 2, exerciseIds: ["ex-3", "ex-4"] },

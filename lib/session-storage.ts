@@ -17,6 +17,11 @@ export type WorkoutSessionLog = {
   attempts?: number | null;
   misses?: number | null;
   weightKg?: number | null;
+  timeSeconds?: number | null;
+  distanceMeters?: number | null;
+  distanceUnit?: "m" | "km" | null;
+  points?: number | null;
+  shotZone?: "free_throw" | "two_pointer" | "three_pointer" | "general" | null;
   /** RPE 1–10 pro Satz, falls beim Abschluss erfasst. */
   rpe?: number | null;
 };
@@ -34,6 +39,8 @@ export type WorkoutSessionEntry = {
   durationSeconds?: number;
   /** Durchschnittliches RPE der erfassten Sätze (1–10). */
   avgRpe?: number | null;
+  /** Wiederholbare Training-Sessions sollen am selben Tag nicht ersetzt werden. */
+  allowMultiple?: boolean;
   logs: WorkoutSessionLog[];
 };
 
@@ -85,7 +92,19 @@ export function getWorkoutSessions() {
 
 export function appendWorkoutSession(entry: WorkoutSessionEntry) {
   const current = getWorkoutSessions();
-  writeJson(WORKOUT_SESSIONS_KEY, [entry, ...current].slice(0, 50));
+  const entryDate = entry.dateISO.slice(0, 10);
+  const withoutExisting =
+    entry.allowMultiple || entry.workoutId === "single-exercise-session"
+      ? current.filter((session) => session.id !== entry.id)
+      : current.filter(
+          (session) =>
+            session.id !== entry.id &&
+            !(session.workoutId === entry.workoutId && session.dateISO.slice(0, 10) === entryDate),
+        );
+  writeJson(WORKOUT_SESSIONS_KEY, [entry, ...withoutExisting].slice(0, 50));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("bt:sessions-updated"));
+  }
 }
 
 export function updateWorkoutSession(sessionId: string, patch: Partial<Pick<WorkoutSessionEntry, "sessionNotes" | "logs">>) {

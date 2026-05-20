@@ -112,6 +112,16 @@ const PLAYER_QUOTES = [
 ];
 const DASHBOARD_LAST_LEVEL_KEY = "bt.dashboard.last-level.v1";
 
+// #region agent log
+function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
+  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
+    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "app/dashboard/DashboardClient.tsx", message, data, timestamp: Date.now() }),
+  }).catch(() => {});
+}
+// #endregion
+
 const SPORT_COLOR: Record<SportType, string> = {
   Basketball: "rgba(255, 122, 24, 0.8)",
   Gym: "rgba(168, 85, 247, 0.85)",
@@ -153,6 +163,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   const [dashboardTips, setDashboardTips] = useState<string[]>([]);
   const [levelPopup, setLevelPopup] = useState<string | null>(null);
   const [todayWorkoutIds, setTodayWorkoutIds] = useState<string[]>([todayWorkout.id]);
+  const [completedTodayIds, setCompletedTodayIds] = useState<Set<string>>(() => new Set());
   const [todayWorkoutCards, setTodayWorkoutCards] = useState<TodayWorkoutCard[]>([
     {
       id: todayWorkout.id,
@@ -171,6 +182,11 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       );
       const plannedIds = new Set<string>();
       const nextCards: TodayWorkoutCard[] = [];
+      const nextCompletedIds = getCompletedWorkoutIdsForDate(dateKey);
+      loadGameStats()
+        .filter((entry) => entry.date === dateKey)
+        .forEach((entry) => nextCompletedIds.add(entry.context === "game_training" ? `game_training-${dateKey}` : `game-${dateKey}`));
+      setCompletedTodayIds(nextCompletedIds);
       setProgress(parsed);
       try {
         setHasWorkoutPlanned(true);
@@ -182,9 +198,18 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         const tags = dailyPlans[dateKey]?.length ? dailyPlans[dateKey] : getTodayTagsFromProfileFallback(todayDayIndex);
         const workoutFromWeekly = getWorkoutFromTodayTags(tags);
         const hasGameToday = tags.includes("Spieltag") || tags.includes("Spieltraining");
+        let todayManuals: Array<{ id?: string; title: string; sport?: string; subcategory?: string }> = [];
+        if (rawManual) {
+          const parsedManual = JSON.parse(rawManual) as Record<
+            string,
+            Array<{ id?: string; title: string; sport?: string; subcategory?: string }>
+          >;
+          todayManuals = parsedManual[dateKey] ?? [];
+        }
         const hiddenAutoForToday = new Set(readHiddenAutoWorkoutsMap()[dateKey] ?? []);
         const autoHidden = hiddenAutoForToday.has(HIDE_ALL_AUTO_WORKOUTS_ID);
-        if (workoutFromWeekly) {
+        const shouldShowWeeklySummaryCard = Boolean(workoutFromWeekly && (hasGameToday || todayManuals.length === 0));
+        if (workoutFromWeekly && shouldShowWeeklySummaryCard) {
           const workoutId = workoutFromWeekly.kind ? `${workoutFromWeekly.kind}-${dateKey}` : todayWorkout.id;
           nextCards.push({
             id: workoutId,
@@ -212,12 +237,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
             plannedIds.add(workout.id);
           }
         }
-        if (rawManual) {
-          const parsedManual = JSON.parse(rawManual) as Record<
-            string,
-            Array<{ id?: string; title: string; sport?: string; subcategory?: string }>
-          >;
-          const todayManuals = parsedManual[dateKey] ?? [];
+        if (todayManuals.length > 0) {
           todayManuals.forEach((entry) => {
             if (!entry.id) return;
             const sport = entry.sport && isSportType(entry.sport) ? entry.sport : "Basketball";
@@ -248,7 +268,6 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           });
           plannedIds.add(todayWorkout.id);
         }
-        if (parsed.workoutId) plannedIds.add(parsed.workoutId);
         setTodayWorkoutIds(Array.from(plannedIds));
         setPlannedTags(tags);
         if (workoutFromWeekly) {
@@ -261,6 +280,17 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           setTodayLabel(null);
         }
         setTodayWorkoutCards(nextCards);
+        // #region agent log
+        agentDebugLog("H3", "dashboard today cards derived", {
+          dateKey,
+          tags,
+          manualCount: todayManuals.length,
+          cards: nextCards.map((card) => ({ id: card.id, title: card.title, kind: card.kind, subcategory: card.subcategory })),
+          plannedIds: Array.from(plannedIds),
+          completedIds: Array.from(nextCompletedIds),
+          autoHidden,
+        });
+        // #endregion
         if (nextCards.length > 0) {
           setHasWorkoutPlanned(true);
           setTodayLabel(nextCards[0].title);
@@ -279,12 +309,16 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     window.addEventListener("focus", refreshTodayData);
     window.addEventListener("storage", refreshTodayData);
     window.addEventListener("bt:plan-updated", refreshTodayData);
+    window.addEventListener("bt:sessions-updated", refreshTodayData);
+    window.addEventListener("bt:workout-progress-updated", refreshTodayData);
     return () => {
       window.clearTimeout(timer);
       window.clearInterval(interval);
       window.removeEventListener("focus", refreshTodayData);
       window.removeEventListener("storage", refreshTodayData);
       window.removeEventListener("bt:plan-updated", refreshTodayData);
+      window.removeEventListener("bt:sessions-updated", refreshTodayData);
+      window.removeEventListener("bt:workout-progress-updated", refreshTodayData);
     };
   }, [dateKey, fallbackProgress, todayDayIndex, todayWorkout.id, todayWorkout.sport, todayWorkout.subcategory, todayWorkout.title]);
 
@@ -358,13 +392,6 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     return Math.min(100, Math.round((weeklyCompleted / weeklyPlannedCount) * 100));
   }, [weeklyCompleted, weeklyPlannedCount]);
 
-  const completedTodayIds = useMemo(() => {
-    const ids = getCompletedWorkoutIdsForDate(dateKey);
-    loadGameStats()
-      .filter((entry) => entry.date === dateKey)
-      .forEach((entry) => ids.add(entry.context === "game_training" ? `game_training-${dateKey}` : `game-${dateKey}`));
-    return ids;
-  }, [dateKey, weeklyCompleted]);
   const isCompleted = useMemo(
     () => todayWorkoutIds.length > 0 && todayWorkoutIds.every((id) => completedTodayIds.has(id)),
     [completedTodayIds, todayWorkoutIds],

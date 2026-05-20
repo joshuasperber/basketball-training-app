@@ -8,6 +8,7 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import {
   WORKOUT_OVERRIDE_PREFIX,
+  WORKOUT_PROGRESS_PREFIX,
   WEEKLY_WORKOUT_PLAN,
   getDateForWeekday,
   getTodayDateKey,
@@ -124,6 +125,33 @@ type WorkoutCardItem = {
 };
 
 type HiddenAutoWorkoutsMap = Record<string, string[]>;
+const SELECTED_WARMUP_BY_DATE_KEY = "bt.selected-warmup-by-date.v1";
+
+// #region agent log
+function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
+  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
+    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "app/Weekly-Workout/page.tsx", message, data, timestamp: Date.now() }),
+  }).catch(() => {});
+}
+// #endregion
+
+function readSelectedWarmupByDate(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const raw = window.localStorage.getItem(SELECTED_WARMUP_BY_DATE_KEY);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function writeSelectedWarmupByDate(value: Record<string, string>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(SELECTED_WARMUP_BY_DATE_KEY, JSON.stringify(value));
+}
 
 function buildAutoWorkoutId(dayIndex: (typeof weekdayOrder)[number], sport: string) {
   if (sport === "Regeneration") return `auto-weekly-recovery-${dayIndex}`;
@@ -178,6 +206,52 @@ function isWarmupCard(card: WorkoutCardItem) {
     level: 1,
     exerciseIds: [],
   });
+}
+
+function getCompletionIdsForCard(card: WorkoutCardItem) {
+  return [
+    card.id,
+    card.manualWorkoutId,
+    card.workoutId,
+    card.autoSuggestion?.workoutId,
+  ].filter((id): id is string => Boolean(id));
+}
+
+function readWorkoutProgressState() {
+  const completed: Record<string, Set<string>> = {};
+  const continuable: Record<string, Set<string>> = {};
+  if (typeof window === "undefined") return { completed, continuable };
+
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key?.startsWith(WORKOUT_PROGRESS_PREFIX)) continue;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        date?: string;
+        workoutId?: string;
+        status?: string;
+        elapsedSeconds?: number;
+        logs?: Record<string, unknown>;
+      };
+      if (!parsed.date || !parsed.workoutId) continue;
+      const target = parsed.status === "completed" ? completed : continuable;
+      if (
+        parsed.status === "completed" ||
+        parsed.status === "in_progress" ||
+        (parsed.elapsedSeconds ?? 0) > 0 ||
+        (parsed.logs && Object.values(parsed.logs).some((log) => log && Object.keys(log as Record<string, unknown>).length > 0))
+      ) {
+        target[parsed.date] = target[parsed.date] ?? new Set<string>();
+        target[parsed.date].add(parsed.workoutId);
+      }
+    } catch {
+      // Ignore invalid legacy progress entries.
+    }
+  }
+  return { completed, continuable };
 }
 
 function createManualEntryId(): string {
@@ -617,14 +691,16 @@ export default function WeeklyWorkoutPage() {
   const [profileVersion, setProfileVersion] = useState(0);
   /** Nur nach Mount gesetzt — vermeidet Hydration-Mismatch (localStorage vs. SSR-Default). */
   const [mesocycleLabel, setMesocycleLabel] = useState<string | null>(null);
+  const [workoutSessions, setWorkoutSessions] = useState<ReturnType<typeof getWorkoutSessions>>([]);
+  const [completedProgressIdsByDate, setCompletedProgressIdsByDate] = useState<Record<string, Set<string>>>({});
+  const [continuableProgressIdsByDate, setContinuableProgressIdsByDate] = useState<Record<string, Set<string>>>({});
   const availableExercises = useMemo(() => loadExercises(), []);
   const exercisesById = useMemo(
     () => Object.fromEntries(availableExercises.map((exercise) => [exercise.id, exercise])),
     [availableExercises],
   );
-  const sessions = getWorkoutSessions();
-  const completedDateSet = new Set(sessions.map((session) => toLocalDateKey(new Date(session.dateISO))));
-  const completedWorkoutIdsByDate = sessions.reduce<Record<string, Set<string>>>((acc, session) => {
+  const completedDateSet = new Set(workoutSessions.map((session) => toLocalDateKey(new Date(session.dateISO))));
+  const completedWorkoutIdsByDate = workoutSessions.reduce<Record<string, Set<string>>>((acc, session) => {
     const key = toLocalDateKey(new Date(session.dateISO));
     const current = acc[key] ?? new Set<string>();
     current.add(session.workoutId);
@@ -688,6 +764,7 @@ export default function WeeklyWorkoutPage() {
         const disabledMap = readManualDayDisabledMap();
         const hiddenAutoMap = readHiddenAutoWorkoutsMap();
         setDailyPlanByDate(readDailyPlanMap());
+        setSelectedWarmupByDate(readSelectedWarmupByDate());
         setManualWorkoutsByDate(manualByDate);
         setDisabledManualDays(disabledMap);
         setHiddenAutoWorkoutsByDate(hiddenAutoMap);
@@ -811,21 +888,37 @@ export default function WeeklyWorkoutPage() {
   }, [todayIndex, manualVersion, profileVersion]);
 
   useEffect(() => {
+    const refreshProgressState = () => {
+      const nextProgressState = readWorkoutProgressState();
+      setCompletedProgressIdsByDate(nextProgressState.completed);
+      setContinuableProgressIdsByDate(nextProgressState.continuable);
+    };
     const refreshProfilePlan = () => {
+      setWorkoutSessions(getWorkoutSessions());
+      refreshProgressState();
       setDailyPlanByDate(readDailyPlanMap());
       setWarmupCatalogWorkouts(getWarmupWorkouts(loadWorkouts()));
       setProfileVersion((current) => current + 1);
     };
-    const refreshGameStats = () => setManualVersion((current) => current + 1);
+    const refreshCompletionState = () => {
+      setWorkoutSessions(getWorkoutSessions());
+      refreshProgressState();
+      setManualVersion((current) => current + 1);
+    };
+    refreshProfilePlan();
     window.addEventListener("storage", refreshProfilePlan);
     window.addEventListener("focus", refreshProfilePlan);
     window.addEventListener("bt:plan-updated", refreshProfilePlan);
-    window.addEventListener("bt:game-stats-updated", refreshGameStats);
+    window.addEventListener("bt:game-stats-updated", refreshCompletionState);
+    window.addEventListener("bt:sessions-updated", refreshCompletionState);
+    window.addEventListener("bt:workout-progress-updated", refreshCompletionState);
     return () => {
       window.removeEventListener("storage", refreshProfilePlan);
       window.removeEventListener("focus", refreshProfilePlan);
       window.removeEventListener("bt:plan-updated", refreshProfilePlan);
-      window.removeEventListener("bt:game-stats-updated", refreshGameStats);
+      window.removeEventListener("bt:game-stats-updated", refreshCompletionState);
+      window.removeEventListener("bt:sessions-updated", refreshCompletionState);
+      window.removeEventListener("bt:workout-progress-updated", refreshCompletionState);
     };
   }, []);
 
@@ -1217,27 +1310,47 @@ export default function WeeklyWorkoutPage() {
           const totalWorkoutMinutes = orderedWorkoutCards.reduce((sum, card) => sum + Math.max(0, card.durationMin || 0), 0);
           const selectedCardId = selectedWorkoutByDay[dayByIndex[day]] ?? orderedWorkoutCards[0]?.id;
           const selectedCard = orderedWorkoutCards.find((entry) => entry.id === selectedCardId) ?? orderedWorkoutCards[0] ?? null;
-          const showTodayCompletionState = day === todayIndex;
           const completedIdsForDate = completedWorkoutIdsByDate[manualDateKey] ?? new Set<string>();
+          const completedProgressIdsForDate = completedProgressIdsByDate[manualDateKey] ?? new Set<string>();
+          const continuableProgressIdsForDate = continuableProgressIdsByDate[manualDateKey] ?? new Set<string>();
           const gameCompletedIdsForDate = new Set(
             loadGameStats()
               .filter((entry) => entry.date === manualDateKey)
               .map((entry) => (entry.context === "game_training" ? `game-training-${manualDateKey}` : `game-${manualDateKey}`)),
           );
+          const cardIsCompleted = (card: WorkoutCardItem) =>
+            card.kind === "game"
+              ? gameCompletedIdsForDate.has(card.id)
+              : getCompletionIdsForCard(card).some((id) => completedIdsForDate.has(id) || completedProgressIdsForDate.has(id));
           const completedCardsCount = orderedWorkoutCards.filter((card) => {
-            if (card.kind === "game") return gameCompletedIdsForDate.has(card.id);
-            if (card.manualWorkoutId) return completedIdsForDate.has(card.manualWorkoutId);
-            if (card.workoutId) return completedIdsForDate.has(card.workoutId);
-            return false;
+            return cardIsCompleted(card);
           }).length;
           const isSelectedCardCompleted = Boolean(
+            selectedCard && cardIsCompleted(selectedCard),
+          );
+          const selectedCardCanContinue = Boolean(
             selectedCard &&
-            ((selectedCard.manualWorkoutId && completedIdsForDate.has(selectedCard.manualWorkoutId)) ||
-              (selectedCard.kind === "game" && gameCompletedIdsForDate.has(selectedCard.id)) ||
-              (selectedCard.workoutId && completedIdsForDate.has(selectedCard.workoutId))),
+              !isSelectedCardCompleted &&
+              getCompletionIdsForCard(selectedCard).some((id) => continuableProgressIdsForDate.has(id)),
           );
           const allCardsCompleted = orderedWorkoutCards.length > 0 && completedCardsCount === orderedWorkoutCards.length;
           const dateLabel = getDateForWeekday(day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+          if (day === todayIndex) {
+            // #region agent log
+            agentDebugLog("H3,H4", "weekly today cards derived", {
+              manualDateKey,
+              gameCard: gameCard ? { id: gameCard.id, title: gameCard.title } : null,
+              selectedWarmupId: selectedWarmupByDate[manualDateKey] ?? null,
+              warmupIds: warmupCatalogWorkouts.map((workout) => workout.id),
+              hiddenIds: Array.from(hiddenCardIds),
+              cards: orderedWorkoutCards.map((card) => ({ id: card.id, title: card.title, kind: card.kind, workoutId: card.workoutId, manualWorkoutId: card.manualWorkoutId })),
+              completedIds: Array.from(completedIdsForDate),
+              completedProgressIds: Array.from(completedProgressIdsForDate),
+              gameCompletedIds: Array.from(gameCompletedIdsForDate),
+              allCardsCompleted,
+            });
+            // #endregion
+          }
 
           return (
             <article
@@ -1290,7 +1403,11 @@ export default function WeeklyWorkoutPage() {
                     }
                     onChange={(event) => {
                       const warmupId = event.target.value;
-                      setSelectedWarmupByDate((current) => ({ ...current, [manualDateKey]: warmupId }));
+                      setSelectedWarmupByDate((current) => {
+                        const next = { ...current, [manualDateKey]: warmupId };
+                        writeSelectedWarmupByDate(next);
+                        return next;
+                      });
                       setSelectedWorkoutByDay((current) => ({ ...current, [dayByIndex[day]]: warmupId }));
                     }}
                     className="select mt-2"
@@ -1306,10 +1423,7 @@ export default function WeeklyWorkoutPage() {
 
               <div className="mt-4 grid gap-2 md:grid-cols-2">
                 {orderedWorkoutCards.length > 0 && !isRestDisplay ? orderedWorkoutCards.map((card, cardIndex) => {
-                  const isDone =
-                    (card.kind === "game" && gameCompletedIdsForDate.has(card.id)) ||
-                      (card.manualWorkoutId && completedIdsForDate.has(card.manualWorkoutId)) ||
-                      (card.workoutId && completedIdsForDate.has(card.workoutId));
+                  const isDone = cardIsCompleted(card);
                   const isSelected = selectedCardId === card.id;
                   return (
                     <button
@@ -1368,7 +1482,11 @@ export default function WeeklyWorkoutPage() {
                       })
                     }
                   >
-                    {showTodayCompletionState && isSelectedCardCompleted ? "Workout ansehen" : "Workout starten"}
+                    {isSelectedCardCompleted
+                      ? "Workout ansehen"
+                      : selectedCardCanContinue
+                        ? "Workout fortfahren"
+                        : "Workout starten"}
                   </button>
                   )}
                   <button

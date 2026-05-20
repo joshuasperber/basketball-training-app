@@ -96,6 +96,16 @@ function readWorkoutOverrides(): Record<string, string> {
   return overrides;
 }
 
+// #region agent log
+function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
+  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
+    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "lib/progress-sync.ts", message, data, timestamp: Date.now() }),
+  }).catch(() => {});
+}
+// #endregion
+
 export function buildLocalProgressSnapshot(): RemoteProgress {
   return {
     sessions: {
@@ -209,6 +219,9 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
 
 export async function pullProgressFromCloud() {
   const response = await fetch("/api/session", { cache: "no-store" });
+  // #region agent log
+  agentDebugLog("H1,H2", "pull progress response", { ok: response.ok, status: response.status });
+  // #endregion
   if (!response.ok) return null;
   const remote = (await response.json()) as RemoteProgress;
   if (remote.remoteExists === false) {
@@ -224,9 +237,18 @@ export async function pullProgressFromCloud() {
 
 export async function pushProgressToCloud() {
   const snapshot = buildLocalProgressSnapshot();
-  await fetch("/api/session", {
+  const response = await fetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(snapshot),
   });
+  // #region agent log
+  agentDebugLog("H1,H2", "push progress response", {
+    ok: response.ok,
+    status: response.status,
+    sessions: snapshot.sessions.workoutSessions.length,
+    manualDays: Object.keys(snapshot.manualDayWorkoutsMap).length,
+    dailyPlanDays: Object.keys(snapshot.dailyPlanMap).length,
+  });
+  // #endregion
 }

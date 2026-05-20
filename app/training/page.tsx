@@ -17,6 +17,7 @@ import { matchesDrillCatalogFilters, type DrillCatalogFilters } from "@/lib/dril
 import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
 import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab } from "@/components/training/TrainingTabs";
 import TopSubTabs from "@/components/TopSubTabs";
+import { normalizeMetricKeysForCategory } from "@/lib/workout-metrics";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
@@ -90,13 +91,13 @@ function normalizeSetTargetsLength(
   return next.slice(0, count);
 }
 
-function validateMetricTargets(metricKeys: MetricKey[], targets: Partial<Record<MetricKey, string>>) {
+function validateMetricTargets(category: Category, metricKeys: MetricKey[], targets: Partial<Record<MetricKey, string>>) {
+  const normalizedMetrics = normalizeMetricKeysForCategory(category, metricKeys);
   if (metricKeys.length === 0) {
     return "Bitte mindestens ein Messfeld auswählen.";
   }
 
-  for (const metric of metricKeys) {
-    if (metric === "completed") continue;
+  for (const metric of normalizedMetrics) {
     const value = parseMetricInput(targets[metric]);
     if (value === null) {
       return `Bitte für ${metric} einen gültigen Zahlenwert eingeben.`;
@@ -109,6 +110,8 @@ function validateMetricTargets(metricKeys: MetricKey[], targets: Partial<Record<
   const reps = parseMetricInput(targets.reps);
   const makes = parseMetricInput(targets.makes);
   const misses = parseMetricInput(targets.misses);
+  const distance = parseMetricInput(targets.distance);
+  const time = parseMetricInput(targets.time);
   const base = reps;
 
   if (base !== null) {
@@ -117,6 +120,10 @@ function validateMetricTargets(metricKeys: MetricKey[], targets: Partial<Record<
     if (makes !== null && misses !== null && makes + misses > base) {
       return "Makes + Misses darf nicht größer als Reps sein.";
     }
+  }
+
+  if (normalizedMetrics.includes("distance") && distance !== null && time === null) {
+    return "Bitte gib bei Distanz auch eine Zeit an.";
   }
 
   return null;
@@ -166,17 +173,8 @@ function TrainingPageContent() {
   const [newExerciseTargets, setNewExerciseTargets] = useState<Partial<Record<MetricKey, string>>>({});
   const [newExerciseSetTargets, setNewExerciseSetTargets] = useState<Partial<Record<MetricKey, string>>[]>([{}]);
   const [newExerciseError, setNewExerciseError] = useState<string | null>(null);
-  const [subcategoriesByCategory, setSubcategoriesByCategory] = useState<SubcategoryMap>(() => {
-    const base = buildInitialSubcategoryMap();
-    const custom = loadCustomSubcategories();
-    if (!custom) return base;
-    return {
-      Basketball: [...new Set([...(custom.Basketball ?? []), ...base.Basketball])],
-      Gym: [...new Set([...(custom.Gym ?? []), ...base.Gym])],
-      Home: [...new Set([...(custom.Home ?? []), ...base.Home])],
-      Regeneration: [...new Set([...(custom.Regeneration ?? []), ...base.Regeneration])],
-    };
-  });
+  const [subcategoriesByCategory, setSubcategoriesByCategory] = useState<SubcategoryMap>(() => buildInitialSubcategoryMap());
+  const [customSubcategoriesLoaded, setCustomSubcategoriesLoaded] = useState(false);
 
   const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
   const [editWorkoutName, setEditWorkoutName] = useState("");
@@ -201,6 +199,19 @@ function TrainingPageContent() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const base = buildInitialSubcategoryMap();
+      const custom = loadCustomSubcategories();
+      setSubcategoriesByCategory(
+        custom
+          ? {
+              Basketball: [...new Set([...(custom.Basketball ?? []), ...base.Basketball])],
+              Gym: [...new Set([...(custom.Gym ?? []), ...base.Gym])],
+              Home: [...new Set([...(custom.Home ?? []), ...base.Home])],
+              Regeneration: [...new Set([...(custom.Regeneration ?? []), ...base.Regeneration])],
+            }
+          : base,
+      );
+      setCustomSubcategoriesLoaded(true);
       void syncTrainingDataFromServer().then((data) => {
         setExercises(data.exercises);
         setWorkouts(data.workouts);
@@ -259,8 +270,9 @@ function TrainingPageContent() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!customSubcategoriesLoaded) return;
     window.localStorage.setItem(CUSTOM_SUBCATEGORY_KEY, JSON.stringify(subcategoriesByCategory));
-  }, [subcategoriesByCategory]);
+  }, [customSubcategoriesLoaded, subcategoriesByCategory]);
 
   function handleWorkoutCategoryChange(category: Category) {
     setWorkoutCategory(category);
@@ -281,6 +293,7 @@ function TrainingPageContent() {
   function handleNewExerciseCategoryChange(category: Category) {
     setNewExerciseCategory(category);
     setNewExerciseSubcategory(subcategoriesByCategory[category][0]);
+    setNewExerciseMetrics((current) => normalizeMetricKeysForCategory(category, current));
   }
 
   function toggleNewExerciseMetric(metric: MetricKey) {
@@ -289,7 +302,7 @@ function TrainingPageContent() {
       if (current.includes(metric)) {
         return current.filter((value) => value !== metric);
       }
-      return [...current, metric];
+      return normalizeMetricKeysForCategory(newExerciseCategory, [...current, metric]);
     });
   }
 
@@ -331,7 +344,8 @@ function TrainingPageContent() {
     const normalizedName = newExerciseName.trim();
         if (!normalizedName) return;
 
-    const validationError = validateMetricTargets(newExerciseMetrics, newExerciseTargets);
+    const normalizedMetrics = normalizeMetricKeysForCategory(newExerciseCategory, newExerciseMetrics);
+    const validationError = validateMetricTargets(newExerciseCategory, normalizedMetrics, newExerciseTargets);
     if (validationError) {
       setNewExerciseError(validationError);
       return;
@@ -349,7 +363,7 @@ function TrainingPageContent() {
         subcategory: newExerciseSubcategory,
         notes: newExerciseNotes.trim() || undefined,
         videoUrl: newExerciseVideoUrl.trim() || undefined,
-        metricKeys: newExerciseMetrics.length > 0 ? newExerciseMetrics : (["reps"] as MetricKey[]),
+        metricKeys: normalizedMetrics.length > 0 ? normalizedMetrics : (["reps"] as MetricKey[]),
         targetByMetric: Object.fromEntries(
           Object.entries(newExerciseTargets).flatMap(([metric, value]) => {
             const parsed = parseMetricInput(value);
@@ -484,6 +498,7 @@ function TrainingPageContent() {
   function handleEditExerciseCategoryChange(category: Category) {
     setEditExerciseCategory(category);
     setEditExerciseSubcategory(subcategoriesByCategory[category][0]);
+    setEditExerciseMetrics((current) => normalizeMetricKeysForCategory(category, current));
   }
 
   function toggleEditExerciseMetric(metric: MetricKey) {
@@ -492,7 +507,7 @@ function TrainingPageContent() {
       if (current.includes(metric)) {
         return current.filter((value) => value !== metric);
       }
-      return [...current, metric];
+      return normalizeMetricKeysForCategory(editExerciseCategory, [...current, metric]);
     });
   }
 
@@ -503,13 +518,13 @@ function TrainingPageContent() {
     const normalizedName = editExerciseName.trim();
     if (!normalizedName) return;
 
-    const validationError = validateMetricTargets(editExerciseMetrics, editExerciseTargets);
+    const validationError = validateMetricTargets(editExerciseCategory, editExerciseMetrics, editExerciseTargets);
     if (validationError) {
       setEditExerciseError(validationError);
       return;
     }
 
-    const metrics: MetricKey[] = editExerciseMetrics.length > 0 ? editExerciseMetrics : ["reps"];
+    const metrics: MetricKey[] = normalizeMetricKeysForCategory(editExerciseCategory, editExerciseMetrics.length > 0 ? editExerciseMetrics : ["reps"]);
     const numericTargets = Object.fromEntries(
       Object.entries(editExerciseTargets).flatMap(([metric, value]) => {
         const parsed = parseMetricInput(value);

@@ -4,6 +4,7 @@ const EXERCISES_STORAGE_KEY = "training-exercises-v1";
 const WORKOUTS_STORAGE_KEY = "training-workouts-v1";
 
 const LEGACY_METRICS = new Set(["tries", "intensity"]);
+const DEFAULT_GAME_WORKOUT_IDS = new Set(["wo-game-day", "wo-training-game"]);
 
 function sanitizeExercise(exercise: Exercise): Exercise {
   const metricKeys = exercise.metricKeys.filter((m) => !LEGACY_METRICS.has(m as string)) as MetricKey[];
@@ -57,7 +58,10 @@ export function loadExercises(): Exercise[] {
 
 export function loadWorkouts(): Workout[] {
   if (!canUseStorage()) return defaultWorkouts;
-  return safeParse<Workout[]>(window.localStorage.getItem(WORKOUTS_STORAGE_KEY), defaultWorkouts);
+  const parsed = safeParse<Workout[]>(window.localStorage.getItem(WORKOUTS_STORAGE_KEY), defaultWorkouts);
+  const existingIds = new Set(parsed.map((workout) => workout.id));
+  const missingGameWorkouts = defaultWorkouts.filter((workout) => DEFAULT_GAME_WORKOUT_IDS.has(workout.id) && !existingIds.has(workout.id));
+  return missingGameWorkouts.length > 0 ? [...missingGameWorkouts, ...parsed] : parsed;
 }
 
 export function saveExercises(exercises: Exercise[]) {
@@ -72,5 +76,7 @@ export function saveWorkouts(workouts: Workout[]) {
 
 export async function syncTrainingDataFromServer() {
   if (!canUseStorage()) return { exercises: defaultExercises, workouts: defaultWorkouts };
-  return getLocalSnapshot();
+  const snapshot = getLocalSnapshot();
+  window.localStorage.setItem(WORKOUTS_STORAGE_KEY, JSON.stringify(snapshot.workouts));
+  return snapshot;
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type MetricKey } from "@/lib/training-data";
+import { type Category, type MetricKey } from "@/lib/training-data";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import { appendWorkoutSession, getWorkoutSessions } from "@/lib/session-storage";
 import {
@@ -46,7 +46,14 @@ import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { getTipsForWorkoutContext, loadPerformanceTips, type PerformanceTip } from "@/lib/performance-tips";
 import { countTrackedSetsInLogs } from "@/lib/workout-session-metrics";
-import WorkoutTimer from "@/components/WorkoutTimer";
+import {
+  buildSessionLogFromSet,
+  completeShootingValues,
+  normalizeMetricKeysForCategory,
+  repCountFromSessionLog,
+  shouldUseShootingInputs,
+  validateSetLogForMetrics,
+} from "@/lib/workout-metrics";
 import PerformanceTipsAccordion from "@/components/PerformanceTipsAccordion";
 import {
   applyGymGoalsAfterSession,
@@ -58,18 +65,8 @@ import {
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 const MOBILE_EXERCISE_PREVIEW_COUNT = 8;
 
-const METRIC_KEYS_BY_WORKOUT_SPORT: Partial<Record<WorkoutPlan["sport"], MetricKey[]>> = {
-  Gym: ["weight", "reps"],
-  Basketball: ["reps", "time", "makes", "misses", "points", "distance"],
-  Home: ["reps", "time", "weight", "completed"],
-  Regeneration: ["time", "distance", "reps", "completed"],
-};
-
-function filterMetricKeysForSport(sport: WorkoutPlan["sport"], keys: MetricKey[]): MetricKey[] {
-  const allow = METRIC_KEYS_BY_WORKOUT_SPORT[sport];
-  if (!allow) return keys;
-  const next = keys.filter((key) => allow.includes(key));
-  return next.length > 0 ? next : keys;
+function workoutSportToCategory(sport: WorkoutPlan["sport"]): Category | null {
+  return sport === "Rest" ? null : sport;
 }
 
 function newManualDayWorkoutId(editingId: string | null): string {
@@ -124,6 +121,16 @@ type ManualDayWorkout = {
   basketballMode?: "basketball_training" | "game_training" | "game";
   durationMin?: number;
 };
+
+// #region agent log
+function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
+  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
+    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "app/workouts/page.tsx", message, data, timestamp: Date.now() }),
+  }).catch(() => {});
+}
+// #endregion
 
 type BasketballMode = "basketball_training" | "game_training" | "game";
 
@@ -239,6 +246,36 @@ function buildExerciseSets(exercise: ReturnType<typeof loadExercises>[number]) {
   });
 }
 
+function roundWorkoutMinutes(minutes: number) {
+  return Math.max(5, Math.ceil(Math.max(0, minutes) * 1.1 / 5) * 5);
+}
+
+function roundUpToFiveMinutes(minutes: number) {
+  if (minutes <= 0) return 0;
+  return Math.ceil(minutes / 5) * 5;
+}
+
+function getDurationForSetCount(
+  exercise: ReturnType<typeof loadExercises>[number] | null | undefined,
+  actualSetCount: number,
+) {
+  if (!exercise) return 0;
+  const baseSetCount = Math.max(1, exercise.setCount ?? 1);
+  const perSetMinutes = Math.max(0, exercise.durationMin) / baseSetCount;
+  return perSetMinutes * Math.max(1, actualSetCount);
+}
+
+function getExtraSetDuration(
+  exercise: ReturnType<typeof loadExercises>[number] | null | undefined,
+  actualSetCount: number,
+) {
+  if (!exercise) return 0;
+  const baseSetCount = Math.max(1, exercise.setCount ?? 1);
+  const extraSets = Math.max(0, actualSetCount - baseSetCount);
+  if (extraSets <= 0) return 0;
+  return (Math.max(0, exercise.durationMin) / baseSetCount) * extraSets;
+}
+
 function buildBasketballWarmupExerciseIds(params: {
   exercises: ReturnType<typeof loadExercises>;
   minutes: number;
@@ -320,7 +357,6 @@ function WorkoutsPageContent() {
   const [progress, setProgress] = useState<WorkoutProgress>(() =>
     getDefaultWorkoutProgress(toLocalDateKey(new Date()), getTodayWorkoutPlan()),
   );
-  const [selectedMetricByExercise, setSelectedMetricByExercise] = useState<Record<number, MetricKey>>({});
   const [trainingGoalsSnap, setTrainingGoalsSnap] = useState(0);
 
   useEffect(() => {
@@ -399,6 +435,7 @@ function WorkoutsPageContent() {
           title: parsed.title,
           sport: "Rest",
           subcategory: parsed.subcategory ?? "Keine Zeit",
+          durationMin: parsed.durationMin,
           exercises: [],
         };
       }
@@ -413,12 +450,14 @@ function WorkoutsPageContent() {
         title: parsed.title,
         sport,
         subcategory: parsed.subcategory ?? "-",
+        durationMin: parsed.durationMin,
         exercises:
           exerciseIds.length > 0
             ? exerciseIds
                 .map((exerciseId) => trainingExercises.find((exercise) => exercise.id === exerciseId))
                 .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise))
                 .map((exercise) => ({
+                  exerciseId: exercise.id,
                   name: exercise.name,
                   sets: buildExerciseSets(exercise),
                 }))
@@ -453,6 +492,7 @@ function WorkoutsPageContent() {
     const exercises = groupedExercises
       .map((exercise) => {
         return {
+          exerciseId: exercise.id,
           name: exercise.name,
           sets: buildExerciseSets(exercise),
         };
@@ -465,6 +505,7 @@ function WorkoutsPageContent() {
       title: workout.name,
       sport: workout.category === "Gym" ? "Gym" : workout.category === "Home" ? "Home" : "Basketball",
       subcategory: workout.subcategory,
+      durationMin: roundWorkoutMinutes(groupedExercises.reduce((sum, exercise) => sum + Math.max(0, exercise.durationMin), 0)),
       exercises,
     };
   }, [trainingExercises, trainingWorkouts, workoutIdParam]);
@@ -479,7 +520,8 @@ function WorkoutsPageContent() {
     return workoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
   }, [overrideWorkoutId, workoutOptions]);
 
-  const activeWorkoutBase = manualWorkout ?? selectedOverrideWorkout ?? customWorkoutFromCatalog ?? autoWorkoutFromWeekly ?? defaultWorkout;
+  const activeWorkoutBase = customWorkoutFromCatalog ?? autoWorkoutFromWeekly ?? manualWorkout ?? selectedOverrideWorkout ?? defaultWorkout;
+  const isCatalogWorkoutRun = Boolean(customWorkoutFromCatalog && workoutIdParam && !autoWorkoutParam && !workoutPayloadIdParam && !manualWorkoutIdParam);
 
   useEffect(() => {
     setSessionWorkout(activeWorkoutBase);
@@ -491,6 +533,83 @@ function WorkoutsPageContent() {
     () => getDefaultWorkoutProgress(dateKey, workoutForExecution),
     [dateKey, workoutForExecution],
   );
+  const progressStorageKey = useMemo(
+    () => `${buildWorkoutStorageKey(dateKey)}-${workoutForExecution.id}`,
+    [dateKey, workoutForExecution.id],
+  );
+  const progressRef = useRef(progress);
+  const completionRunLockRef = useRef<string | null>(null);
+  const completedSessionKeysRef = useRef<Set<string>>(new Set());
+  const dateKeyRef = useRef(dateKey);
+  const progressStorageKeyRef = useRef(progressStorageKey);
+
+  useEffect(() => {
+    progressRef.current = progress;
+    dateKeyRef.current = dateKey;
+    progressStorageKeyRef.current = progressStorageKey;
+  }, [dateKey, progress, progressStorageKey]);
+
+  useEffect(() => {
+    const pauseActiveWorkout = () => {
+      const current = progressRef.current;
+      if (current.status !== "in_progress" || !current.startedAtIso) return;
+
+      const endIso = new Date().toISOString();
+      const startedAt = Date.parse(current.startedAtIso);
+      const endedAt = Date.parse(endIso);
+      const elapsedSeconds =
+        Math.max(0, current.elapsedSeconds ?? 0) +
+        (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt > startedAt
+          ? Math.max(0, Math.round((endedAt - startedAt) / 1000))
+          : 0);
+      const paused: WorkoutProgress = {
+        ...current,
+        status: "not_started",
+        elapsedSeconds,
+        startedAtIso: undefined,
+        endedAtIso: undefined,
+      };
+
+      progressRef.current = paused;
+      window.localStorage.setItem(progressStorageKeyRef.current, JSON.stringify(paused));
+      window.localStorage.setItem(buildWorkoutStorageKey(dateKeyRef.current), JSON.stringify(paused));
+      // #region agent log
+      agentDebugLog("H5", "workout auto-paused on page leave", {
+        workoutId: paused.workoutId,
+        elapsedSeconds: paused.elapsedSeconds ?? null,
+        dateKey: dateKeyRef.current,
+      });
+      // #endregion
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") pauseActiveWorkout();
+    };
+    const handleNavigationClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const link = target?.closest("a[href]") as HTMLAnchorElement | null;
+      if (!link) return;
+      try {
+        const url = new URL(link.href);
+        if (url.origin === window.location.origin && !url.pathname.startsWith("/workouts")) {
+          pauseActiveWorkout();
+        }
+      } catch {
+        // Ignore malformed hrefs.
+      }
+    };
+
+    window.addEventListener("pagehide", pauseActiveWorkout);
+    window.addEventListener("beforeunload", pauseActiveWorkout);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("click", handleNavigationClick, true);
+    return () => {
+      window.removeEventListener("pagehide", pauseActiveWorkout);
+      window.removeEventListener("beforeunload", pauseActiveWorkout);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("click", handleNavigationClick, true);
+    };
+  }, []);
 
   const recommendations = useMemo(() => {
     const sessions = getWorkoutSessions();
@@ -672,6 +791,7 @@ function WorkoutsPageContent() {
   useEffect(() => {
     void manualStorageVersion;
     if (manualParam === "1" && !manualWorkoutIdParam) return;
+    if (!manualWorkoutIdParam && (workoutIdParam || autoWorkoutParam || workoutPayloadIdParam)) return;
     const raw = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
     if (!raw) return;
     try {
@@ -691,23 +811,61 @@ function WorkoutsPageContent() {
   }, [dateKey, manualParam, manualStorageVersion, manualWorkoutIdParam]);
 
   useEffect(() => {
+    const rawForWorkout = window.localStorage.getItem(progressStorageKey);
+    const legacyRaw = window.localStorage.getItem(buildWorkoutStorageKey(dateKey));
     const parsed = parseWorkoutProgress(
-      window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
+      rawForWorkout ?? legacyRaw,
       fallbackProgress,
     );
     const isValidForActiveWorkout =
       parsed.workoutId === fallbackProgress.workoutId &&
-      parsed.date === fallbackProgress.date;
+      parsed.date === fallbackProgress.date &&
+      (rawForWorkout != null || parsed.status !== "completed") &&
+      (!isCatalogWorkoutRun || parsed.status !== "completed");
+    // #region agent log
+    agentDebugLog("H5", "workout progress load decision", {
+      dateKey,
+      workoutId: workoutForExecution.id,
+      progressStorageKey,
+      hasWorkoutRaw: Boolean(rawForWorkout),
+      hasLegacyRaw: Boolean(legacyRaw),
+      parsedWorkoutId: parsed.workoutId,
+      parsedStatus: parsed.status,
+      parsedElapsed: parsed.elapsedSeconds ?? null,
+      parsedStarted: Boolean(parsed.startedAtIso),
+      isValidForActiveWorkout,
+    });
+    // #endregion
 
     const timer = window.setTimeout(() => {
-      setProgress(isValidForActiveWorkout ? parsed : fallbackProgress);
+      const nextProgress = isValidForActiveWorkout ? parsed : fallbackProgress;
+      progressRef.current = nextProgress;
+      setProgress(nextProgress);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [dateKey, fallbackProgress]);
+  }, [dateKey, fallbackProgress, isCatalogWorkoutRun, progressStorageKey, workoutForExecution.id]);
 
   const persistProgress = (next: WorkoutProgress) => {
+    progressRef.current = next;
+    dateKeyRef.current = dateKey;
+    progressStorageKeyRef.current = progressStorageKey;
     setProgress(next);
+    window.localStorage.setItem(progressStorageKey, JSON.stringify(next));
     window.localStorage.setItem(buildWorkoutStorageKey(dateKey), JSON.stringify(next));
+    window.dispatchEvent(new Event("bt:workout-progress-updated"));
+    if (next.status === "in_progress" || next.status === "completed") {
+      // #region agent log
+      agentDebugLog("H5", "workout progress persisted", {
+        dateKey,
+        workoutId: next.workoutId,
+        status: next.status,
+        elapsedSeconds: next.elapsedSeconds ?? null,
+        hasStartedAt: Boolean(next.startedAtIso),
+        hasEndedAt: Boolean(next.endedAtIso),
+        progressStorageKey,
+      });
+      // #endregion
+    }
   };
 
   const isGymWorkout = workoutForExecution.sport === "Gym";
@@ -723,7 +881,10 @@ function WorkoutsPageContent() {
   );
   const currentSet = currentExercise?.sets[safeSetIndex] ?? { targetKg: 0, targetReps: 0 };
   const currentLogKey = buildSetLogKey(safeExerciseIndex, safeSetIndex);
-  const currentLog = progress.logs[currentLogKey] ?? { weight: "", reps: "", tries: "", makes: "", misses: "", note: "", completed: false, rpe: "" };
+  const emptySetLog: SetLog = { weight: "", reps: "", tries: "", makes: "", misses: "", time: "", distance: "", distanceUnit: "m", points: "", note: "", completed: false, rpe: "" };
+  const currentLog = progress.logs[currentLogKey] ?? emptySetLog;
+  const getCurrentLogFromProgress = (workoutProgress: WorkoutProgress) =>
+    workoutProgress.logs[currentLogKey] ?? emptySetLog;
 
   const parseNonNegative = (value?: string) => {
     const parsed = Number(value ?? "");
@@ -731,24 +892,37 @@ function WorkoutsPageContent() {
     return parsed;
   };
 
+  const getAccumulatedElapsedSeconds = (workoutProgress: WorkoutProgress, endIso = new Date().toISOString()) => {
+    const saved = Math.max(0, workoutProgress.elapsedSeconds ?? 0);
+    if (!workoutProgress.startedAtIso || workoutProgress.status !== "in_progress") return saved;
+    const startMs = new Date(workoutProgress.startedAtIso).getTime();
+    const endMs = new Date(endIso).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return saved;
+    return saved + Math.max(0, Math.round((endMs - startMs) / 1000));
+  };
+
+  const activateProgressForInput = (workoutProgress: WorkoutProgress = progress): WorkoutProgress => {
+    if (workoutProgress.status === "in_progress" && workoutProgress.startedAtIso) return workoutProgress;
+    return {
+      ...workoutProgress,
+      status: "in_progress",
+      startedAtIso: new Date().toISOString(),
+      endedAtIso: undefined,
+    };
+  };
+
   const shootingRepsTotal = parseNonNegative(currentLog.reps) || parseNonNegative(currentLog.tries);
 
-  const lastSetCompletedAtIso = useMemo(() => {
-    let best = "";
-    for (const log of Object.values(progress.logs)) {
-      if (log?.completedAtIso && log.completedAtIso > best) {
-        best = log.completedAtIso;
-      }
-    }
-    return best || undefined;
-  }, [progress.logs]);
-
   const exerciseMeta = useMemo(() => {
-    const lookup = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
-    return workoutForExecution.exercises.map((exercise) => lookup.get(exercise.name) ?? null);
+    const byId = new Map(trainingExercises.map((exercise) => [exercise.id, exercise]));
+    const byName = new Map(trainingExercises.map((exercise) => [exercise.name, exercise]));
+    return workoutForExecution.exercises.map((exercise) =>
+      exercise.exerciseId ? byId.get(exercise.exerciseId) ?? byName.get(exercise.name) ?? null : byName.get(exercise.name) ?? null,
+    );
   }, [trainingExercises, workoutForExecution.exercises]);
   
   const currentExerciseMeta = exerciseMeta[safeExerciseIndex];
+  const workoutCategory = workoutSportToCategory(workoutForExecution.sport);
 
   const gymGoalHint = useMemo(() => {
     void trainingGoalsSnap;
@@ -762,13 +936,8 @@ function WorkoutsPageContent() {
   }, [isGymWorkout, currentExerciseMeta?.id, trainingGoalsSnap]);
 
   const rawMetricOptions = (currentExerciseMeta?.metricKeys?.length ? currentExerciseMeta.metricKeys : ["reps"]) as MetricKey[];
-  const currentMetricOptions = filterMetricKeysForSport(workoutForExecution.sport, rawMetricOptions);
-  const activeMetric = selectedMetricByExercise[safeExerciseIndex] ?? currentMetricOptions[0];
-  const tracksRepsAndMakes =
-    !isGymWorkout &&
-    currentMetricOptions.includes("makes") &&
-    currentMetricOptions.includes("reps");
-  const usesCompletedToggle = currentMetricOptions.includes("completed");
+  const currentMetricOptions = workoutCategory ? normalizeMetricKeysForCategory(workoutCategory, rawMetricOptions) : rawMetricOptions;
+  const tracksRepsAndMakes = workoutForExecution.sport === "Basketball" && shouldUseShootingInputs(currentMetricOptions);
 
   const workoutNotes = useMemo(() => {
     const fromCatalog = customWorkoutFromCatalog ? trainingWorkouts.find((workout) => workout.id === customWorkoutFromCatalog.id)?.notes : null;
@@ -793,82 +962,85 @@ function WorkoutsPageContent() {
     [currentBasketballMode, performanceTips, workoutForExecution.subcategory],
   );
 
-  const hasSetStarted = (exerciseIndex: number, setIndex: number) => {
+  const hasSetStarted = (exerciseIndex: number, setIndex: number, workoutProgress: WorkoutProgress = progress) => {
     const key = buildSetLogKey(exerciseIndex, setIndex);
-    const log = progress.logs[key];
+    const log = workoutProgress.logs[key];
     if (!log) return false;
     const reps = Number(log.reps) || 0;
     const weight = Number(log.weight) || 0;
     const tries = parseNonNegative(log.reps) || parseNonNegative(log.tries);
     const makes = Number(log.makes) || 0;
     const misses = Number(log.misses) || 0;
-    return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || log.completed === true;
+    return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || log.completed === true || Boolean(log.completedAtIso);
   };
 
-  const getExerciseStatus = (exerciseIndex: number): "not_started" | "in_progress" | "completed" => {
+  const getExerciseStatus = (exerciseIndex: number, workoutProgress: WorkoutProgress = progress): "not_started" | "in_progress" | "completed" => {
     const exercise = workoutForExecution.exercises[exerciseIndex];
-    const startedSets = exercise.sets.filter((_, setIndex) => hasSetStarted(exerciseIndex, setIndex)).length;
+    const startedSets = exercise.sets.filter((_, setIndex) => hasSetStarted(exerciseIndex, setIndex, workoutProgress)).length;
     if (startedSets <= 0) return "not_started";
     if (startedSets >= exercise.sets.length) return "completed";
     return "in_progress";
   };
 
+  const isWorkoutFullyTracked = (workoutProgress: WorkoutProgress = progress) =>
+    workoutForExecution.exercises.length > 0 &&
+    workoutForExecution.exercises.every((_, exerciseIndex) => getExerciseStatus(exerciseIndex, workoutProgress) === "completed");
+
   const jumpToExercise = (exerciseIndex: number) => {
     const exercise = workoutForExecution.exercises[exerciseIndex];
     const nextSetIndex = exercise.sets.findIndex((_, setIndex) => !hasSetStarted(exerciseIndex, setIndex));
+    const activeProgress = activateProgressForInput();
     persistProgress({
-      ...progress,
+      ...activeProgress,
       exerciseIndex,
       setIndex: nextSetIndex >= 0 ? nextSetIndex : Math.max(0, exercise.sets.length - 1),
-      status: progress.status === "not_started" ? "in_progress" : progress.status,
     });
   };
 
-  const updateCurrentLog = (field: "weight" | "reps" | "tries" | "makes" | "misses" | "note", value: string) => {
+  const clampShootingLog = (log: SetLog): SetLog => {
+    if (!tracksRepsAndMakes) return log;
+    const completed = completeShootingValues(log);
+    return {
+      ...log,
+      reps: completed.reps > 0 ? String(completed.reps) : log.reps,
+      makes: completed.reps > 0 ? String(completed.makes) : log.makes,
+      misses: completed.reps > 0 ? String(completed.misses) : log.misses,
+    };
+  };
+
+  const updateCurrentLog = (field: "weight" | "reps" | "tries" | "makes" | "misses" | "time" | "distance" | "distanceUnit" | "points" | "note", value: string) => {
     setSetValidationError(null);
+    const activeProgress = activateProgressForInput(progressRef.current);
+    const activeLog = getCurrentLogFromProgress(activeProgress);
+    const nextLog = clampShootingLog({
+      ...activeLog,
+      [field]: value,
+    });
     persistProgress({
-      ...progress,
+      ...activeProgress,
       logs: {
-        ...progress.logs,
-        [currentLogKey]: {
-          ...currentLog,
-          [field]: value,
-        },
+        ...activeProgress.logs,
+        [currentLogKey]: nextLog,
       },
     });
   };
 
   const patchCurrentLog = (patch: Partial<SetLog>) => {
     setSetValidationError(null);
+    const activeProgress = activateProgressForInput(progressRef.current);
+    const activeLog = getCurrentLogFromProgress(activeProgress);
+    const nextLog = clampShootingLog({
+      ...activeLog,
+      ...patch,
+    });
     persistProgress({
-      ...progress,
+      ...activeProgress,
       logs: {
-        ...progress.logs,
-        [currentLogKey]: {
-          ...currentLog,
-          ...patch,
-        },
+        ...activeProgress.logs,
+        [currentLogKey]: nextLog,
       },
     });
   };
-  const updateCompletionLog = (value: boolean) => {
-    setSetValidationError(null);
-    persistProgress({
-      ...progress,
-      logs: {
-        ...progress.logs,
-        [currentLogKey]: {
-          ...currentLog,
-          completed: value,
-        },
-      },
-    });
-  };
-
-  const selectMetric = (metric: MetricKey) => {
-    setSelectedMetricByExercise((previous) => ({ ...previous, [safeExerciseIndex]: metric }));
-  };
-
   const toggleManualExercise = (exerciseId: string) => {
     setSelectedManualExerciseIds((previous) =>
       previous.includes(exerciseId) ? previous.filter((id) => id !== exerciseId) : [...previous, exerciseId],
@@ -908,6 +1080,7 @@ function WorkoutsPageContent() {
         title: entry.title,
         sport: "Rest",
         subcategory: entry.subcategory,
+        durationMin: entry.durationMin,
         exercises: [],
       };
     }
@@ -920,7 +1093,9 @@ function WorkoutsPageContent() {
       title: entry.title,
       sport: entry.sport,
       subcategory: entry.subcategory,
+      durationMin: entry.durationMin ?? roundWorkoutMinutes(selectedExercises.reduce((sum, exercise) => sum + Math.max(0, exercise.durationMin), 0)),
       exercises: selectedExercises.map((exercise) => ({
+        exerciseId: exercise.id,
         name: exercise.name,
         sets: buildExerciseSets(exercise),
       })),
@@ -1210,110 +1385,163 @@ function WorkoutsPageContent() {
   };
 
   const jumpToSet = (setIndex: number) => {
-    const nowIso = new Date().toISOString();
+    const activeProgress = activateProgressForInput(progressRef.current);
     persistProgress({
-      ...progress,
+      ...activeProgress,
       setIndex,
-      status: progress.status === "not_started" ? "in_progress" : progress.status,
-      startedAtIso: progress.status === "not_started" ? (progress.startedAtIso ?? nowIso) : progress.startedAtIso,
     });
   };
 
   const startWorkout = () => {
+    completionRunLockRef.current = null;
+    persistProgress({
+      ...progressRef.current,
+      status: "in_progress",
+      startedAtIso: new Date().toISOString(),
+      endedAtIso: undefined,
+    });
     if (activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball") {
       setShowTipsReminder(true);
+    }
+  };
+  const pauseWorkout = (sourceProgress: WorkoutProgress = progressRef.current) => {
+    const endedAtIso = new Date().toISOString();
+    const pausedProgress: WorkoutProgress = {
+      ...sourceProgress,
+      status: "not_started",
+      elapsedSeconds: getAccumulatedElapsedSeconds(sourceProgress, endedAtIso),
+      startedAtIso: undefined,
+      endedAtIso: undefined,
+    };
+    persistProgress(pausedProgress);
+    // #region agent log
+    agentDebugLog("H5", "workout paused instead of completed", {
+      workoutId: pausedProgress.workoutId,
+      elapsedSeconds: pausedProgress.elapsedSeconds ?? null,
+      completedExercises: workoutForExecution.exercises.filter((_, index) => getExerciseStatus(index, pausedProgress) === "completed").length,
+      totalExercises: workoutForExecution.exercises.length,
+    });
+    // #endregion
+  };
+  const completeWorkout = (sourceProgress: WorkoutProgress = progressRef.current) => {
+    if (!isWorkoutFullyTracked(sourceProgress)) {
+      pauseWorkout(sourceProgress);
       return;
     }
-    persistProgress({
-      ...progress,
-      status: "in_progress",
-      startedAtIso: progress.startedAtIso ?? new Date().toISOString(),
-    });
-  };
-  const completeWorkout = () => {
+    const runStartedAtIso = sourceProgress.startedAtIso ?? sourceProgress.endedAtIso ?? new Date().toISOString();
+    const completionKey = `${sourceProgress.date}-${sourceProgress.workoutId}-${runStartedAtIso}`;
+    if (completionRunLockRef.current === completionKey) {
+      return;
+    }
+    completionRunLockRef.current = completionKey;
+    if (completedSessionKeysRef.current.has(completionKey)) {
+      return;
+    }
+    completedSessionKeysRef.current.add(completionKey);
+    const endedAtIso = new Date().toISOString();
     const completedProgress: WorkoutProgress = {
-      ...progress,
+      ...sourceProgress,
       status: "completed",
-      endedAtIso: new Date().toISOString(),
+      endedAtIso,
+      elapsedSeconds: getAccumulatedElapsedSeconds(sourceProgress, endedAtIso),
+      startedAtIso: undefined,
     };
     persistProgress(completedProgress);
 
-    const nowIso = new Date().toISOString();
-    const sessionLogs = workoutForExecution.exercises.flatMap((exercise, exerciseIndex) => {
-      const exerciseDef = trainingExercises.find((item) => item.name === exercise.name);
-      if (!exerciseDef) return [];
-      const usesCompletionFlag = exerciseDef.metricKeys.includes("completed");
-      const setLogs = exercise.sets.map((_, setIndex) => completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)]);
-      const anyExplicitlyCompleted = setLogs.some((log) => log?.completed === true);
-      const anyExplicitlyIncomplete = setLogs.some((log) => log?.completed === false);
-      const hasAnyMetric = setLogs.some((log) =>
-        Boolean(
-          parseNonNegative(log?.makes) ||
-          parseNonNegative(log?.reps) ||
-          parseNonNegative(log?.tries) ||
-          parseNonNegative(log?.misses) ||
-          parseNonNegative(log?.weight) ||
-          log?.note?.trim(),
-        ),
-      );
-      const isCompleted = usesCompletionFlag
-        ? anyExplicitlyCompleted || (!anyExplicitlyIncomplete && !hasAnyMetric)
-        : !anyExplicitlyIncomplete;
-      if (!isCompleted) return [];
-      const makes = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.makes), 0);
-      const repsTotal = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.reps), 0);
-      const triesLegacy = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.tries), 0);
-      const misses = setLogs.reduce((sum, log) => sum + parseNonNegative(log?.misses), 0);
-      const computedTries = repsTotal > 0 ? repsTotal : triesLegacy > 0 ? triesLegacy : makes + misses;
-      const computedMisses = computedTries > 0 ? Math.max(0, computedTries - makes) : misses;
-      const weightKg = Math.max(...setLogs.map((log) => parseNonNegative(log?.weight)), 0);
-      const rpeSamples = setLogs.map((log) => parseSetRpe(log?.rpe)).filter((value): value is number => value != null);
-      const rpe = rpeSamples.length > 0 ? Math.round((rpeSamples.reduce((a, b) => a + b, 0) / rpeSamples.length) * 10) / 10 : null;
-      const note = setLogs.map((log) => log?.note?.trim()).filter(Boolean).join(" · ");
-      return [{
-        exerciseId: exerciseDef.id,
-        completedValue: makes > 0 ? makes : repsTotal > 0 ? repsTotal : 1,
-        note,
-        made: makes > 0 ? makes : null,
-        misses: computedMisses > 0 ? computedMisses : null,
-        attempts: computedTries > 0 ? computedTries : null,
-        weightKg: weightKg || null,
-        completed: true,
-        rpe,
-      }];
+    const sessionLogsFromProgress = workoutForExecution.exercises.flatMap((exercise, exerciseIndex) => {
+      const exerciseDef = exerciseMeta[exerciseIndex];
+      const exerciseId = exercise.exerciseId ?? exerciseDef?.id ?? `custom-${exerciseIndex}-${exercise.name}`;
+      const fallbackCategory = workoutSportToCategory(workoutForExecution.sport) ?? "Basketball";
+      const sessionExercise = exerciseDef ?? {
+        id: exerciseId,
+        name: exercise.name,
+        durationMin: 0,
+        category: fallbackCategory,
+        subcategory: workoutForExecution.subcategory,
+        metricKeys: ["reps"] as MetricKey[],
+        trackingType: "reps" as const,
+      };
+      return exercise.sets.map((set, setIndex) => {
+        const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
+        return buildSessionLogFromSet({
+          exercise: sessionExercise,
+          log,
+          setTargetReps: set.targetReps,
+          rpe: parseSetRpe(log?.rpe),
+        });
+      });
     });
+    const sessionLogs = sessionLogsFromProgress;
+    const exerciseLookupForSession = new Map(
+      exerciseMeta
+        .filter((exercise): exercise is NonNullable<typeof exercise> => Boolean(exercise))
+        .map((exercise) => [exercise.id, exercise]),
+    );
+    const repCountForHistory = (log: (typeof sessionLogsFromProgress)[number]) =>
+      repCountFromSessionLog(log, exerciseLookupForSession.get(log.exerciseId));
 
     const historyEntry: CompletedWorkoutHistoryEntry = {
-      id: `${completedProgress.date}-${completedProgress.workoutId}`,
+      id: isCatalogWorkoutRun
+        ? `${completedProgress.date}-${completedProgress.workoutId}-${runStartedAtIso}`
+        : `${completedProgress.date}-${completedProgress.workoutId}`,
       date: completedProgress.date,
       workoutId: completedProgress.workoutId,
       title: completedProgress.title,
       sport: completedProgress.sport,
       subcategory: completedProgress.subcategory,
       totalSets: countTrackedSetsInLogs(sessionLogs),
-      totalReps: sessionLogs.reduce((sum, log) => sum + Math.max(0, log.completedValue ?? log.made ?? 0), 0),
-      totalVolumeKg: sessionLogs.reduce(
+      totalReps: sessionLogsFromProgress.reduce((sum, log) => sum + repCountForHistory(log), 0),
+      totalVolumeKg: sessionLogsFromProgress.reduce(
         (sum, log) =>
-          sum + Math.max(0, log.completedValue ?? log.made ?? 0) * Math.max(0, log.weightKg ?? 0),
+          sum + repCountForHistory(log) * Math.max(0, log.weightKg ?? 0),
         0,
       ),
     };
 
+    // #region agent log
+    agentDebugLog("H5", "workout completion session logs derived", {
+      workoutId: completedProgress.workoutId,
+      totalExercises: workoutForExecution.exercises.length,
+      loggedExercises: new Set(sessionLogs.map((log) => log.exerciseId)).size,
+      loggedSets: sessionLogs.length,
+      fullyTracked: isWorkoutFullyTracked(completedProgress),
+    });
+    // #endregion
+
     persistHistoryEntry(historyEntry);
 
-    if (sessionLogs.length > 0) {
       const rpeSamples = sessionLogs.map((l) => l.rpe).filter((v): v is number => typeof v === "number");
       const avgRpe =
         rpeSamples.length > 0 ? Math.round((rpeSamples.reduce((a, b) => a + b, 0) / rpeSamples.length) * 10) / 10 : null;
-      const startMs = completedProgress.startedAtIso ? new Date(completedProgress.startedAtIso).getTime() : NaN;
-      const endMs = completedProgress.endedAtIso ? new Date(completedProgress.endedAtIso).getTime() : NaN;
+      const extraSetMinutes = workoutForExecution.exercises.reduce((sum, exercise) => {
+        const exerciseDef = exercise.exerciseId
+          ? trainingExercises.find((item) => item.id === exercise.exerciseId) ?? trainingExercises.find((item) => item.name === exercise.name)
+          : trainingExercises.find((item) => item.name === exercise.name);
+        return sum + getExtraSetDuration(exerciseDef, exercise.sets.length);
+      }, 0);
+      const calculatedDurationMinutes = workoutForExecution.exercises.reduce((sum, exercise) => {
+        const exerciseDef = exercise.exerciseId
+          ? trainingExercises.find((item) => item.id === exercise.exerciseId) ?? trainingExercises.find((item) => item.name === exercise.name)
+          : trainingExercises.find((item) => item.name === exercise.name);
+        return sum + getDurationForSetCount(exerciseDef, exercise.sets.length);
+      }, 0);
+      const attributedDurationMinutes =
+        workoutForExecution.durationMin && workoutForExecution.durationMin > 0
+          ? roundUpToFiveMinutes(workoutForExecution.durationMin + extraSetMinutes)
+          : roundUpToFiveMinutes(calculatedDurationMinutes);
+      const plannedDurationSeconds = attributedDurationMinutes > 0 ? attributedDurationMinutes * 60 : 0;
       const durationSeconds =
-        Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
-          ? Math.max(60, Math.round((endMs - startMs) / 1000))
-          : Math.max(300, sessionLogs.length * 180);
+        plannedDurationSeconds > 0
+          ? plannedDurationSeconds
+          : completedProgress.elapsedSeconds && completedProgress.elapsedSeconds > 0
+            ? Math.max(60, completedProgress.elapsedSeconds)
+            : Math.max(300, sessionLogs.length * 180);
 
+      const sessionId = isCatalogWorkoutRun
+        ? `${completedProgress.date}-${completedProgress.workoutId}-${runStartedAtIso}`
+        : `${completedProgress.date}-${completedProgress.workoutId}`;
       const sessionEntry = {
-        id: `ws-${Date.now()}-${completedProgress.workoutId}`,
+        id: `ws-${sessionId}`,
         dateISO: new Date(`${dateKey}T12:00:00`).toISOString(),
         workoutId: completedProgress.workoutId,
         workoutName: completedProgress.title,
@@ -1322,20 +1550,18 @@ function WorkoutsPageContent() {
         sessionNotes: "",
         durationSeconds,
         avgRpe,
+        allowMultiple: isCatalogWorkoutRun,
         logs: sessionLogs,
       };
       appendWorkoutSession(sessionEntry);
       if (completedProgress.sport === "Gym") {
         applyGymGoalsAfterSession(sessionEntry);
       }
-    }
     let achievedSets = 0;
     let totalSets = 0;
     let completedSetCount = 0;
     const completedExercises = new Set<number>();
     workoutForExecution.exercises.forEach((exercise, exerciseIndex) => {
-      const exerciseDef = trainingExercises.find((item) => item.name === exercise.name);
-      const usesCompletionFlag = Boolean(exerciseDef?.metricKeys.includes("completed"));
       let exerciseWasCompleted = false;
       let exerciseTargetMet = false;
       exercise.sets.forEach((set, setIndex) => {
@@ -1345,14 +1571,16 @@ function WorkoutsPageContent() {
         const weight = Number(log?.weight) || 0;
         const tries = parseNonNegative(log?.reps) || parseNonNegative(log?.tries);
         const misses = Number(log?.misses) || 0;
+        const time = Number(log?.time) || 0;
+        const distance = Number(log?.distance) || 0;
+        const points = Number(log?.points) || 0;
         const setCompleted = log?.completed ?? true;
         const effectiveReps = makes > 0 ? makes : reps;
         const repsMet = effectiveReps >= set.targetReps;
         const weightMet = set.targetKg <= 0 || weight >= set.targetKg;
-        const completionCounted = usesCompletionFlag && log?.completed === true;
         if (
           setCompleted &&
-          (effectiveReps > 0 || weight > 0 || tries > 0 || misses > 0 || makes > 0 || completionCounted)
+          (effectiveReps > 0 || weight > 0 || tries > 0 || misses > 0 || makes > 0 || time > 0 || distance > 0 || points > 0)
         ) {
           exerciseWasCompleted = true;
           completedExercises.add(exerciseIndex);
@@ -1371,8 +1599,6 @@ function WorkoutsPageContent() {
     const qualityScore = totalSets > 0 ? achievedSets / totalSets : 0;
     const completedMinutes = workoutForExecution.exercises.reduce((sum, workoutExercise, exerciseIndex) => {
       const meta = exerciseMeta[exerciseIndex];
-      const exerciseDef = trainingExercises.find((item) => item.name === workoutExercise.name);
-      const usesCompletionFlag = Boolean(exerciseDef?.metricKeys.includes("completed"));
       const anyCompleted = workoutExercise.sets.some((_, setIndex) => {
         const log = completedProgress.logs[buildSetLogKey(exerciseIndex, setIndex)];
         const reps = Number(log?.reps) || 0;
@@ -1380,6 +1606,9 @@ function WorkoutsPageContent() {
         const weight = Number(log?.weight) || 0;
         const tries = parseNonNegative(log?.reps) || parseNonNegative(log?.tries);
         const misses = Number(log?.misses) || 0;
+        const time = Number(log?.time) || 0;
+        const distance = Number(log?.distance) || 0;
+        const points = Number(log?.points) || 0;
         return (
           (log?.completed ?? true) &&
           (reps > 0 ||
@@ -1387,7 +1616,9 @@ function WorkoutsPageContent() {
             weight > 0 ||
             tries > 0 ||
             misses > 0 ||
-            (usesCompletionFlag && log?.completed === true))
+            time > 0 ||
+            distance > 0 ||
+            points > 0)
         );
       });
       if (!anyCompleted) return sum;
@@ -1452,66 +1683,106 @@ function WorkoutsPageContent() {
     } else {
       setCompletionBanner("Stark! Workout abgeschlossen ✅");
     }
-    void pushProgressToCloud();
+    void pushProgressToCloud().catch(() => {
+      // Lokaler Abschluss ist bereits gespeichert; Netzwerkfehler beim Sync darf die UI nicht crashen.
+    });
+    if (isCatalogWorkoutRun) {
+      const freshProgress = getDefaultWorkoutProgress(dateKey, workoutForExecution);
+      progressRef.current = freshProgress;
+      setProgress(freshProgress);
+      window.localStorage.removeItem(progressStorageKey);
+      window.localStorage.removeItem(buildWorkoutStorageKey(dateKey));
+      router.push("/training?completed=workout");
+      return;
+    }
     router.push("/stats");
   };
 
   const finishSet = () => {
-    if (tracksRepsAndMakes) {
-      const makes = parseNonNegative(currentLog.makes);
-      const triesInput = shootingRepsTotal;
-      if (triesInput > 0 && makes > triesInput) {
-        setSetValidationError("Makes dürfen nicht größer als Reps sein.");
-        return;
-      }
-      if (makes > 0 && triesInput <= 0) {
-        setSetValidationError("Bitte auch Reps angeben, damit die Quote berechnet werden kann.");
-        return;
-      }
+    const activeProgress = activateProgressForInput(progressRef.current);
+    const activeLog = getCurrentLogFromProgress(activeProgress);
+    const validationMessage = validateSetLogForMetrics(activeLog, currentMetricOptions);
+    if (validationMessage) {
+      setSetValidationError(validationMessage);
+      return;
     }
 
     const nowIso = new Date().toISOString();
-    const updatedLog = { ...currentLog, completedAtIso: nowIso };
-    const updatedLogs = { ...progress.logs, [currentLogKey]: updatedLog };
+    const updatedLog = { ...activeLog, completedAtIso: nowIso };
+    const updatedLogs = { ...activeProgress.logs, [currentLogKey]: updatedLog };
     const isLastSetInExercise = safeSetIndex === currentExercise.sets.length - 1;
     const isLastExercise = safeExerciseIndex === workoutForExecution.exercises.length - 1;
 
     if (isLastExercise && isLastSetInExercise) {
       const next: WorkoutProgress = {
-        ...progress,
+        ...activeProgress,
         logs: updatedLogs,
         status: "completed",
         endedAtIso: nowIso,
+        elapsedSeconds: getAccumulatedElapsedSeconds(activeProgress, nowIso),
+        startedAtIso: undefined,
       };
       persistProgress(next);
-      completeWorkout();
+      completeWorkout(next);
       return;
     }
 
     if (isLastSetInExercise) {
       persistProgress({
-        ...progress,
+        ...activeProgress,
         logs: updatedLogs,
         exerciseIndex: safeExerciseIndex + 1,
         setIndex: 0,
         status: "in_progress",
-        startedAtIso: progress.startedAtIso ?? nowIso,
       });
       return;
     }
 
     persistProgress({
-      ...progress,
+      ...activeProgress,
       logs: updatedLogs,
       setIndex: safeSetIndex + 1,
       status: "in_progress",
-      startedAtIso: progress.startedAtIso ?? nowIso,
     });
   };
 
   if (!isClientReady) {
     return <main className="app-container">Workouts werden geladen…</main>;
   }
+
+  const workoutFullyTracked = isWorkoutFullyTracked();
+  const canContinueWorkout = progress.status !== "in_progress" && !workoutFullyTracked && (progress.elapsedSeconds ?? 0) > 0;
+  const workoutPrimaryLabel =
+    progress.status === "completed" && workoutFullyTracked
+      ? "Workout abgeschlossen"
+      : progress.status === "in_progress"
+      ? workoutFullyTracked
+        ? "Workout abschließen"
+        : "Workout pausieren"
+      : canContinueWorkout
+        ? "Workout fortfahren"
+        : "Workout starten";
+  const handleWorkoutPrimaryAction = () => {
+    const latestProgress = progressRef.current;
+    const latestFullyTracked = isWorkoutFullyTracked(latestProgress);
+    if (latestProgress.status === "completed" && latestFullyTracked) return;
+    if (latestProgress.status === "in_progress") {
+      if (latestFullyTracked) {
+        completeWorkout(latestProgress);
+      } else {
+        pauseWorkout(latestProgress);
+      }
+      return;
+    }
+    startWorkout();
+  };
+  const currentTargetText = isGymWorkout
+    ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps`
+    : tracksRepsAndMakes
+      ? `${currentSet.targetReps} Makes · Eingabe: Reps, Makes und Misses`
+      : currentMetricOptions.includes("time") && !currentMetricOptions.includes("reps")
+        ? `Zeit-Ziel: ${currentSet.targetReps} ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}`
+        : `${currentSet.targetReps} Reps`;
 
   return (
     <main className="app-container animate-in">
@@ -1754,7 +2025,7 @@ function WorkoutsPageContent() {
         </section>
       ) : null}
 
-      {manualParam !== "1" && progress.status === "completed" ? (
+      {manualParam !== "1" && progress.status === "completed" && workoutFullyTracked ? (
         <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-200">
           Workout abgeschlossen. Sehr stark! ✅
         </section>
@@ -1816,13 +2087,6 @@ function WorkoutsPageContent() {
 
           {currentExercise ? (
             <article className="rounded-xl border border-zinc-700 bg-zinc-950 p-4">
-              <div className="mb-4">
-                <WorkoutTimer
-                  startedAtIso={progress.startedAtIso}
-                  lastSetCompletedAtIso={lastSetCompletedAtIso}
-                  status={progress.status}
-                />
-              </div>
               <p className="text-xs uppercase tracking-wide text-zinc-400">
                 Exercise {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
               </p>
@@ -1877,8 +2141,12 @@ function WorkoutsPageContent() {
                 </div>
               ) : null}
 
+              <div className="mt-4 rounded-xl border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 text-sm text-cyan-100">
+                <span className="font-semibold">Ziel:</span> {currentTargetText}
+              </div>
+
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {isGymWorkout ? (
+                {currentMetricOptions.includes("weight") ? (
                   <label className="text-sm text-zinc-300">
                     Gewicht (kg)
                     <input
@@ -1930,7 +2198,18 @@ function WorkoutsPageContent() {
                       <div className="mt-1 flex gap-2">
                         <input
                           value={currentLog.misses ?? ""}
-                          onChange={(event) => updateCurrentLog("misses", event.target.value)}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            const reps = shootingRepsTotal;
+                            const misses = parseNonNegative(value);
+                            if (reps > 0 && misses > reps) {
+                              setSetValidationError("Misses dürfen nicht größer als Reps sein.");
+                            }
+                            patchCurrentLog({
+                              misses: value,
+                              makes: reps > 0 ? String(Math.max(0, reps - misses)) : currentLog.makes,
+                            });
+                          }}
                           className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                           inputMode="numeric"
                           placeholder={`Auto: ${Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))}`}
@@ -1941,7 +2220,7 @@ function WorkoutsPageContent() {
                             const total = shootingRepsTotal;
                             const makes = parseNonNegative(currentLog.makes);
                             const auto = Math.max(0, total - makes);
-                            updateCurrentLog("misses", String(auto));
+                            patchCurrentLog({ misses: String(auto), makes: String(Math.max(0, total - auto)) });
                           }}
                           className="shrink-0 rounded-lg border border-zinc-600 px-3 text-xs font-semibold text-zinc-200"
                           aria-label="Misses automatisch aus Reps minus Makes setzen"
@@ -1951,9 +2230,9 @@ function WorkoutsPageContent() {
                       </div>
                     </label>
                   </>
-                ) : !usesCompletedToggle ? (
+                ) : currentMetricOptions.includes("reps") ? (
                   <label className="text-sm text-zinc-300">
-                    {isGymWorkout ? "Reps" : `Wert (${activeMetric}${activeMetric === "time" ? currentExerciseMeta?.timeUnit === "seconds" ? " in Sek." : " in Min." : ""})`}
+                    Reps
                     <input
                       value={currentLog.reps}
                       onChange={(event) => updateCurrentLog("reps", event.target.value)}
@@ -1962,26 +2241,51 @@ function WorkoutsPageContent() {
                     />
                   </label>
                 ) : null}
-                {usesCompletedToggle ? (
-                  <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3">
-                    <p className="text-sm text-zinc-300">Geschafft?</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateCompletionLog(true)}
-                        className={`rounded-lg px-4 py-3 text-base font-semibold ${currentLog.completed ? "bg-emerald-600 text-white" : "border border-zinc-600 bg-black text-zinc-200"}`}
+
+                {currentMetricOptions.includes("time") ? (
+                  <label className="text-sm text-zinc-300">
+                    Zeit ({currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."})
+                    <input
+                      value={currentLog.time ?? ""}
+                      onChange={(event) => updateCurrentLog("time", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      inputMode="decimal"
+                    />
+                  </label>
+                ) : null}
+
+                {currentMetricOptions.includes("distance") ? (
+                  <label className="text-sm text-zinc-300">
+                    Distanz
+                    <div className="mt-1 flex gap-2">
+                      <input
+                        value={currentLog.distance ?? ""}
+                        onChange={(event) => updateCurrentLog("distance", event.target.value)}
+                        className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        inputMode="decimal"
+                      />
+                      <select
+                        value={currentLog.distanceUnit ?? "m"}
+                        onChange={(event) => updateCurrentLog("distanceUnit", event.target.value)}
+                        className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
                       >
-                        Ja
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateCompletionLog(false)}
-                        className={`rounded-lg px-4 py-3 text-base font-semibold ${currentLog.completed === false ? "bg-rose-600 text-white" : "border border-zinc-600 bg-black text-zinc-200"}`}
-                      >
-                        Nein
-                      </button>
+                        <option value="m">m</option>
+                        <option value="km">km</option>
+                      </select>
                     </div>
-                  </div>
+                  </label>
+                ) : null}
+
+                {currentMetricOptions.includes("points") ? (
+                  <label className="text-sm text-zinc-300">
+                    Punkte (optional, zählt nicht als Reps)
+                    <input
+                      value={currentLog.points ?? ""}
+                      onChange={(event) => updateCurrentLog("points", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      inputMode="numeric"
+                    />
+                  </label>
                 ) : null}
               </div>
 
@@ -2035,39 +2339,13 @@ function WorkoutsPageContent() {
                 </div>
               ) : null}
 
-              {!isGymWorkout && currentMetricOptions.length > 0 && !tracksRepsAndMakes ? (
-                <div className="mt-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-400">Attribute auswählen</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {currentMetricOptions.map((metric) => {
-                      const isActive = activeMetric === metric;
-                      return (
-                        <button
-                          key={`${safeExerciseIndex}-${metric}`}
-                          type="button"
-                          onClick={() => selectMetric(metric)}
-                          className={`rounded-full border px-3 py-1 text-xs ${
-                            isActive
-                              ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
-                              : "border-zinc-600 bg-zinc-900 text-zinc-300"
-                          }`}
-                        >
-                          {metric}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
               <div className="mt-3 text-sm text-zinc-400">
                 <p>
-                  Ziel: {isGymWorkout ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps` : tracksRepsAndMakes ? `${currentExerciseMeta?.targetByMetric?.reps ?? "-"} Reps • ${currentSet.targetReps} Makes` : `${currentSet.targetReps} ${activeMetric === "time" && currentExerciseMeta?.timeUnit === "seconds" ? "Sekunden" : "Treffer/Reps"}`}
+                  Ziel: {currentTargetText}
                 </p>
                 <p className="mt-1">
-                  Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksRepsAndMakes ? `${shootingRepsTotal} Reps • ${currentLog.makes || 0} Makes • ${parseNonNegative(currentLog.misses) || Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0}${activeMetric === "time" ? ` ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}` : ""}`}
+                  Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksRepsAndMakes ? `${shootingRepsTotal} Reps • ${currentLog.makes || 0} Makes • ${parseNonNegative(currentLog.misses) || Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0} Reps${currentLog.time ? ` • ${currentLog.time} ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}` : ""}${currentLog.distance ? ` • ${currentLog.distance} ${currentLog.distanceUnit ?? "m"}` : ""}`}
                 </p>
-                {usesCompletedToggle ? <p className="mt-1">Geschafft: {currentLog.completed ? "Ja" : "Nein"}</p> : null}
               </div>
               {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}
 
@@ -2075,10 +2353,11 @@ function WorkoutsPageContent() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={progress.status === "in_progress" ? completeWorkout : startWorkout}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+                    onClick={handleWorkoutPrimaryAction}
+                    disabled={progress.status === "completed" && workoutFullyTracked}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-emerald-700 disabled:text-emerald-100"
                   >
-                    {progress.status === "in_progress" ? "Workout beenden" : "Workout starten"}
+                    {workoutPrimaryLabel}
                   </button>
                   <button
                     type="button"
@@ -2144,7 +2423,7 @@ function WorkoutsPageContent() {
                 className="w-full rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-200"
                 onClick={() => setShowTipsReminder(false)}
               >
-                Abbrechen
+                Schließen
               </button>
               <button
                 type="button"
@@ -2155,7 +2434,8 @@ function WorkoutsPageContent() {
                   persistProgress({
                     ...progress,
                     status: "in_progress",
-                    startedAtIso: progress.startedAtIso ?? nowIso,
+                    startedAtIso: nowIso,
+                    endedAtIso: undefined,
                   });
                 }}
               >

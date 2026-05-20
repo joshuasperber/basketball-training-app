@@ -10,6 +10,7 @@ export type WeeklyWorkoutTransferPayload = {
   exerciseIds?: string[];
   exercises?: string[];
   workoutId?: string;
+  durationMin?: number;
 };
 
 const STORAGE_KEY = "bt.weekly-workout-transfer.v1";
@@ -71,6 +72,7 @@ export type WeeklyWorkoutNavCard = {
   notes?: string;
   manualWorkoutId?: string;
   workoutId?: string;
+  durationMin?: number;
   autoSuggestion?: WeeklyWorkoutTransferPayload;
 };
 
@@ -84,6 +86,7 @@ function payloadFromCard(card: WeeklyWorkoutNavCard): WeeklyWorkoutTransferPaylo
       exerciseIds: card.autoSuggestion.exerciseIds,
       exercises: card.autoSuggestion.exercises,
       workoutId: card.autoSuggestion.workoutId ?? card.workoutId,
+      durationMin: card.autoSuggestion.durationMin,
     };
   }
   return {
@@ -92,6 +95,7 @@ function payloadFromCard(card: WeeklyWorkoutNavCard): WeeklyWorkoutTransferPaylo
     subcategory: card.subcategory,
     notes: card.notes,
     workoutId: card.workoutId,
+    durationMin: card.durationMin,
   };
 }
 
