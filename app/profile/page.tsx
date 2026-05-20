@@ -684,7 +684,7 @@ const refreshProfileAndWeekly = () => {
           className="btn btn-ghost btn-sm mt-3"
           onClick={() => {
             clearPlayerIntake();
-            void pushProgressToCloud();
+            void pushProgressToCloud({ playerIntake: "" });
             setMessage("Kennenlern-Chat zurückgesetzt. Beim nächsten Laden der App wirst du erneut befragt.");
           }}
         >

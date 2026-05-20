@@ -217,6 +217,19 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   }
 }
 
+let initialCloudSyncPromise: Promise<RemoteProgress | null> | null = null;
+
+/** Einmaliger Cloud-Pull beim App-Start — verhindert doppelte parallele Requests. */
+export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  if (!initialCloudSyncPromise) {
+    initialCloudSyncPromise = pullProgressFromCloud().finally(() => {
+      initialCloudSyncPromise = null;
+    });
+  }
+  return initialCloudSyncPromise;
+}
+
 export async function pullProgressFromCloud() {
   const response = await fetch("/api/session", { cache: "no-store" });
   // #region agent log
@@ -235,8 +248,8 @@ export async function pullProgressFromCloud() {
   return remote;
 }
 
-export async function pushProgressToCloud() {
-  const snapshot = buildLocalProgressSnapshot();
+export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>) {
+  const snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
   const response = await fetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

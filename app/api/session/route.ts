@@ -180,8 +180,41 @@ async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecor
   return row ? mapRowToProgressRecord(row) : null;
 }
 
+/** Leerer String = Feld bewusst löschen; null = nicht überschreiben (Cloud-Wert behalten). */
+function mergeCloudTextField(incoming: string | null | undefined, existing: string | null | undefined): string | null {
+  if (incoming === "") return null;
+  if (incoming != null) return incoming;
+  return existing ?? null;
+}
+
+function mergeProgressWithExisting(existing: ProgressRecord | null, incoming: ProgressRecord): ProgressRecord {
+  if (!existing?.remoteExists) return incoming;
+  return {
+    ...incoming,
+    profileCache: mergeCloudTextField(incoming.profileCache, existing.profileCache),
+    profileUsername: mergeCloudTextField(incoming.profileUsername, existing.profileUsername),
+    profileWeekConfig: mergeCloudTextField(incoming.profileWeekConfig, existing.profileWeekConfig),
+    playerIntake: mergeCloudTextField(incoming.playerIntake, existing.playerIntake),
+    xpHistory: mergeCloudTextField(incoming.xpHistory, existing.xpHistory),
+    xpProgression: mergeCloudTextField(incoming.xpProgression, existing.xpProgression),
+    performanceTips: mergeCloudTextField(incoming.performanceTips, existing.performanceTips),
+    gameStats: mergeCloudTextField(incoming.gameStats, existing.gameStats),
+    trainingGoals: mergeCloudTextField(incoming.trainingGoals, existing.trainingGoals),
+    customSubcategories: mergeCloudTextField(incoming.customSubcategories, existing.customSubcategories),
+    workoutHistory: mergeCloudTextField(incoming.workoutHistory, existing.workoutHistory),
+    reminderPrefs: mergeCloudTextField(incoming.reminderPrefs, existing.reminderPrefs),
+    coachWeeklyNote: mergeCloudTextField(incoming.coachWeeklyNote, existing.coachWeeklyNote),
+    trainingExercises: mergeCloudTextField(incoming.trainingExercises, existing.trainingExercises),
+    trainingWorkouts: mergeCloudTextField(incoming.trainingWorkouts, existing.trainingWorkouts),
+    manualPlanOverrides: mergeCloudTextField(incoming.manualPlanOverrides, existing.manualPlanOverrides),
+  };
+}
+
 async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
+
+  const existing = await readProgressFromSupabase(user);
+  const merged = mergeProgressWithExisting(existing, payload);
 
   const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
   url.searchParams.set("on_conflict", "email");
@@ -189,29 +222,29 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
   const row: ProgressRow = {
     email: user.email,
     user_id: user.id,
-    sessions: payload.sessions ?? emptySessions,
-    daily_plan_map: payload.dailyPlanMap ?? {},
-    manual_day_workouts_map: payload.manualDayWorkoutsMap ?? {},
-    manual_day_disabled_map: payload.manualDayDisabledMap ?? {},
-    manual_plan_overrides: payload.manualPlanOverrides ?? null,
-    weekly_regen_slot_map: payload.weeklyRegenSlotMap ?? {},
-    hidden_auto_workouts_map: payload.hiddenAutoWorkoutsMap ?? {},
-    profile_cache: payload.profileCache ?? null,
-    profile_username: payload.profileUsername ?? null,
-    profile_week_config: payload.profileWeekConfig ?? null,
-    player_intake: payload.playerIntake ?? null,
-    xp_history: payload.xpHistory ?? null,
-    xp_progression: payload.xpProgression ?? null,
-    performance_tips: payload.performanceTips ?? null,
-    game_stats: payload.gameStats ?? null,
-    training_goals: payload.trainingGoals ?? null,
-    custom_subcategories: payload.customSubcategories ?? null,
-    workout_history: payload.workoutHistory ?? null,
-    reminder_prefs: payload.reminderPrefs ?? null,
-    coach_weekly_note: payload.coachWeeklyNote ?? null,
-    training_exercises: payload.trainingExercises ?? null,
-    training_workouts: payload.trainingWorkouts ?? null,
-    workout_overrides: payload.workoutOverrides ?? {},
+    sessions: merged.sessions ?? emptySessions,
+    daily_plan_map: merged.dailyPlanMap ?? {},
+    manual_day_workouts_map: merged.manualDayWorkoutsMap ?? {},
+    manual_day_disabled_map: merged.manualDayDisabledMap ?? {},
+    manual_plan_overrides: merged.manualPlanOverrides ?? null,
+    weekly_regen_slot_map: merged.weeklyRegenSlotMap ?? {},
+    hidden_auto_workouts_map: merged.hiddenAutoWorkoutsMap ?? {},
+    profile_cache: merged.profileCache ?? null,
+    profile_username: merged.profileUsername ?? null,
+    profile_week_config: merged.profileWeekConfig ?? null,
+    player_intake: merged.playerIntake ?? null,
+    xp_history: merged.xpHistory ?? null,
+    xp_progression: merged.xpProgression ?? null,
+    performance_tips: merged.performanceTips ?? null,
+    game_stats: merged.gameStats ?? null,
+    training_goals: merged.trainingGoals ?? null,
+    custom_subcategories: merged.customSubcategories ?? null,
+    workout_history: merged.workoutHistory ?? null,
+    reminder_prefs: merged.reminderPrefs ?? null,
+    coach_weekly_note: merged.coachWeeklyNote ?? null,
+    training_exercises: merged.trainingExercises ?? null,
+    training_workouts: merged.trainingWorkouts ?? null,
+    workout_overrides: merged.workoutOverrides ?? {},
   };
 
   const response = await fetch(url.toString(), {
@@ -231,17 +264,27 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
   // Fallback: ältere Datenbanken ohne neue optionale Spalten.
   const legacyRow = {
     email: row.email,
+    user_id: row.user_id,
     sessions: row.sessions,
     daily_plan_map: row.daily_plan_map,
     manual_day_workouts_map: row.manual_day_workouts_map,
     manual_day_disabled_map: row.manual_day_disabled_map,
     hidden_auto_workouts_map: row.hidden_auto_workouts_map,
     profile_cache: row.profile_cache,
+    profile_username: row.profile_username,
+    profile_week_config: row.profile_week_config,
+    player_intake: row.player_intake,
     xp_history: row.xp_history,
     xp_progression: row.xp_progression,
     performance_tips: row.performance_tips,
     game_stats: row.game_stats,
     training_goals: row.training_goals,
+    custom_subcategories: row.custom_subcategories,
+    workout_history: row.workout_history,
+    reminder_prefs: row.reminder_prefs,
+    coach_weekly_note: row.coach_weekly_note,
+    training_exercises: row.training_exercises,
+    training_workouts: row.training_workouts,
   };
   const legacyResponse = await fetch(url.toString(), {
     method: "POST",

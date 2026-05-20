@@ -3,7 +3,7 @@
 import { ErrorBoundary } from "@sentry/nextjs";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { ensureInitialCloudSync } from "@/lib/progress-sync";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
   return (
@@ -36,7 +36,7 @@ function agentDebugLog(hypothesisId: string, message: string, data: Record<strin
 function CloudSyncBridge() {
   useEffect(() => {
     const sync = () => {
-      void pullProgressFromCloud()
+      void ensureInitialCloudSync()
         .then((remote) => {
           // #region agent log
           agentDebugLog("H1,H2", "cloud sync bridge result", {
