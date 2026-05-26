@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 type SupabaseSession = {

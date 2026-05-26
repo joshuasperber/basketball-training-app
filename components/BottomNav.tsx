@@ -44,16 +44,26 @@ const ProfileIcon = (
   </svg>
 );
 
+const TeamIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="9" cy="8" r="3" />
+    <circle cx="17" cy="9" r="2.5" />
+    <path d="M4 20a5 5 0 0 1 10 0" />
+    <path d="M14 20a4 4 0 0 1 7 0" />
+  </svg>
+);
+
 const navItems: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: HomeIcon },
+  { label: "Start", href: "/dashboard", icon: HomeIcon },
   {
-    label: "Training",
+    label: "Train",
     href: "/Weekly-Workout",
     matches: ["/Weekly-Workout", "/workouts", "/training"],
     icon: TrainingIcon,
   },
+  { label: "Team", href: "/team", icon: TeamIcon },
   {
-    label: "Fortschritt",
+    label: "Stats",
     href: "/stats",
     matches: ["/stats", "/level", "/review"],
     icon: StatsIcon,
@@ -74,7 +84,10 @@ export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolea
 
   return (
     <nav className="bottom-nav" aria-label="Hauptnavigation">
-      <div className="bottom-nav__inner">
+      <div
+        className="bottom-nav__inner grid w-full max-w-[56rem] grid-cols-5 mx-auto px-0.5 pt-2 pb-2.5 gap-0"
+        style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}
+      >
         {navItems.map((item) => {
           const isActive = isItemActive(item.href, item.matches, pathname);
           const requiresAuth = item.href !== "/dashboard";
@@ -84,9 +97,11 @@ export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolea
             <Link
               key={item.href}
               href={item.href}
+              title={item.label}
+              aria-label={item.label}
               aria-disabled={isLocked}
               aria-current={isActive ? "page" : undefined}
-              className={`bottom-nav__item ${isActive ? "bottom-nav__item--active" : ""} ${
+              className={`bottom-nav__item flex min-w-0 w-full flex-col items-center justify-center gap-0.5 px-0.5 py-1.5 ${isActive ? "bottom-nav__item--active" : ""} ${
                 isLocked ? "bottom-nav__item--locked" : ""
               }`}
               onClick={(event) => {
@@ -95,7 +110,9 @@ export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolea
               }}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span className="bottom-nav__label block w-full truncate text-center text-[0.56rem] font-semibold leading-tight sm:text-[0.62rem]">
+                {item.label}
+              </span>
             </Link>
           );
         })}

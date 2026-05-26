@@ -1,11 +1,16 @@
 export const GAME_STATS_KEY = "bt.game-stats.v1";
 
+import type { OpponentStyleTag } from "@/lib/opponent-styles";
+import { normalizeOpponentStyles } from "@/lib/opponent-styles";
+
 export type GameStatEntry = {
   id: string;
   date: string;
   context: "game" | "game_training";
   /** z. B. Gegner oder Turniername */
   opponentLabel?: string | null;
+  /** Gegner-Stil-Tags für Matchup-Empfehlungen */
+  opponentStyles?: OpponentStyleTag[];
   minutes: number | null;
   intensity?: number | null;
   points: number | null;
@@ -28,7 +33,11 @@ export function loadGameStats() {
   if (!raw) return [] as GameStatEntry[];
   try {
     const parsed = JSON.parse(raw) as GameStatEntry[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry) => ({
+      ...entry,
+      opponentStyles: normalizeOpponentStyles(entry.opponentStyles),
+    }));
   } catch {
     return [];
   }

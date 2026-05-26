@@ -53,6 +53,21 @@ export function isPlayerIntakeComplete(): boolean {
   return loadPlayerIntake() != null;
 }
 
+/** Prüft rohen JSON-String aus Cloud-Sync (user_progress.player_intake). */
+export function isPlayerIntakePayloadComplete(raw: string | null | undefined): boolean {
+  if (!raw?.trim()) return false;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PlayerIntakeV1>;
+    return parsed?.version === 1 && typeof parsed.completedAt === "string" && parsed.completedAt.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function isPlayerIntakeDoneLocallyOrRemote(remoteRaw: string | null | undefined): boolean {
+  return isPlayerIntakeComplete() || isPlayerIntakePayloadComplete(remoteRaw);
+}
+
 /** Kompakter Textblock für LLM-Prompts (nur wenn nicht übersprungen und Inhalt vorhanden). */
 export function formatPlayerIntakeForPrompt(intake: PlayerIntakeV1 | null): string {
   if (!intake || intake.skipped) return "";

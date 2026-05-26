@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadGameStats } from "@/lib/game-stats";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
@@ -12,11 +12,21 @@ import {
   buildWorkoutCatalogForCoach,
   countSubcategories14d,
 } from "@/lib/coach-training-context";
+import { buildCoachHeuristicResponse } from "@/lib/coach-heuristic";
+import { readStoredCoachingCache, writeStoredCoachingCache } from "@/lib/coach-llm-cache";
 import { sanitizeCoachWorkoutByDay } from "@/lib/coach-workout-by-day";
 import { pushProgressToCloud } from "@/lib/progress-sync";
 import type { DayKey, WeekConfig } from "@/lib/planner";
 import { mergeAiWeekConfigPreservingUserMinutes } from "@/lib/week-config-merge";
 import { formatPlayerIntakeForPrompt, loadPlayerIntake } from "@/lib/coach-intake";
+import {
+  getIsoWeekKey,
+  isSignificantWeekConfigChange,
+  loadWeekConfigFromProfileCache,
+  shouldAutoRunWeeklyPlanLlm,
+  weekConfigSignature,
+  writeCoachLlmWeeklyMarkers,
+} from "@/lib/coach-trigger";
 
 type CoachCoachingResponse = {
   headline: string;
@@ -38,7 +48,7 @@ function buildPayload() {
   const ms14 = 14 * 24 * 60 * 60 * 1000;
   const cutoff = Date.now() - ms14;
   const sessionsInWindow = allSessions.filter((s) => new Date(s.dateISO).getTime() >= cutoff);
-  const games = loadGameStats().slice(0, 8);
+  const games = loadGameStats().slice(0, 5);
   const exerciseLookup = new Map(loadExercises().map((exercise) => [exercise.id, exercise]));
   const workoutLookup = new Map(loadWorkouts().map((workout) => [workout.id, workout]));
   const goals = loadTrainingGoalsBundle();
@@ -67,7 +77,7 @@ function buildPayload() {
     }
   })();
 
-  const recentSessions = sessionsInWindow.slice(0, 32).map((session) => {
+  const recentSessions = sessionsInWindow.slice(0, 16).map((session) => {
     const exercise = session.logs.map((log) => exerciseLookup.get(log.exerciseId)).find(Boolean);
     const totalMakes = session.logs.reduce((sum, log) => sum + (log.made ?? 0), 0);
     const totalAttempts = session.logs.reduce((sum, log) => sum + (log.attempts ?? 0), 0);
@@ -92,7 +102,7 @@ function buildPayload() {
 
   const recentTraining14d = buildRecentTrainingLog14d(allSessions, exerciseLookup, workoutLookup);
   const subcategoryCounts14d = countSubcategories14d(recentTraining14d);
-  const workoutCatalog = buildWorkoutCatalogForCoach(loadWorkouts(), 80);
+  const workoutCatalog = buildWorkoutCatalogForCoach(loadWorkouts(), 40);
 
   const activeGoals = (goals.gymGoals ?? []).map((goal) => {
     const exerciseName = exerciseLookup.get(goal.exerciseId)?.name ?? goal.exerciseId;
@@ -106,14 +116,14 @@ function buildPayload() {
   let coachNote: string | undefined;
   try {
     const t = window.localStorage.getItem(COACH_WEEKLY_NOTE_STORAGE_KEY)?.trim();
-    coachNote = t ? t.slice(0, 600) : undefined;
+    coachNote = t ? t.slice(0, 400) : undefined;
   } catch {
     coachNote = undefined;
   }
 
   const intake = loadPlayerIntake();
   const playerIntakeSummaryRaw = formatPlayerIntakeForPrompt(intake);
-  const playerIntakeSummary = playerIntakeSummaryRaw ? playerIntakeSummaryRaw.slice(0, 2000) : undefined;
+  const playerIntakeSummary = playerIntakeSummaryRaw ? playerIntakeSummaryRaw.slice(0, 900) : undefined;
   const intakeAge =
     intake && !intake.skipped && intake.ageYears != null && intake.ageYears > 0 ? intake.ageYears : null;
 
@@ -128,8 +138,6 @@ function buildPayload() {
       bodyFatPct: profileCache?.bodyMetrics?.body_fat_pct ?? null,
       wingspanCm: profileCache?.bodyMetrics?.wingspan_cm ?? null,
       standingReachCm: profileCache?.bodyMetrics?.standing_reach_cm ?? null,
-      fullName: profileCache?.profile?.full_name ?? null,
-      age: intakeAge,
     },
     weekAvailability: profileCache?.weekConfig ?? undefined,
     activeGoals,
@@ -151,13 +159,33 @@ function buildPayload() {
   };
 }
 
+function buildLocalHeuristic(): CoachCoachingResponse {
+  const payload = buildPayload();
+  return buildCoachHeuristicResponse({
+    mesocyclePhase: payload.mesocyclePhase,
+    recentSessions: payload.recentSessions,
+    recentGames: payload.recentGames,
+  });
+}
+
+function parseWeekFromSignature(sig: string): Partial<Record<DayKey, { mode: string; minutes: number }>> {
+  const week: Partial<Record<DayKey, { mode: string; minutes: number }>> = {};
+  for (const part of sig.split("|")) {
+    const [day, mode, minutes] = part.split(":");
+    if (day && mode) week[day as DayKey] = { mode, minutes: Number(minutes) || 0 };
+  }
+  return week;
+}
+
 export default function CoachInsight() {
   const [data, setData] = useState<CoachCoachingResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [planLoading, setPlanLoading] = useState(false);
   const [planNote, setPlanNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weeklyCoachNote, setWeeklyCoachNote] = useState("");
+  const weekSigRef = useRef("");
+  const autoWeeklyRunningRef = useRef(false);
+  const planDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     try {
@@ -165,6 +193,21 @@ export default function CoachInsight() {
     } catch {
       setWeeklyCoachNote("");
     }
+
+    const cached = readStoredCoachingCache();
+    const weekKey = getIsoWeekKey();
+    if (cached && cached.weekKey === weekKey) {
+      setData({
+        headline: cached.headline,
+        bullets: cached.bullets,
+        source: cached.source,
+        warning: cached.warning,
+      });
+    } else {
+      setData(buildLocalHeuristic());
+    }
+
+    weekSigRef.current = weekConfigSignature(loadWeekConfigFromProfileCache());
   }, []);
 
   const persistWeekFromAi = useCallback((week: WeekConfig, coachWorkoutByDay?: Partial<Record<DayKey, string>> | null) => {
@@ -186,11 +229,58 @@ export default function CoachInsight() {
     window.localStorage.setItem(key, JSON.stringify(parsed));
     applyWeekConfigToCalendar(week, 28);
     void pushProgressToCloud();
+    const sig = weekConfigSignature(week);
+    weekSigRef.current = sig;
+    writeCoachLlmWeeklyMarkers(getIsoWeekKey(), sig);
     window.dispatchEvent(new Event("bt:plan-updated"));
     window.dispatchEvent(new Event("storage"));
   }, []);
 
-  const fetchCoachingOnly = useCallback(async () => {
+  const syncWeeklyPlanLlm = useCallback(
+    async (skipCache = false) => {
+      if (autoWeeklyRunningRef.current) return;
+      autoWeeklyRunningRef.current = true;
+      setPlanNote(null);
+      try {
+        const payload = buildPayload();
+        const response = await fetch("/api/coach", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, intent: "weekly_plan", skipCache }),
+        });
+        const json = (await response.json()) as CoachWeeklyResponse;
+        if (!json.weekConfig) {
+          setPlanNote(json.error ?? "Wochenplan konnte nicht geladen werden.");
+          return;
+        }
+        const safeAssignments = sanitizeCoachWorkoutByDay(
+          json.coachWorkoutByDay,
+          json.weekConfig,
+          payload.workoutCatalog,
+        );
+        let existingWeek: WeekConfig | undefined;
+        try {
+          const raw = window.localStorage.getItem("profile_cache_v4");
+          if (raw) {
+            const parsed = JSON.parse(raw) as { weekConfig?: WeekConfig };
+            if (parsed.weekConfig) existingWeek = parsed.weekConfig;
+          }
+        } catch {
+          existingWeek = undefined;
+        }
+        const mergedWeek = mergeAiWeekConfigPreservingUserMinutes(json.weekConfig, existingWeek);
+        persistWeekFromAi(mergedWeek, safeAssignments ?? null);
+        setPlanNote("Wochenplan wurde per KI abgestimmt und ins Weekly übernommen.");
+      } catch {
+        setPlanNote("Wochen-Sync fehlgeschlagen — Weekly zeigt weiter deine gespeicherte Woche.");
+      } finally {
+        autoWeeklyRunningRef.current = false;
+      }
+    },
+    [persistWeekFromAi],
+  );
+
+  const fetchCoachingLlm = useCallback(async (skipCache = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -198,17 +288,25 @@ export default function CoachInsight() {
       const response = await fetch("/api/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, intent: "coaching" }),
+        body: JSON.stringify({ ...payload, intent: "coaching", skipCache }),
       });
       const json = (await response.json()) as CoachCoachingResponse;
       if (!response.ok && !json?.headline) {
         throw new Error(json?.error ?? `HTTP ${response.status}`);
       }
-      setData({
+      const next = {
         headline: json.headline,
         bullets: json.bullets ?? [],
         source: json.source,
         warning: json.warning,
+      };
+      setData(next);
+      writeStoredCoachingCache({
+        headline: next.headline,
+        bullets: next.bullets,
+        source: next.source,
+        warning: next.warning,
+        weekKey: getIsoWeekKey(),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Coach nicht erreichbar.");
@@ -217,68 +315,47 @@ export default function CoachInsight() {
     }
   }, []);
 
-  const syncWeeklyPlanSilently = useCallback(async () => {
-    setPlanNote(null);
-    try {
-      const payload = buildPayload();
-      const response = await fetch("/api/coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, intent: "weekly_plan" }),
-      });
-      const json = (await response.json()) as CoachWeeklyResponse;
-      if (!json.weekConfig) {
-        setPlanNote(json.error ?? "Wochenplan konnte nicht geladen werden.");
-        return;
-      }
-      const safeAssignments = sanitizeCoachWorkoutByDay(
-        json.coachWorkoutByDay,
-        json.weekConfig,
-        payload.workoutCatalog,
-      );
-      let existingWeek: WeekConfig | undefined;
-      try {
-        const raw = window.localStorage.getItem("profile_cache_v4");
-        if (raw) {
-          const parsed = JSON.parse(raw) as { weekConfig?: WeekConfig };
-          if (parsed.weekConfig) existingWeek = parsed.weekConfig;
-        }
-      } catch {
-        existingWeek = undefined;
-      }
-      const mergedWeek = mergeAiWeekConfigPreservingUserMinutes(json.weekConfig, existingWeek);
-      persistWeekFromAi(mergedWeek, safeAssignments ?? null);
-      setPlanNote("Wochenplan wurde mit KI abgestimmt und ins Weekly übernommen.");
-    } catch {
-      setPlanNote("Wochen-Sync fehlgeschlagen — Weekly zeigt weiter deine gespeicherte Woche.");
-    }
-  }, [persistWeekFromAi]);
-
-  const applyWeeklyPlanManual = useCallback(async () => {
-    setPlanLoading(true);
-    setPlanNote(null);
-    try {
-      await syncWeeklyPlanSilently();
-    } finally {
-      setPlanLoading(false);
-    }
-  }, [syncWeeklyPlanSilently]);
+  const refreshCoachWithLlm = useCallback(async () => {
+    await fetchCoachingLlm(true);
+    await syncWeeklyPlanLlm(true);
+  }, [fetchCoachingLlm, syncWeeklyPlanLlm]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      await fetchCoachingOnly();
-      if (cancelled) return;
-      await syncWeeklyPlanSilently();
-    })();
-    return () => {
-      cancelled = true;
+    const auto = shouldAutoRunWeeklyPlanLlm();
+    if (auto.run) {
+      void syncWeeklyPlanLlm(false);
+    }
+  }, [syncWeeklyPlanLlm]);
+
+  useEffect(() => {
+    const onPlanUpdated = () => {
+      if (planDebounceRef.current) clearTimeout(planDebounceRef.current);
+      planDebounceRef.current = setTimeout(() => {
+        const prevSig = weekSigRef.current;
+        const currentWeek = loadWeekConfigFromProfileCache();
+        const nextSig = weekConfigSignature(currentWeek);
+        if (
+          prevSig &&
+          nextSig !== prevSig &&
+          isSignificantWeekConfigChange(prevSig, nextSig, parseWeekFromSignature(prevSig), currentWeek)
+        ) {
+          weekSigRef.current = nextSig;
+          void syncWeeklyPlanLlm(false);
+          return;
+        }
+        weekSigRef.current = nextSig;
+      }, 900);
     };
-  }, [fetchCoachingOnly, syncWeeklyPlanSilently]);
+    window.addEventListener("bt:plan-updated", onPlanUpdated);
+    return () => {
+      window.removeEventListener("bt:plan-updated", onPlanUpdated);
+      if (planDebounceRef.current) clearTimeout(planDebounceRef.current);
+    };
+  }, [syncWeeklyPlanLlm]);
 
   const badge = useMemo(() => {
     if (!data?.source) return null;
-    if (data.source === "llm") return null;
+    if (data.source === "llm") return { label: "KI-Coach", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200" };
     return { label: "Regel-Coach", className: "border-cyan-400/40 bg-cyan-500/10 text-cyan-200" };
   }, [data]);
 
@@ -289,7 +366,7 @@ export default function CoachInsight() {
           <p className="section-eyebrow">Coach</p>
           <h3 className="section-title mt-1">{data?.headline ?? "Empfehlungen für deine Woche"}</h3>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {badge ? (
             <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${badge.className}`}>
               {badge.label}
@@ -297,35 +374,29 @@ export default function CoachInsight() {
           ) : null}
           <button
             type="button"
-            onClick={() => void applyWeeklyPlanManual()}
-            disabled={planLoading || loading}
-            className="btn btn-primary btn-xs"
-          >
-            {planLoading ? "Plan…" : "Woche neu (KI)"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void fetchCoachingOnly()}
+            onClick={() => void refreshCoachWithLlm()}
             disabled={loading}
-            className="btn btn-ghost btn-xs"
+            className="btn btn-primary btn-xs whitespace-nowrap"
           >
-            {loading ? "lädt…" : "Tipps aktualisieren"}
+            {loading ? "Coach…" : "Coach aktualisieren"}
           </button>
         </div>
       </div>
 
       <p className="mt-2 text-[11px] text-muted">
-        Der Wochenplan läuft in <strong className="text-strong">zwei Coach-Schritten</strong> (Kurzgespräch → konkreter Plan), dann ins Weekly. Optional kannst du unten eine persönliche Notiz hinterlegen. Hier siehst du die Kurz-Tipps.
+        Standard: <strong className="text-strong">Regel-Coach</strong> ohne API-Kosten. KI läuft nur bei{" "}
+        <strong className="text-strong">Coach aktualisieren</strong>, neuer Kalenderwoche oder starker Planänderung
+        (Spieltag, Gym↔Basketball, …).
       </p>
 
       <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-2.5">
         <label className="text-[11px] font-medium text-muted" htmlFor="coach-weekly-note">
-          Notiz für den Coach (optional, max. 600 Zeichen)
+          Notiz für den Coach (optional, max. 400 Zeichen)
         </label>
         <textarea
           id="coach-weekly-note"
           rows={3}
-          maxLength={600}
+          maxLength={400}
           value={weeklyCoachNote}
           onChange={(e) => {
             const v = e.target.value;
@@ -336,12 +407,9 @@ export default function CoachInsight() {
               /* ignore */
             }
           }}
-          placeholder="z. B. Turnier am Samstag, Knie zwickt nach Sprüngen, Fokus Dreier, wenig Schlaf diese Woche …"
+          placeholder="z. B. Turnier am Samstag, Knie zwickt, Fokus Dreier …"
           className="mt-1.5 w-full resize-y rounded-md border border-white/10 bg-zinc-950/80 px-2 py-1.5 text-xs text-strong placeholder:text-muted"
         />
-        <p className="mt-1 text-[10px] text-muted">
-          Wird bei <span className="text-strong">Tipps aktualisieren</span> und <span className="text-strong">Woche neu (KI)</span> mitgeschickt.
-        </p>
       </div>
 
       {error ? (
@@ -356,7 +424,7 @@ export default function CoachInsight() {
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-sm text-muted">{loading ? "Coach analysiert…" : "Noch keine Daten."}</p>
+        <p className="mt-3 text-sm text-muted">Noch keine Daten.</p>
       )}
 
       {planNote ? <p className="mt-2 text-[11px] text-cyan-200/90">{planNote}</p> : null}

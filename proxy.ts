@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const protectedPrefixes = [
@@ -11,6 +12,7 @@ const protectedPrefixes = [
   "/stats",
   "/level",
   "/profile",
+  "/team",
   "/workouts",
   "/create-exercise",
   "/exercises",
@@ -88,7 +90,8 @@ export async function proxy(request: NextRequest) {
   }
 
   const loginUrl = new URL("/login", request.url);
-  loginUrl.searchParams.set("next", pathname);
+  const returnPath = `${pathname}${request.nextUrl.search}`;
+  loginUrl.searchParams.set("next", returnPath);
   return NextResponse.redirect(loginUrl);
 }
 
@@ -100,6 +103,7 @@ export const config = {
     "/stats/:path*",
     "/level/:path*",
     "/profile/:path*",
+    "/team/:path*",
     "/workouts/:path*",
     "/create-exercise/:path*",
     "/exercises/:path*",

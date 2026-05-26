@@ -43,7 +43,8 @@ import {
   type WeeklyWorkoutTransferPayload,
 } from "@/lib/weekly-workout-nav";
 import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
-import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
 import { getTipsForWorkoutContext, loadPerformanceTips, type PerformanceTip } from "@/lib/performance-tips";
 import { countTrackedSetsInLogs } from "@/lib/workout-session-metrics";
 import {
@@ -150,9 +151,13 @@ function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
   try {
     const parsed = rawHistory ? (JSON.parse(rawHistory) as CompletedWorkoutHistoryEntry[]) : [];
     const nextHistory = [entry, ...parsed.filter((item) => item.id !== entry.id)].slice(0, 365);
-    window.localStorage.setItem(WORKOUT_HISTORY_KEY, JSON.stringify(nextHistory));
+    const serialized = JSON.stringify(nextHistory);
+    window.localStorage.setItem(WORKOUT_HISTORY_KEY, serialized);
+    window.localStorage.setItem("bt.workout-history.v1", serialized);
   } catch {
-    window.localStorage.setItem(WORKOUT_HISTORY_KEY, JSON.stringify([entry]));
+    const serialized = JSON.stringify([entry]);
+    window.localStorage.setItem(WORKOUT_HISTORY_KEY, serialized);
+    window.localStorage.setItem("bt.workout-history.v1", serialized);
   }
 }
 
@@ -1184,7 +1189,7 @@ function WorkoutsPageContent() {
 
     window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(store));
     window.dispatchEvent(new Event("bt:plan-updated"));
-    void pushProgressToCloud();
+    void syncWorkoutSessionsToCloudWithRetry();
 
     const disabledMap = readManualDayDisabledMap();
     if (disabledMap[dateKey]) {
@@ -1683,7 +1688,7 @@ function WorkoutsPageContent() {
     } else {
       setCompletionBanner("Stark! Workout abgeschlossen ✅");
     }
-    void pushProgressToCloud().catch(() => {
+    void syncWorkoutSessionsToCloudWithRetry().catch(() => {
       // Lokaler Abschluss ist bereits gespeichert; Netzwerkfehler beim Sync darf die UI nicht crashen.
     });
     if (isCatalogWorkoutRun) {

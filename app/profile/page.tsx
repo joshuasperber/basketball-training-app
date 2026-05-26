@@ -26,7 +26,7 @@ import {
   writeManualPlanOverrides,
 } from "@/lib/activity-calendar";
 import { clearPlayerIntake } from "@/lib/coach-intake";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
@@ -251,11 +251,41 @@ function getRecoverySubtagFromTags(tags: PlannedWorkoutTag[]): RecoveryTag | nul
   return value || null;
 }
 
+type ProfileFeedbackTone = "success" | "error" | "info";
+
+function profileFeedbackClass(tone: ProfileFeedbackTone) {
+  if (tone === "success") {
+    return "border-emerald-400/60 bg-emerald-500/20 text-emerald-100";
+  }
+  if (tone === "error") {
+    return "border-rose-400/60 bg-rose-500/20 text-rose-100";
+  }
+  return "border-cyan-400/60 bg-cyan-500/20 text-cyan-100";
+}
+
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
-  const [savedToastVisible, setSavedToastVisible] = useState(false);
+  const [feedback, setFeedback] = useState<{ text: string; tone: ProfileFeedbackTone } | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
+
+  const showProfileFeedback = useCallback((text: string, tone: ProfileFeedbackTone = "info") => {
+    if (feedbackTimerRef.current != null) {
+      window.clearTimeout(feedbackTimerRef.current);
+    }
+    setFeedback({ text, tone });
+    feedbackTimerRef.current = window.setTimeout(() => {
+      setFeedback(null);
+      feedbackTimerRef.current = null;
+    }, tone === "error" ? 6000 : 3500);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (feedbackTimerRef.current != null) window.clearTimeout(feedbackTimerRef.current);
+    },
+    [],
+  );
 
   const [profile, setProfile] = useState<ProfileRow>({ username: "", full_name: "", favorite_position: "sg", height_cm: null, weight_kg: null, email: null });
   const [playStyle, setPlayStyle] = useState<string>("Shooter");
@@ -594,18 +624,18 @@ const refreshProfileAndWeekly = () => {
       nextWeekConfig[dayKey] = mapTagToDayConfig(tags);
     });
     setWeekConfig(nextWeekConfig);
-    setMessage("Profil & Weekly Plan wurden aktualisiert.");
+    showProfileFeedback("Profil & Weekly Plan wurden aktualisiert.", "success");
   };
   const persistProfileToSupabase = useCallback(async () => {
     const username = (profile.username ?? "").trim().toLowerCase();
     if (!username) {
-      setMessage("Bitte einen Username eingeben.");
-      return;
+      showProfileFeedback("Bitte einen Username eingeben.", "error");
+      return false;
     }
     const fullName = (profile.full_name ?? "").trim();
     if (!fullName) {
-      setMessage("Bitte einen vollständigen Namen eingeben.");
-      return;
+      showProfileFeedback("Bitte einen vollständigen Namen eingeben.", "error");
+      return false;
     }
 
     const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
@@ -617,8 +647,8 @@ const refreshProfileAndWeekly = () => {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         void pushProgressToCloud();
-        setMessage("Nur lokal gespeichert (kein Supabase-Login).");
-        return;
+        showProfileFeedback("Nur lokal gespeichert (kein Supabase-Login).", "info");
+        return true;
       }
       const loginEmail = authData.user?.email ?? profile.email ?? null;
       if (typeof window !== "undefined" && loginEmail) {
@@ -646,15 +676,15 @@ const refreshProfileAndWeekly = () => {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         void pushProgressToCloud();
-        setMessage("Supabase-RLS aktiv: Profil lokal gespeichert.");
-        return;
+        showProfileFeedback("Supabase-RLS aktiv: Profil lokal gespeichert.", "info");
+        return true;
       }
       if (isDuplicateUsername) {
-        setMessage("Username bereits vergeben. Bitte wähle einen anderen Username.");
-        return;
+        showProfileFeedback("Username bereits vergeben. Bitte wähle einen anderen Username.", "error");
+        return false;
       }
-      setMessage(`Speichern fehlgeschlagen: ${error.message}`);
-      return;
+      showProfileFeedback(`Speichern fehlgeschlagen: ${error.message}`, "error");
+      return false;
     }
 
     const nextProfile: ProfileRow = { ...profile, username, full_name: fullName, email: profile.email ?? null };
@@ -662,8 +692,8 @@ const refreshProfileAndWeekly = () => {
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
     saveLocalCache({ profile: nextProfile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
     void pushProgressToCloud();
-    setMessage(null);
-  }, [bodyMetrics, playStyle, profile, weekConfig, weeklyGoalSessions]);
+    return true;
+  }, [bodyMetrics, playStyle, profile, showProfileFeedback, weekConfig, weeklyGoalSessions]);
 
   return (
     <main className="app-container animate-in">
@@ -685,7 +715,10 @@ const refreshProfileAndWeekly = () => {
           onClick={() => {
             clearPlayerIntake();
             void pushProgressToCloud({ playerIntake: "" });
-            setMessage("Kennenlern-Chat zurückgesetzt. Beim nächsten Laden der App wirst du erneut befragt.");
+            showProfileFeedback(
+              "Kennenlern-Chat zurückgesetzt. Beim nächsten Laden der App wirst du erneut befragt.",
+              "success",
+            );
           }}
         >
           Kennenlern-Chat erneut starten
@@ -1114,10 +1147,11 @@ const refreshProfileAndWeekly = () => {
           saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
           const updatedDailyPlan = applyWeekConfigToCalendar(weekConfig, 28);
           setDailyPlanMap(updatedDailyPlan);
-          await persistProfileToSupabase();
+          const saved = await persistProfileToSupabase();
           await pushProgressToCloud();
-          setSavedToastVisible(true);
-          window.setTimeout(() => setSavedToastVisible(false), 2200);
+          if (saved) {
+            showProfileFeedback("Profil gespeichert ✅", "success");
+          }
         }}
         className="btn btn-primary btn-block mt-4"
       >
@@ -1152,14 +1186,17 @@ const refreshProfileAndWeekly = () => {
         </ul>
       </section>
 
-      {message ? (
-        <div className="mt-4 app-card--accent-cyan">
-          <p className="text-sm text-strong">{message}</p>
-        </div>
-      ) : null}
-      {savedToastVisible ? (
-        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-emerald-400 bg-emerald-500/20 px-4 py-2 text-xs font-semibold text-emerald-100 backdrop-blur">
-          Profil gespeichert ✅
+      {feedback ? (
+        <div
+          className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-4 pt-[max(0.75rem,env(safe-area-inset-top))]"
+          role="status"
+          aria-live="polite"
+        >
+          <p
+            className={`pointer-events-auto max-w-md rounded-2xl border px-4 py-3 text-center text-sm font-semibold shadow-lg backdrop-blur-md ${profileFeedbackClass(feedback.tone)}`}
+          >
+            {feedback.text}
+          </p>
         </div>
       ) : null}
     </main>

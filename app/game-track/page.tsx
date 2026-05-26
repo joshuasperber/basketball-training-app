@@ -9,6 +9,12 @@ import { deleteGamePhoto, getGamePhotoUrl, uploadGamePhoto } from "@/lib/game-ph
 import { loadPerformanceTips } from "@/lib/performance-tips";
 import { loadWorkouts } from "@/lib/training-storage";
 import { getWarmupWorkouts } from "@/lib/warmup-workouts";
+import {
+  OPPONENT_STYLE_LABELS,
+  OPPONENT_STYLE_TAGS,
+  toggleOpponentStyle,
+  type OpponentStyleTag,
+} from "@/lib/opponent-styles";
 
 function toNullableNumber(value: string) {
   const parsed = Number(value);
@@ -25,6 +31,7 @@ export default function GameTrackPage() {
   const [resolvedDate, setResolvedDate] = useState(paramDate);
   const [resolvedContext, setResolvedContext] = useState<"game" | "game_training">(paramContext);
   const [opponentLabel, setOpponentLabel] = useState("");
+  const [opponentStyles, setOpponentStyles] = useState<OpponentStyleTag[]>([]);
   const [minutes, setMinutes] = useState("");
   const [intensity, setIntensity] = useState("");
   const [points, setPoints] = useState("");
@@ -49,6 +56,7 @@ export default function GameTrackPage() {
           setResolvedDate(entry.date);
           setResolvedContext(entry.context);
           setOpponentLabel(entry.opponentLabel ?? "");
+          setOpponentStyles(entry.opponentStyles ?? []);
           setMinutes(entry.minutes != null ? String(entry.minutes) : "");
           setIntensity(entry.intensity != null ? String(entry.intensity) : "");
           setPoints(entry.points != null ? String(entry.points) : "");
@@ -64,6 +72,7 @@ export default function GameTrackPage() {
       setResolvedDate(paramDate);
       setResolvedContext(paramContext);
       setOpponentLabel("");
+      setOpponentStyles([]);
       setMinutes("");
       setIntensity("");
       setPoints("");
@@ -233,6 +242,25 @@ export default function GameTrackPage() {
           />
           <p className="mt-1 text-xs text-muted">So erkennst du später in der Suche, gegen wen du gespielt hast.</p>
 
+          <p className="input-label mt-4">Gegner-Stil (Matchup)</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {OPPONENT_STYLE_TAGS.map((tag) => {
+              const active = opponentStyles.includes(tag);
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => setOpponentStyles((current) => toggleOpponentStyle(current, tag))}
+                  className={`chip ${active ? "chip-active" : ""}`}
+                  aria-pressed={active}
+                >
+                  {OPPONENT_STYLE_LABELS[tag]}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-xs text-muted">Mehrfachauswahl möglich — fließt in Matchup-Tipps und später ins Team-Scouting ein.</p>
+
           <p className="section-eyebrow mt-5">Box Score</p>
           <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
             <label className="input-label">Intensität: {intensity || "5"}/10</label>
@@ -330,6 +358,7 @@ export default function GameTrackPage() {
                 date: resolvedDate,
                 context: resolvedContext,
                 opponentLabel: opponentLabel.trim() || null,
+                opponentStyles,
                 minutes: toNullableNumber(minutes),
                 intensity: toNullableNumber(intensity),
                 points: toNullableNumber(points),

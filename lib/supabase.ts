@@ -1,6 +1,50 @@
+import { getSupabasePublicConfig } from "@/lib/supabase-env";
+
 type SupabaseError = {
   message: string;
 };
+
+function parseAuthErrorBody(body: unknown, fallback: string): string {
+  if (!body || typeof body !== "object") return fallback;
+  const record = body as { msg?: string; error_description?: string; message?: string; error?: string };
+  return record.error_description ?? record.msg ?? record.message ?? record.error ?? fallback;
+}
+
+async function parseAuthResponse(response: Response, fallback: string): Promise<SupabaseError | null> {
+  if (response.ok) return null;
+  const body = await response.json().catch(() => null);
+  const message = parseAuthErrorBody(body, fallback);
+  if (response.status === 404) {
+    return {
+      message:
+        "Supabase Auth-URL nicht gefunden (404). Prüfe NEXT_PUBLIC_SUPABASE_URL: nur https://PROJEKT-REF.supabase.co — ohne /auth/v1 oder /rest/v1 am Ende.",
+    };
+  }
+  if (response.status === 400 && message.toLowerCase().includes("invalid login credentials")) {
+    return {
+      message:
+        "E-Mail oder Passwort falsch — oder E-Mail noch nicht bestätigt (Supabase: Confirm email).",
+    };
+  }
+  if (response.status === 400 && message.toLowerCase().includes("invalid api key")) {
+    return {
+      message:
+        "Ungültiger Supabase API-Key. In .env.local: NEXT_PUBLIC_SUPABASE_ANON_KEY = sb_publishable_… (nicht sb_secret_). URL muss zum gleichen Projekt passen.",
+    };
+  }
+  return { message: `${message} (${response.status})` };
+}
+
+function sessionFromAuthPayload(payload: unknown): AuthSession | null {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as AuthSession;
+  if (!record.access_token || !record.refresh_token) return null;
+  return {
+    access_token: record.access_token,
+    refresh_token: record.refresh_token,
+    expires_in: record.expires_in ?? 3600,
+  };
+}
 
 type QueryResult<T> = {
   data: T | null;
@@ -25,6 +69,15 @@ type SupabaseAuthClient = {
     email: string;
     options?: { emailRedirectTo?: string };
   }) => Promise<{ data: null; error: SupabaseError | null }>;
+  signInWithPassword: (payload: {
+    email: string;
+    password: string;
+  }) => Promise<{ data: { session: AuthSession | null }; error: SupabaseError | null }>;
+  signUpWithPassword: (payload: {
+    email: string;
+    password: string;
+  }) => Promise<{ data: { session: AuthSession | null; needsEmailConfirmation?: boolean }; error: SupabaseError | null }>;
+  resendSignupConfirmation: (payload: { email: string }) => Promise<{ error: SupabaseError | null }>;
   verifyOtp: (payload: {
     email: string;
     token: string;
@@ -388,19 +441,118 @@ class SupabaseClient {
             }),
           });
 
-          if (!response.ok) {
-            const body = (await response.json()) as { msg?: string; error_description?: string };
-            return {
-              data: null,
-              error: { message: body.error_description ?? body.msg ?? `Auth request failed (${response.status})` },
-            };
-          }
+          const error = await parseAuthResponse(response, "Auth request failed");
+          if (error) return { data: null, error };
 
           return { data: null, error: null };
         } catch (error) {
           return {
             data: null,
             error: { message: error instanceof Error ? error.message : "OTP-Code konnte nicht gesendet werden." },
+          };
+        }
+      },
+      signInWithPassword: async ({ email, password }) => {
+        if (!this.isConfigured) {
+          return { data: { session: null }, error: { message: "Supabase ist nicht konfiguriert." } };
+        }
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/v1/token?grant_type=password`, {
+            method: "POST",
+            headers: {
+              apikey: this.anonKey,
+              Authorization: `Bearer ${this.anonKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, password }),
+            cache: "no-store",
+          });
+          const error = await parseAuthResponse(response, "Anmeldung fehlgeschlagen");
+          if (error) return { data: { session: null }, error };
+          const session = sessionFromAuthPayload(await response.json());
+          if (!session) {
+            return { data: { session: null }, error: { message: "Keine Session von Supabase erhalten." } };
+          }
+          return { data: { session }, error: null };
+        } catch (error) {
+          return {
+            data: { session: null },
+            error: { message: error instanceof Error ? error.message : "Anmeldung fehlgeschlagen." },
+          };
+        }
+      },
+      signUpWithPassword: async ({ email, password }) => {
+        if (!this.isConfigured) {
+          return { data: { session: null }, error: { message: "Supabase ist nicht konfiguriert." } };
+        }
+        const redirectTo =
+          typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/v1/signup`, {
+            method: "POST",
+            headers: {
+              apikey: this.anonKey,
+              Authorization: `Bearer ${this.anonKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email,
+              password,
+              options: redirectTo ? { email_redirect_to: redirectTo } : undefined,
+            }),
+            cache: "no-store",
+          });
+          const error = await parseAuthResponse(response, "Registrierung fehlgeschlagen");
+          if (error) return { data: { session: null }, error };
+          const payload = (await response.json()) as {
+            session?: AuthSession;
+            access_token?: string;
+            refresh_token?: string;
+            user?: { email?: string };
+          };
+          const session = sessionFromAuthPayload(payload.session ?? payload);
+          return {
+            data: {
+              session,
+              needsEmailConfirmation: !session,
+            },
+            error: null,
+          };
+        } catch (error) {
+          return {
+            data: { session: null },
+            error: { message: error instanceof Error ? error.message : "Registrierung fehlgeschlagen." },
+          };
+        }
+      },
+      resendSignupConfirmation: async ({ email }) => {
+        if (!this.isConfigured) {
+          return { error: { message: "Supabase ist nicht konfiguriert." } };
+        }
+        const redirectTo =
+          typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/v1/resend`, {
+            method: "POST",
+            headers: {
+              apikey: this.anonKey,
+              Authorization: `Bearer ${this.anonKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email,
+              type: "signup",
+              options: redirectTo ? { email_redirect_to: redirectTo } : undefined,
+            }),
+            cache: "no-store",
+          });
+          const error = await parseAuthResponse(response, "E-Mail konnte nicht erneut gesendet werden");
+          return { error };
+        } catch (error) {
+          return {
+            error: {
+              message: error instanceof Error ? error.message : "E-Mail konnte nicht erneut gesendet werden.",
+            },
           };
         }
       },
@@ -429,14 +581,17 @@ class SupabaseClient {
           });
 
           if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as { msg?: string; error_description?: string; message?: string } | null;
+            const body = await response.json().catch(() => null);
             return {
               data: { session: null },
-              error: { message: body?.error_description ?? body?.msg ?? body?.message ?? `OTP verify failed (${response.status})` },
+              error: { message: parseAuthErrorBody(body, `OTP verify failed (${response.status})`) },
             };
           }
 
-          const session = (await response.json()) as AuthSession;
+          const session = sessionFromAuthPayload(await response.json());
+          if (!session) {
+            return { data: { session: null }, error: { message: "Keine Session erhalten." } };
+          }
           return { data: { session }, error: null };
         } catch (error) {
           return {
@@ -521,12 +676,17 @@ class SupabaseClient {
   }
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+const publicConfig = getSupabasePublicConfig();
+const supabaseUrl = publicConfig.url;
+const supabaseAnonKey = publicConfig.anonKey;
+const isSupabaseConfigured = publicConfig.isValid;
+
+export function getSupabaseConfigIssues() {
+  return publicConfig.issues;
+}
 
 export function createClient(options?: { accessToken?: string }) {
-  return new SupabaseClient(supabaseUrl ?? "", supabaseAnonKey ?? "", isSupabaseConfigured, options?.accessToken);
+  return new SupabaseClient(supabaseUrl, supabaseAnonKey, isSupabaseConfigured, options?.accessToken);
 }
 
 export const supabase = createClient();

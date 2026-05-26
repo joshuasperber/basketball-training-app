@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DailyPlanMap } from "@/lib/activity-calendar";
 import { SessionDatabase } from "@/lib/session-types";
+import { mergeSessionDatabases } from "@/lib/server/session-merge";
+import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -153,11 +155,11 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
 async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecord | null> {
   if (!isSupabaseConfigured()) return null;
 
-  const tryFetch = async (filter: string): Promise<ProgressRow[] | null> => {
+  const tryFetch = async (column: "user_id" | "email", value: string): Promise<ProgressRow[] | null> => {
     const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
     url.searchParams.set("select", "*");
     url.searchParams.set("limit", "1");
-    url.searchParams.set(...(filter.split("=", 2) as [string, string]));
+    url.searchParams.set(column, `eq.${value}`);
 
     const response = await fetch(url.toString(), {
       method: "GET",
@@ -172,9 +174,9 @@ async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecor
     return (await response.json()) as ProgressRow[];
   };
 
-  let rows = await tryFetch(`user_id=eq.${user.id}`);
+  let rows = await tryFetch("user_id", user.id);
   if (!rows || rows.length === 0) {
-    rows = await tryFetch(`email=eq.${user.email}`);
+    rows = await tryFetch("email", user.email);
   }
   const row = rows?.[0] ?? null;
   return row ? mapRowToProgressRecord(row) : null;
@@ -191,6 +193,7 @@ function mergeProgressWithExisting(existing: ProgressRecord | null, incoming: Pr
   if (!existing?.remoteExists) return incoming;
   return {
     ...incoming,
+    sessions: mergeSessionDatabases(existing.sessions, incoming.sessions),
     profileCache: mergeCloudTextField(incoming.profileCache, existing.profileCache),
     profileUsername: mergeCloudTextField(incoming.profileUsername, existing.profileUsername),
     profileWeekConfig: mergeCloudTextField(incoming.profileWeekConfig, existing.profileWeekConfig),

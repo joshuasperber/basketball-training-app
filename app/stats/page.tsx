@@ -15,6 +15,7 @@ import { toLocalDateKey } from "@/lib/workout";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import GameStatsSearchPanel from "@/components/GameStatsSearchPanel";
 import GameTrainingInsights from "@/components/GameTrainingInsights";
+import MatchupHintsCard from "@/components/MatchupHintsCard";
 import GymGoalsManager from "@/components/GymGoalsManager";
 import TopSubTabs from "@/components/TopSubTabs";
 import PageHeader from "@/components/PageHeader";
@@ -1060,6 +1061,10 @@ useEffect(() => {
 
           <div className="mt-6">
             <GameTrainingInsights />
+          </div>
+
+          <div className="mt-6">
+            <MatchupHintsCard />
           </div>
 
           <section className="mt-6 app-card">

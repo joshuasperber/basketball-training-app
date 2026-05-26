@@ -4,6 +4,7 @@ import { ErrorBoundary } from "@sentry/nextjs";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { ensureInitialCloudSync } from "@/lib/progress-sync";
+import { syncWorkoutSessionsToCloud } from "@/lib/sync-workout-sessions";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
   return (
@@ -71,13 +72,18 @@ function CloudSyncBridge() {
       });
       // #endregion
     };
+    const onSessionsUpdated = () => {
+      void syncWorkoutSessionsToCloud();
+    };
     sync();
     window.addEventListener("focus", sync);
+    window.addEventListener("bt:sessions-updated", onSessionsUpdated);
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onUnhandled);
     document.addEventListener("visibilitychange", sync);
     return () => {
       window.removeEventListener("focus", sync);
+      window.removeEventListener("bt:sessions-updated", onSessionsUpdated);
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onUnhandled);
       document.removeEventListener("visibilitychange", sync);

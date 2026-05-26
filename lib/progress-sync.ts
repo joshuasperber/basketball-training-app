@@ -8,10 +8,12 @@ import {
 } from "@/lib/activity-calendar";
 import { PLAYER_INTAKE_STORAGE_KEY, PLAYER_INTAKE_UPDATED_EVENT } from "@/lib/coach-intake";
 import { GAME_STATS_KEY } from "@/lib/game-stats";
-import { getExerciseHistoryMap, getWorkoutSessions } from "@/lib/session-storage";
+import { checkAuthSession } from "@/lib/auth-session-align";
+import { getWorkoutSessions } from "@/lib/session-storage";
+import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
 import { SessionDatabase } from "@/lib/session-types";
-import { WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
+import { WORKOUT_HISTORY_KEY as LEGACY_WORKOUT_HISTORY_KEY, WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
 
 const EXERCISE_HISTORY_KEY = "bt.exercise-history.v1";
 const WORKOUT_SESSIONS_KEY = "bt.workout-sessions.v1";
@@ -108,10 +110,7 @@ function agentDebugLog(hypothesisId: string, message: string, data: Record<strin
 
 export function buildLocalProgressSnapshot(): RemoteProgress {
   return {
-    sessions: {
-      workoutSessions: getWorkoutSessions(),
-      exerciseHistory: getExerciseHistoryMap(),
-    },
+    sessions: buildWorkoutSessionsForCloud(),
     dailyPlanMap: readLocalDailyPlanMap(),
     manualDayWorkoutsMap: readLocalJsonMap<Record<string, unknown[]>>(MANUAL_DAY_WORKOUTS_KEY, {}),
     manualDayDisabledMap: readLocalJsonMap<Record<string, boolean>>(MANUAL_DAY_DISABLED_KEY, {}),
@@ -128,7 +127,7 @@ export function buildLocalProgressSnapshot(): RemoteProgress {
     gameStats: readRawString(GAME_STATS_KEY),
     trainingGoals: readRawString(TRAINING_GOALS_STORAGE_KEY),
     customSubcategories: readRawString(CUSTOM_SUBCATEGORY_KEY),
-    workoutHistory: readRawString(WORKOUT_HISTORY_KEY),
+    workoutHistory: readRawString(WORKOUT_HISTORY_KEY) ?? readRawString(LEGACY_WORKOUT_HISTORY_KEY),
     reminderPrefs: readRawString(REMINDER_PREFS_KEY),
     coachWeeklyNote: readRawString(COACH_WEEKLY_NOTE_STORAGE_KEY),
     trainingExercises: readRawString(TRAINING_EXERCISES_KEY),
@@ -231,7 +230,9 @@ export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
 }
 
 export async function pullProgressFromCloud() {
-  const response = await fetch("/api/session", { cache: "no-store" });
+  const { me } = await checkAuthSession();
+  if (!me) return null;
+  const response = await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
   // #region agent log
   agentDebugLog("H1,H2", "pull progress response", { ok: response.ok, status: response.status });
   // #endregion
@@ -248,11 +249,18 @@ export async function pullProgressFromCloud() {
   return remote;
 }
 
-export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>) {
+export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): Promise<boolean> {
+  const { me, accountSwitched } = await checkAuthSession();
+  if (!me) return false;
+  if (accountSwitched) {
+    await pullProgressFromCloud();
+  }
+
   const snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
   const response = await fetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: JSON.stringify(snapshot),
   });
   // #region agent log
@@ -264,4 +272,16 @@ export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>) {
     dailyPlanDays: Object.keys(snapshot.dailyPlanMap).length,
   });
   // #endregion
+  return response.ok;
+}
+
+/** Sync mit kurzem Retry — hilft direkt nach Workout-Abschluss. */
+export async function pushProgressToCloudWithRetry(attempts = 3): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (await pushProgressToCloud()) return true;
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+  return false;
 }

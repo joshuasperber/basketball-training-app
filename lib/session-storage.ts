@@ -104,6 +104,9 @@ export function appendWorkoutSession(entry: WorkoutSessionEntry) {
   writeJson(WORKOUT_SESSIONS_KEY, [entry, ...withoutExisting].slice(0, 50));
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("bt:sessions-updated"));
+    void import("@/lib/sync-workout-sessions").then(({ syncWorkoutSessionsToCloudWithRetry }) => {
+      void syncWorkoutSessionsToCloudWithRetry();
+    });
   }
 }
 
