@@ -23,6 +23,13 @@ import CatalogSearchPanel from "@/components/training/CatalogSearchPanel";
 import Sheet from "@/components/ui/Sheet";
 import IconButton, { PlusIcon } from "@/components/ui/IconButton";
 import { addManualGameToday } from "@/lib/plan-day-actions";
+import {
+  buildTrainingHref,
+  getTrainingTabFromParam,
+  loadTrainingTab,
+  persistTrainingTab,
+} from "@/lib/ui-navigation-state";
+import { toLocalDateKey } from "@/lib/workout";
 import { normalizeMetricKeysForCategory } from "@/lib/workout-metrics";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
@@ -138,14 +145,44 @@ function validateMetricTargets(category: Category, metricKeys: MetricKey[], targ
 function TrainingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<TrainingTab>("Workouts");
+  const [clientReady, setClientReady] = useState(false);
+  const [activeTab, setActiveTab] = useState<TrainingTab | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const completedParam = searchParams.get("completed");
+  const tabParam = searchParams.get("tab");
   const completionMessage = useMemo(() => {
     if (completedParam === "workout") return "Workout abgeschlossen ✅";
     if (completedParam === "exercise") return "Exercise abgeschlossen ✅";
     return null;
   }, [completedParam]);
+
+  useEffect(() => {
+    const fromUrl = getTrainingTabFromParam(tabParam);
+    const fromStorage = loadTrainingTab();
+    const nextTab = fromUrl ?? fromStorage ?? "Workouts";
+    setActiveTab(nextTab);
+    persistTrainingTab(nextTab);
+    setClientReady(true);
+    if (!fromUrl) {
+      router.replace(
+        buildTrainingHref(nextTab, completedParam ? { completed: completedParam } : undefined),
+        { scroll: false },
+      );
+    }
+  }, [tabParam, completedParam, router]);
+
+  const handleTabChange = (tab: TrainingTab) => {
+    setActiveTab(tab);
+    persistTrainingTab(tab);
+    router.replace(buildTrainingHref(tab, completedParam ? { completed: completedParam } : undefined), { scroll: false });
+  };
+
+  const startGameToday = (kind: "game" | "game_training") => {
+    addManualGameToday(kind);
+    window.dispatchEvent(new Event("bt:plan-updated"));
+    const dateKey = toLocalDateKey(new Date());
+    router.push(`/game-track?date=${dateKey}&context=${kind}`);
+  };
 
   const [workoutCategory, setWorkoutCategory] = useState<Category>("Basketball");
   const [workoutSubcategory, setWorkoutSubcategory] = useState("Shooting");
@@ -650,6 +687,10 @@ function TrainingPageContent() {
   return (
     <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
+        {!clientReady || !activeTab ? (
+          <p className="text-sm text-muted">Lade Training …</p>
+        ) : (
+        <>
         <div className="training-top">
           <div className="training-top__main">
             <div>
@@ -657,8 +698,8 @@ function TrainingPageContent() {
               <h1 className="page-title">Training</h1>
               <p className="page-subtitle">Workouts und Exercises verwalten, filtern und starten.</p>
             </div>
-            <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]} />
-            <TabSwitcher activeTab={activeTab} onTabChange={setActiveTab} />
+            <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: buildTrainingHref(activeTab) }]} />
+            <TabSwitcher activeTab={activeTab} onTabChange={handleTabChange} />
           </div>
           <div className="training-top__rail">
             <div className="training-top__tools">
@@ -681,22 +722,16 @@ function TrainingPageContent() {
             <button
               type="button"
               className="btn btn-outline btn-xs shrink-0"
-              onClick={() => {
-                addManualGameToday("game");
-                window.dispatchEvent(new Event("bt:plan-updated"));
-              }}
+              onClick={() => startGameToday("game")}
             >
-              + Spieltag heute
+              Spieltag starten
             </button>
             <button
               type="button"
               className="btn btn-outline btn-xs shrink-0"
-              onClick={() => {
-                addManualGameToday("game_training");
-                window.dispatchEvent(new Event("bt:plan-updated"));
-              }}
+              onClick={() => startGameToday("game_training")}
             >
-              + Spieltraining heute
+              Spieltraining starten
             </button>
           </div>
         </div>
@@ -704,7 +739,7 @@ function TrainingPageContent() {
         {completionMessage ? (
           <div className="alert-success flex flex-wrap items-center justify-between gap-2">
             <span>{completionMessage} Du bist wieder auf der Training-Startseite.</span>
-            <button type="button" onClick={() => router.replace("/training")} className="btn btn-ghost btn-xs">
+            <button type="button" onClick={() => router.replace(buildTrainingHref(activeTab))} className="btn btn-ghost btn-xs">
               Hinweis schließen
             </button>
           </div>
@@ -937,6 +972,8 @@ function TrainingPageContent() {
             />
           )}
         </Sheet>
+        </>
+        )}
       </div>
     </main>
   );

@@ -1345,11 +1345,53 @@ a.icon-btn {
   margin-top: 0.75rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--surface-border);
   background: var(--bg-elevated-2);
   padding: 0.5rem;
+}
+
+.weekly-action-bar__main,
+.weekly-action-bar__game {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.weekly-action-bar__game {
+  margin-left: auto;
+  padding-left: 0.35rem;
+  border-left: 1px solid var(--surface-border);
+}
+
+.weekly-action-bar--empty .weekly-action-bar__game {
+  border-left: none;
+}
+
+.btn-weekly-game {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(255, 107, 0, 0.08));
+}
+
+.weekly-game-prep {
+  margin-top: 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(124, 58, 237, 0.28);
+  background: linear-gradient(145deg, rgba(124, 58, 237, 0.08) 0%, var(--surface) 70%);
+  padding: 0.85rem 1rem;
+}
+
+.stats-controls-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stats-controls-stack .top-tabs {
+  margin-top: 0;
 }
 
 .weekly-panel {

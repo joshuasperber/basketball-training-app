@@ -13,6 +13,7 @@ import {
 import type { DrillCatalogFilters } from "@/lib/drill-catalog-filters";
 import { countActiveDrillFilters } from "@/lib/drill-catalog-filters";
 import FilterClearButton from "@/components/ui/FilterClearButton";
+import { buildReturnToQuery, buildReturnToTraining } from "@/lib/ui-navigation-state";
 import { METRIC_LABELS, METRICS_BY_CATEGORY } from "@/lib/workout-metrics";
 
 export type TrainingTab = "Workouts" | "Exercises";
@@ -374,7 +375,7 @@ export function WorkoutsTab({
                     href={
                       isGameWorkout(workout)
                         ? `/game-track?context=${gameContextForWorkout(workout)}`
-                        : `/workouts/${workout.id}`
+                        : `/workouts/${workout.id}?returnTo=${buildReturnToQuery(buildReturnToTraining("Workouts"))}`
                     }
                     className="btn btn-primary btn-xs"
                   >
@@ -972,7 +973,7 @@ export function ExercisesTab({
               renderItem={(exercise) => (
                 <ExerciseCard
                   exercise={exercise}
-                  href={`/exercises/${exercise.id}`}
+                  href={`/exercises/${exercise.id}?returnTo=${buildReturnToQuery(buildReturnToTraining("Exercises"))}`}
                   onEdit={() => onStartEditExercise(exercise)}
                   onDelete={() => onDeleteExercise(exercise.id)}
                 />

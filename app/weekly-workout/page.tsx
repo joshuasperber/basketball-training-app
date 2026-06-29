@@ -44,14 +44,16 @@ import PageHeader from "@/components/PageHeader";
 import { buildBasketballCoachingPriorities } from "@/lib/basketball-coaching";
 import { getProgressionState } from "@/lib/level-system";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
-import { loadGameStats } from "@/lib/game-stats";
-import { gamePlanId } from "@/lib/game-plan-ids";
+import { findGameStatByDateAndContext, loadGameStats } from "@/lib/game-stats";
+import { gamePlanId, type GamePlanContext } from "@/lib/game-plan-ids";
 import { addManualGameToWeekday } from "@/lib/plan-day-actions";
+import { spieltagCardNotes } from "@/lib/spieltag-defaults";
 import { getPlannedSubcategoryFromTags } from "@/lib/planned-subcategory";
 import { writeWeeklySuggestionsCache } from "@/lib/weekly-suggestions-cache";
 import { getWarmupWorkouts, isWarmupWorkout } from "@/lib/warmup-workouts";
 import ShowMoreList from "@/components/ShowMoreList";
 import GradientFadeList from "@/components/GradientFadeList";
+import WeeklyGamePrepPanel from "@/components/WeeklyGamePrepPanel";
 import { PlusIcon } from "@/components/ui/IconButton";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
@@ -131,8 +133,16 @@ type WorkoutCardItem = {
   autoSuggestion?: SuggestedWorkout;
   manualWorkoutId?: string;
   durationMin: number;
-  kind?: "training" | "game";
+  kind?: "training" | "game" | "game_training";
 };
+
+function isGameCard(card: WorkoutCardItem) {
+  return card.kind === "game" || card.kind === "game_training" || card.subcategory === "Spiel" || card.subcategory === "Spieltraining";
+}
+
+function gameContextForCard(card: WorkoutCardItem): GamePlanContext {
+  return card.kind === "game_training" || card.subcategory === "Spieltraining" ? "game_training" : "game";
+}
 
 type HiddenAutoWorkoutsMap = Record<string, string[]>;
 const SELECTED_WARMUP_BY_DATE_KEY = "bt.selected-warmup-by-date.v1";
@@ -160,25 +170,27 @@ function buildAutoWorkoutId(dayIndex: (typeof weekdayOrder)[number], sport: stri
 
 function getGameCardFromTags(dateKey: string, tags: PlannedWorkoutTag[], fallbackMinutes: number, sessionType?: string): WorkoutCardItem | null {
   if (tags.includes("Spieltag") || sessionType === "game") {
+    const prep = findGameStatByDateAndContext(dateKey, "game");
     return {
       id: gamePlanId(dateKey, "game"),
-      title: "Spieltag",
+      title: prep?.opponentLabel?.trim() || "Spieltag",
       sport: "Basketball",
       subcategory: "Spiel",
-      notes: "Tracke Minuten, Intensität, Punkte und Notizen zum Spiel.",
+      notes: spieltagCardNotes(prep?.notes),
       durationMin: Math.max(0, fallbackMinutes || 60),
       kind: "game",
     };
   }
   if (tags.includes("Spieltraining") || sessionType === "game-training") {
+    const prep = findGameStatByDateAndContext(dateKey, "game_training");
     return {
       id: gamePlanId(dateKey, "game_training"),
-      title: "Spieltraining",
+      title: prep?.opponentLabel?.trim() || "Spieltraining",
       sport: "Basketball",
       subcategory: "Spieltraining",
-      notes: "Tracke Minuten, Intensität, Punkte und Notizen zum Spieltraining.",
+      notes: prep?.notes?.trim() || "Tracke Minuten, Intensität, Punkte und Notizen zum Spieltraining.",
       durationMin: Math.max(0, fallbackMinutes || 45),
-      kind: "game",
+      kind: "game_training",
     };
   }
   return null;
@@ -948,14 +960,14 @@ export default function WeeklyWorkoutPage() {
     window.addEventListener("storage", refreshProfilePlan);
     window.addEventListener("focus", refreshProfilePlan);
     window.addEventListener("bt:plan-updated", refreshProfilePlan);
-    window.addEventListener("bt:game-stats-updated", refreshCompletionState);
+    window.addEventListener("bt:game-stats-updated", refreshProfilePlan);
     window.addEventListener("bt:sessions-updated", refreshCompletionState);
     window.addEventListener("bt:workout-progress-updated", refreshCompletionState);
     return () => {
       window.removeEventListener("storage", refreshProfilePlan);
       window.removeEventListener("focus", refreshProfilePlan);
       window.removeEventListener("bt:plan-updated", refreshProfilePlan);
-      window.removeEventListener("bt:game-stats-updated", refreshCompletionState);
+      window.removeEventListener("bt:game-stats-updated", refreshProfilePlan);
       window.removeEventListener("bt:sessions-updated", refreshCompletionState);
       window.removeEventListener("bt:workout-progress-updated", refreshCompletionState);
     };
@@ -1542,127 +1554,147 @@ export default function WeeklyWorkoutPage() {
 
               {selectedCard && !isRestDisplay ? (
                 <div className="weekly-action-bar">
-                  {(selectedCard.subcategory === "Spiel" || selectedCard.subcategory === "Spieltraining") ? (
-                    <Link
-                      href={`/game-track?date=${manualDateKey}&context=${selectedCard.subcategory === "Spieltraining" ? "game_training" : "game"}`}
-                      className="btn btn-violet btn-xs"
-                    >
-                      Spiel tracken
+                  <div className="weekly-action-bar__main">
+                    {isGameCard(selectedCard) ? (
+                      <Link
+                        href={`/game-track?date=${manualDateKey}&context=${gameContextForCard(selectedCard)}`}
+                        className="btn btn-violet btn-xs"
+                      >
+                        Spiel tracken
+                      </Link>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-xs"
+                          onClick={() =>
+                            navigateToWeeklyWorkout(router, {
+                              day,
+                              mode: "start",
+                              card: toNavCard(selectedCard),
+                            })
+                          }
+                        >
+                          {isSelectedCardCompleted
+                            ? "Workout ansehen"
+                            : selectedCardCanContinue
+                              ? "Workout fortfahren"
+                              : "Workout starten"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() =>
+                            navigateToWeeklyWorkout(router, {
+                              day,
+                              mode: "edit",
+                              card: toNavCard(selectedCard),
+                            })
+                          }
+                        >
+                          Bearbeiten
+                        </button>
+                      </>
+                    )}
+                    <Link href={`/workouts?day=${day}&manual=1`} className="btn btn-emerald btn-xs">
+                      + Workout
                     </Link>
-                  ) : null}
-                  {selectedCard.kind === "game" ? null : (
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-xs"
-                    onClick={() =>
-                      navigateToWeeklyWorkout(router, {
-                        day,
-                        mode: "start",
-                        card: toNavCard(selectedCard),
-                      })
-                    }
-                  >
-                    {isSelectedCardCompleted
-                      ? "Workout ansehen"
-                      : selectedCardCanContinue
-                        ? "Workout fortfahren"
-                        : "Workout starten"}
-                  </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-xs"
-                    onClick={() =>
-                      navigateToWeeklyWorkout(router, {
-                        day,
-                        mode: "edit",
-                        card: toNavCard(selectedCard),
-                      })
-                    }
-                  >
-                    Bearbeiten
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-xs"
-                    onClick={() => addManualGameForDay(day, "game")}
-                  >
-                    + Spieltag
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-xs"
-                    onClick={() => addManualGameForDay(day, "game_training")}
-                  >
-                    + Spieltraining
-                  </button>
-                  <Link href={`/workouts?day=${day}&manual=1`} className="btn btn-emerald btn-xs">
-                    + Workout
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedCard.manualWorkoutId) {
-                        deleteManualWorkout(day, selectedCard.manualWorkoutId);
-                        return;
-                      }
-                      hideAutoWorkoutCard(day, selectedCard.id);
-                    }}
-                    className="btn btn-danger-outline btn-xs"
-                  >
-                    {selectedCard.manualWorkoutId ? "Löschen" : "Ausblenden"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedCard.manualWorkoutId) {
-                        moveManualWorkoutToTomorrow(day, selectedCard.manualWorkoutId);
-                        return;
-                      }
-                      moveAutoWorkoutToTomorrow(day, selectedCard);
-                    }}
-                    className="btn btn-cyan btn-xs"
-                  >
-                    Auf morgen
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => disableDayAsNoTime(day)}
-                    className="btn btn-ghost btn-xs"
-                  >
-                    Keine Zeit
-                  </button>
-                </div>
-              ) : null}
-
-              {!selectedCard || isRestDisplay ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-xs"
-                    onClick={() => addManualGameForDay(day, "game")}
-                  >
-                    + Spieltag
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-xs"
-                    onClick={() => addManualGameForDay(day, "game_training")}
-                  >
-                    + Spieltraining
-                  </button>
-                  <Link href={`/workouts?day=${day}&manual=1`} className="btn btn-emerald btn-xs">
-                    Workout hinzufügen
-                  </Link>
-                  {!isRestDisplay ? null : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedCard.manualWorkoutId) {
+                          deleteManualWorkout(day, selectedCard.manualWorkoutId);
+                          return;
+                        }
+                        hideAutoWorkoutCard(day, selectedCard.id);
+                      }}
+                      className="btn btn-danger-outline btn-xs"
+                    >
+                      {selectedCard.manualWorkoutId ? "Löschen" : "Ausblenden"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedCard.manualWorkoutId) {
+                          moveManualWorkoutToTomorrow(day, selectedCard.manualWorkoutId);
+                          return;
+                        }
+                        moveAutoWorkoutToTomorrow(day, selectedCard);
+                      }}
+                      className="btn btn-cyan btn-xs"
+                    >
+                      Auf morgen
+                    </button>
                     <button
                       type="button"
                       onClick={() => disableDayAsNoTime(day)}
                       className="btn btn-ghost btn-xs"
                     >
-                      Frei bestätigen
+                      Keine Zeit
                     </button>
-                  )}
+                  </div>
+                  <div className="weekly-action-bar__game">
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-xs btn-weekly-game"
+                      onClick={() => addManualGameForDay(day, "game")}
+                    >
+                      + Spieltag
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-xs btn-weekly-game"
+                      onClick={() => addManualGameForDay(day, "game_training")}
+                    >
+                      + Spieltraining
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedCard && !isRestDisplay && isGameCard(selectedCard) ? (
+                <WeeklyGamePrepPanel
+                  dateKey={manualDateKey}
+                  context={gameContextForCard(selectedCard)}
+                  onSaved={() => {
+                    setProfileVersion((current) => current + 1);
+                    window.dispatchEvent(new Event("bt:game-stats-updated"));
+                  }}
+                />
+              ) : null}
+
+              {!selectedCard || isRestDisplay ? (
+                <div className="weekly-action-bar weekly-action-bar--empty">
+                  <div className="weekly-action-bar__main">
+                    <Link href={`/workouts?day=${day}&manual=1`} className="btn btn-emerald btn-xs">
+                      Workout hinzufügen
+                    </Link>
+                    {!isRestDisplay ? null : (
+                      <button
+                        type="button"
+                        onClick={() => disableDayAsNoTime(day)}
+                        className="btn btn-ghost btn-xs"
+                      >
+                        Frei bestätigen
+                      </button>
+                    )}
+                  </div>
+                  <div className="weekly-action-bar__game">
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-xs btn-weekly-game"
+                      onClick={() => addManualGameForDay(day, "game")}
+                    >
+                      + Spieltag
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-xs btn-weekly-game"
+                      onClick={() => addManualGameForDay(day, "game_training")}
+                    >
+                      + Spieltraining
+                    </button>
+                  </div>
                 </div>
               ) : null}
 

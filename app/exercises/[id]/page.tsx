@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultExercises, type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
 import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
+import { buildTrainingHref, resolveReturnTo } from "@/lib/ui-navigation-state";
 
 type ExerciseSet = {
   id: string;
@@ -68,9 +70,25 @@ function getExerciseDurationForSetCount(exercise: Exercise, setCount: number) {
 }
 
 export default function ExerciseExecutionPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="app-container">
+          <p className="text-sm text-muted">Lade Exercise …</p>
+        </main>
+      }
+    >
+      <ExerciseExecutionPageContent />
+    </Suspense>
+  );
+}
+
+function ExerciseExecutionPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const params = useParams<{ id: string }>();
   const exerciseId = params.id;
+  const returnToTraining = resolveReturnTo(searchParams.get("returnTo"), buildTrainingHref("Exercises"));
   const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
 
   useEffect(() => {
@@ -207,7 +225,7 @@ export default function ExerciseExecutionPage() {
     await refreshHistory();
     setSaved(true);
     void pushProgressToCloud();
-    router.push("/training?completed=exercise");
+    router.push(`${returnToTraining}${returnToTraining.includes("?") ? "&" : "?"}completed=exercise`);
   }
 
   useEffect(() => {
@@ -224,7 +242,7 @@ export default function ExerciseExecutionPage() {
       <main className="app-container">
         <div className="app-card">
           <p className="text-lg font-bold">Exercise nicht gefunden.</p>
-          <Link href="/training" className="btn btn-ghost btn-sm mt-3">
+          <Link href={returnToTraining} className="btn btn-ghost btn-sm mt-3">
             ← Zurück zu Training
           </Link>
         </div>
@@ -321,7 +339,7 @@ export default function ExerciseExecutionPage() {
           </p>
         ) : null}
 
-        <Link href="/training" className="btn btn-ghost btn-sm self-start">
+        <Link href={returnToTraining} className="btn btn-ghost btn-sm self-start">
           ← Zurück zu Training
         </Link>
       </div>

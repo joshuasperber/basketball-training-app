@@ -26,14 +26,14 @@ import {
   writeManualDayDisabledMap,
   writeManualPlanOverrides,
 } from "@/lib/activity-calendar";
-import { clearPlayerIntake } from "@/lib/coach-intake";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import PageHeader from "@/components/PageHeader";
+import ProfileSettingsSheet from "@/components/ProfileSettingsSheet";
 import ViewportToast from "@/components/ViewportToast";
-import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
+import IconButton, { GearIcon } from "@/components/ui/IconButton";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
@@ -271,6 +271,7 @@ export default function ProfilePage() {
   const feedbackTimerRef = useRef<number | null>(null);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [stammdatenOpen, setStammdatenOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const showProfileFeedback = useCallback((text: string, tone: ProfileFeedbackTone = "info") => {
     if (feedbackTimerRef.current != null) {
@@ -727,31 +728,14 @@ const refreshProfileAndWeekly = () => {
         eyebrow="Spielerprofil"
         title="Profil & Wochenplanung"
         subtitle="Pflege deine Daten und plane die Woche – die Engine baut deinen Plan automatisch."
+        actions={
+          <IconButton variant="ghost" label="Einstellungen" onClick={() => setSettingsOpen(true)}>
+            <GearIcon />
+          </IconButton>
+        }
       />
 
       <section className="mt-4 app-card">
-        <p className="section-eyebrow">Coach</p>
-        <h2 className="section-title mt-1">Kennenlern-Chat</h2>
-        <p className="mt-1 text-sm text-muted">
-          Beim ersten App-Start hast du Stärken, Schwächen und Rolle im Team angegeben. Du kannst das zurücksetzen — der Dialog erscheint dann wieder (z. B. nach der Saison).
-        </p>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm mt-3"
-          onClick={() => {
-            clearPlayerIntake();
-            void pushProgressToCloud({ playerIntake: "" });
-            showProfileFeedback(
-              "Kennenlern-Chat zurückgesetzt. Beim nächsten Laden der App wirst du erneut befragt.",
-              "success",
-            );
-          }}
-        >
-          Kennenlern-Chat erneut starten
-        </button>
-      </section>
-
-      <section className="mt-6 app-card">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="section-eyebrow">Stammdaten</p>
@@ -1214,7 +1198,12 @@ const refreshProfileAndWeekly = () => {
         Profil aktualisieren
       </button>
 
-      <WorkoutReminderSettings weekConfig={weekConfig} />
+      <ProfileSettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        weekConfig={weekConfig}
+        onFeedback={showProfileFeedback}
+      />
 
       <section className="mt-4 app-card">
         <p className="section-eyebrow">Vorschau</p>

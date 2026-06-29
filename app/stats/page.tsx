@@ -846,40 +846,42 @@ useEffect(() => {
           ]}
         />
       </div>
-      <div className="mt-4 segmented-wrap">
-        <div className="segmented">
-          {[
-            { id: "all", label: "All Time" },
-            { id: "monthly", label: "Monthly" },
-            { id: "weekly", label: "Weekly" },
-          ].map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setRange(option.id as StatsRange)}
-              className={`segmented__btn ${range === option.id ? "segmented__btn--active" : ""}`}
-              aria-pressed={range === option.id}
-            >
-              {option.label}
-            </button>
-          ))}
+      <div className="stats-controls-stack mt-2">
+        <div className="segmented-wrap">
+          <div className="segmented">
+            {[
+              { id: "all", label: "All Time" },
+              { id: "monthly", label: "Monthly" },
+              { id: "weekly", label: "Weekly" },
+            ].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setRange(option.id as StatsRange)}
+                className={`segmented__btn ${range === option.id ? "segmented__btn--active" : ""}`}
+                aria-pressed={range === option.id}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="mt-4 top-tabs-wrap">
-        <div className="top-tabs">
-          {([
-            { id: "overview", label: "Übersicht", href: "/stats?tab=overview" },
-            { id: "basketball", label: "Basketball", href: "/stats?tab=basketball" },
-            { id: "gym", label: "Gym", href: "/stats?tab=gym" },
-          ] as const).map((tab) => (
-            <Link
-              key={tab.id}
-              href={tab.href}
-              className={`top-tabs__btn ${detailTab === tab.id ? "top-tabs__btn--active" : ""}`}
-            >
-              {tab.label}
-            </Link>
-          ))}
+        <div className="top-tabs-wrap">
+          <div className="top-tabs">
+            {([
+              { id: "overview", label: "Übersicht", href: "/stats?tab=overview" },
+              { id: "basketball", label: "Basketball", href: "/stats?tab=basketball" },
+              { id: "gym", label: "Gym", href: "/stats?tab=gym" },
+            ] as const).map((tab) => (
+              <Link
+                key={tab.id}
+                href={tab.href}
+                className={`top-tabs__btn ${detailTab === tab.id ? "top-tabs__btn--active" : ""}`}
+              >
+                {tab.label}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
       {detailTab === "overview" ? (
