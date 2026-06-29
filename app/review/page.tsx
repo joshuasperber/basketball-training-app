@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import BasketballCoachingCard from "@/components/BasketballCoachingCard";
 import TopSubTabs from "@/components/TopSubTabs";
 import { buildBasketballCoachingPlan } from "@/lib/basketball-coaching";
+import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
 import { getProgressionState } from "@/lib/level-system";
 import { getWorkoutSessions } from "@/lib/session-storage";
@@ -124,7 +125,7 @@ export default function ReviewPage() {
         </button>
       </section>
 
-      <Link href="/Weekly-Workout" className="btn btn-ghost btn-sm mt-8">
+      <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm mt-8">
         ← Zurück zu Weekly
       </Link>
     </main>

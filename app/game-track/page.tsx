@@ -1,6 +1,7 @@
 "use client";
 
 import GradientFadeList from "@/components/GradientFadeList";
+import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -447,7 +448,7 @@ export default function GameTrackPage() {
           {saved ? <p className="mt-3 text-center text-sm text-emerald-300">Gespeichert und mit dem Konto synchronisiert (falls eingeloggt).</p> : null}
         </section>
 
-        <Link href="/Weekly-Workout" className="btn btn-ghost btn-sm mt-6">
+        <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm mt-6">
           ← Zurück zu Weekly
         </Link>
       </div>

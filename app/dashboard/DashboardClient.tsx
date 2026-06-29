@@ -30,6 +30,7 @@ import { loadGameStats } from "@/lib/game-stats";
 import { gamePlanId } from "@/lib/game-plan-ids";
 import { buildDayWorkoutCardsForToday, isEmptyRestDayCard, type DayWorkoutCard } from "@/lib/day-workout-cards";
 import { buildWeeklyWorkoutNavPath } from "@/lib/weekly-workout-nav";
+import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 
 const dayByIndex: Record<number, import("@/lib/planner").DayKey> = {
   0: "sunday",
@@ -394,7 +395,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                 );
               }}
             />
-            <Link href="/Weekly-Workout" className="btn btn-ghost mt-2">
+            <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost mt-2">
               Weekly öffnen
             </Link>
           </article>
@@ -409,7 +410,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
               <Link href="/workouts" className="btn btn-violet">
                 Trotzdem trainieren
               </Link>
-              <Link href="/Weekly-Workout" className="btn btn-ghost">
+              <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost">
                 Woche planen
               </Link>
             </div>

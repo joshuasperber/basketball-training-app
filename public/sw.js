@@ -84,7 +84,7 @@ self.addEventListener("message", (event) => {
         tag: tag || "workout-reminder",
         icon: "/icon.png",
         badge: "/icon.png",
-        data: { url: "/Weekly-Workout" },
+        data: { url: "/weekly-workout" },
       });
     }, delay);
   }
@@ -92,7 +92,7 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || "/Weekly-Workout";
+  const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || "/weekly-workout";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
