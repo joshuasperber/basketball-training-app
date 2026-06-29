@@ -143,9 +143,8 @@ export function shouldAutoRunWeeklyPlanLlm(): { run: boolean; reason?: "new_week
   }
 
   if (lastSig && lastSig !== currentSig && currentWeek) {
-    let beforeWeek: Partial<Record<DayKey, { mode: string; minutes: number }>> | undefined;
     const parts = lastSig.split("|");
-    beforeWeek = {};
+    const beforeWeek: Partial<Record<DayKey, { mode: string; minutes: number }>> = {};
     for (const part of parts) {
       const [day, mode, minutes] = part.split(":");
       if (day && mode) {

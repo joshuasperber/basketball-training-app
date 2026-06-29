@@ -12,6 +12,7 @@ import { checkAuthSession } from "@/lib/auth-session-align";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
+import { REMINDER_PREFS_KEY } from "@/lib/workout-reminders";
 import { SessionDatabase } from "@/lib/session-types";
 import { WORKOUT_HISTORY_KEY as LEGACY_WORKOUT_HISTORY_KEY, WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
 
@@ -26,7 +27,7 @@ const HIDDEN_AUTO_WORKOUTS_KEY = "bt.hidden-auto-workouts.v1";
 const PERFORMANCE_TIPS_KEY = "bt.performance-tips.v1";
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 const WORKOUT_HISTORY_KEY = "bt.workout-history.v1";
-const REMINDER_PREFS_KEY = "bt.workout-reminders.v1";
+const LEGACY_REMINDER_PREFS_KEY = "bt.workout-reminders.v1";
 const COACH_WEEKLY_NOTE_STORAGE_KEY = "bt.coach-weekly-context";
 const TRAINING_EXERCISES_KEY = "training-exercises-v1";
 const TRAINING_WORKOUTS_KEY = "training-workouts-v1";
@@ -98,6 +99,10 @@ function readWorkoutOverrides(): Record<string, string> {
   return overrides;
 }
 
+function readReminderPrefsRaw() {
+  return readRawString(REMINDER_PREFS_KEY) ?? readRawString(LEGACY_REMINDER_PREFS_KEY);
+}
+
 // #region agent log
 function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
   void hypothesisId;
@@ -126,7 +131,7 @@ export function buildLocalProgressSnapshot(): RemoteProgress {
     trainingGoals: readRawString(TRAINING_GOALS_STORAGE_KEY),
     customSubcategories: readRawString(CUSTOM_SUBCATEGORY_KEY),
     workoutHistory: readRawString(WORKOUT_HISTORY_KEY) ?? readRawString(LEGACY_WORKOUT_HISTORY_KEY),
-    reminderPrefs: readRawString(REMINDER_PREFS_KEY),
+    reminderPrefs: readReminderPrefsRaw(),
     coachWeeklyNote: readRawString(COACH_WEEKLY_NOTE_STORAGE_KEY),
     trainingExercises: readRawString(TRAINING_EXERCISES_KEY),
     trainingWorkouts: readRawString(TRAINING_WORKOUTS_KEY),
