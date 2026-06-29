@@ -4,6 +4,7 @@ import { Fragment, useId, useState, type ReactNode } from "react";
 
 export type GradientFadeListProps<T> = {
   items: T[];
+  /** Fully visible items before fade preview. Default: 3 */
   previewCount?: number;
   renderItem: (item: T, index: number) => ReactNode;
   getKey: (item: T, index: number) => string;
@@ -30,7 +31,7 @@ export default function GradientFadeList<T>({
 
   if (items.length === 0) return null;
 
-  const visibleCount = expanded || !hasMore ? items.length : Math.min(items.length, previewCount + 1);
+  const visibleCount = expanded || !hasMore ? items.length : previewCount;
   const visible = items.slice(0, visibleCount);
 
   return (

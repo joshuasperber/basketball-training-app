@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import EmptyState from "@/components/ui/EmptyState";
+import GradientFadeList from "@/components/GradientFadeList";
 import {
   type Category,
   type Exercise,
@@ -10,6 +11,8 @@ import {
   type Workout,
 } from "@/lib/training-data";
 import type { DrillCatalogFilters } from "@/lib/drill-catalog-filters";
+import { countActiveDrillFilters } from "@/lib/drill-catalog-filters";
+import FilterClearButton from "@/components/ui/FilterClearButton";
 import { METRIC_LABELS, METRICS_BY_CATEGORY } from "@/lib/workout-metrics";
 
 export type TrainingTab = "Workouts" | "Exercises";
@@ -47,7 +50,6 @@ type WorkoutsTabProps = {
   onDeleteSubcategory: (category: Category, subcategory: string) => void;
   selectedCategory: Category;
   selectedSubcategory: string;
-  onCategoryChange: (category: Category) => void;
   onSubcategoryChange: (subcategory: string) => void;
   workouts: Workout[];
   availableExercises: Exercise[];
@@ -78,6 +80,8 @@ type WorkoutsTabProps = {
   onEditWorkoutExerciseIdsChange: (value: string[]) => void;
   onUpdateWorkout: (event: React.SyntheticEvent<HTMLFormElement>) => void;
   onDeleteWorkout: (workoutId: string) => void;
+  selectionReady: boolean;
+  onCategorySelect: (category: Category) => void;
 };
 
 type ExercisesTabProps = {
@@ -87,14 +91,13 @@ type ExercisesTabProps = {
   onDeleteSubcategory: (category: Category, subcategory: string) => void;
   selectedCategory: Category;
   selectedSubcategory: string;
-  onCategoryChange: (category: Category) => void;
   onSubcategoryChange: (subcategory: string) => void;
   drillFilters: DrillCatalogFilters;
   onDrillFilterChange: (patch: Partial<DrillCatalogFilters>) => void;
+  onDrillFiltersReset: () => void;
   visibleExercises: Exercise[];
-  searchableExercises: Exercise[];
-  exerciseSearch: string;
-  onExerciseSearchChange: (value: string) => void;
+  selectionReady: boolean;
+  onCategorySelect: (category: Category) => void;
   newExerciseName: string;
   onNewExerciseNameChange: (value: string) => void;
   newExerciseCategory: Category;
@@ -232,7 +235,7 @@ export function WorkoutCreateForm({
           className="textarea"
         />
       </div>
-      <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
+      <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
         {newWorkoutCategory === "Basketball" && newWorkoutSubcategory === "Spiel" ? (
           <p className="text-sm text-muted">
             Für Spiel-Workouts brauchst du keine Exercises. Beim Start öffnet sich automatisch das Game-Tracking.
@@ -240,25 +243,30 @@ export function WorkoutCreateForm({
         ) : createWorkoutExerciseOptions.length === 0 ? (
           <p className="text-sm text-muted">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
         ) : (
-          createWorkoutExerciseOptions.map((exercise) => {
-            const checked = selectedExerciseIds.includes(exercise.id);
-            return (
-              <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm text-strong">
-                <span>{exercise.name}</span>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() =>
-                    onSelectedExerciseIdsChange(
-                      checked
-                        ? selectedExerciseIds.filter((id) => id !== exercise.id)
-                        : [...selectedExerciseIds, exercise.id],
-                    )
-                  }
-                />
-              </label>
-            );
-          })
+          <GradientFadeList
+            items={createWorkoutExerciseOptions}
+            listClassName="space-y-2"
+            getKey={(exercise) => exercise.id}
+            renderItem={(exercise) => {
+              const checked = selectedExerciseIds.includes(exercise.id);
+              return (
+                <label className="flex items-center justify-between gap-3 text-sm text-strong">
+                  <span>{exercise.name}</span>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() =>
+                      onSelectedExerciseIdsChange(
+                        checked
+                          ? selectedExerciseIds.filter((id) => id !== exercise.id)
+                          : [...selectedExerciseIds, exercise.id],
+                      )
+                    }
+                  />
+                </label>
+              );
+            }}
+          />
         )}
       </div>
       {selectedExercises.length > 0 ? (
@@ -289,7 +297,6 @@ export function WorkoutsTab({
   onDeleteSubcategory,
   selectedCategory,
   selectedSubcategory,
-  onCategoryChange,
   onSubcategoryChange,
   workouts,
   availableExercises,
@@ -308,26 +315,23 @@ export function WorkoutsTab({
   onEditWorkoutExerciseIdsChange,
   onUpdateWorkout,
   onDeleteWorkout,
+  selectionReady,
+  onCategorySelect,
 }: WorkoutsTabProps) {
   const editExerciseOptions = useMemo(() => availableExercises, [availableExercises]);
 
   return (
     <section className="space-y-4">
-      <FilterSection
-        title="Kategorie"
-        options={categories}
-        selectedValue={selectedCategory}
-        onSelect={onCategoryChange}
-      />
-
-      <FilterSection
-        title="Unterkategorie"
-        options={subcategories[selectedCategory]}
-        selectedValue={selectedSubcategory}
-        onSelect={onSubcategoryChange}
-        category={selectedCategory}
-        onCreateOption={onCreateSubcategory}
-        onDeleteOption={onDeleteSubcategory}
+      <CategorySubcategoryNav
+        categories={categories}
+        subcategories={subcategories}
+        selectedCategory={selectedCategory}
+        selectedSubcategory={selectedSubcategory}
+        showSubcategories={selectionReady}
+        onCategorySelect={onCategorySelect}
+        onSubcategoryChange={onSubcategoryChange}
+        onCreateSubcategory={onCreateSubcategory}
+        onDeleteSubcategory={onDeleteSubcategory}
       />
 
       <section className="ui-card">
@@ -336,15 +340,26 @@ export function WorkoutsTab({
           Target-Score (pro Exercise): <span className="font-semibold text-strong">80 + Progression</span>
         </p>
 
-        <div className="mt-4 space-y-2">
-          {workouts.length === 0 ? (
+        {!selectionReady ? (
+          <div className="mt-4">
+            <EmptyState
+              title="Kategorie wählen"
+              description="Tippe zuerst auf Basketball, Gym, Home oder Regeneration — danach erscheinen die Unterkategorien."
+            />
+          </div>
+        ) : workouts.length === 0 ? (
             <EmptyState
               title="Noch kein Workout"
               description="Erstelle ein Workout mit dem + Button oben rechts."
             />
           ) : (
-            workouts.map((workout) => (
-              <article key={workout.id} className="list-card">
+            <GradientFadeList
+              className="mt-4"
+              items={workouts}
+              listClassName="space-y-2"
+              getKey={(workout) => workout.id}
+              renderItem={(workout) => (
+              <article className="list-card">
                 <p className="list-card__title">{workout.name}</p>
                 {workout.notes ? <p className="list-card__meta">{workout.notes}</p> : null}
                 <p className="list-card__meta">
@@ -373,9 +388,9 @@ export function WorkoutsTab({
                   </button>
                 </div>
               </article>
-            ))
+              )}
+            />
           )}
-        </div>
       </section>
 
       {editingWorkoutId ? (
@@ -410,30 +425,35 @@ export function WorkoutsTab({
               className="textarea"
             />
 
-            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
+            <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
               {editExerciseOptions.length === 0 ? (
                 <p className="text-sm text-muted">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
               ) : (
-                editExerciseOptions.map((exercise) => {
-                  const checked = editWorkoutExerciseIds.includes(exercise.id);
+                <GradientFadeList
+                  items={editExerciseOptions}
+                  listClassName="space-y-2"
+                  getKey={(exercise) => exercise.id}
+                  renderItem={(exercise) => {
+                    const checked = editWorkoutExerciseIds.includes(exercise.id);
 
-                  return (
-                    <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm">
-                      <span>{exercise.name}</span>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          onEditWorkoutExerciseIdsChange(
-                            checked
-                              ? editWorkoutExerciseIds.filter((id) => id !== exercise.id)
-                              : [...editWorkoutExerciseIds, exercise.id],
-                          )
-                        }
-                      />
-                    </label>
-                  );
-                })
+                    return (
+                      <label className="flex items-center justify-between gap-3 text-sm">
+                        <span>{exercise.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            onEditWorkoutExerciseIdsChange(
+                              checked
+                                ? editWorkoutExerciseIds.filter((id) => id !== exercise.id)
+                                : [...editWorkoutExerciseIds, exercise.id],
+                            )
+                          }
+                        />
+                      </label>
+                    );
+                  }}
+                />
               )}
             </div>
 
@@ -770,14 +790,13 @@ export function ExercisesTab({
   onDeleteSubcategory,
   selectedCategory,
   selectedSubcategory,
-  onCategoryChange,
   onSubcategoryChange,
   drillFilters,
   onDrillFilterChange,
+  onDrillFiltersReset,
   visibleExercises,
-  searchableExercises,
-  exerciseSearch,
-  onExerciseSearchChange,
+  selectionReady,
+  onCategorySelect,
   newExerciseName,
   onNewExerciseNameChange,
   newExerciseCategory,
@@ -832,6 +851,9 @@ export function ExercisesTab({
   newExerciseError,
   editExerciseError,
 }: ExercisesTabProps) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const drillActiveCount = countActiveDrillFilters(drillFilters);
+
   const exerciseFormSharedProps = {
     categories,
     subcategories,
@@ -863,73 +885,99 @@ export function ExercisesTab({
 
   return (
     <section className="space-y-4">
-      <FilterSection
-        title="Kategorie"
-        options={categories}
-        selectedValue={selectedCategory}
-        onSelect={onCategoryChange}
+      <CategorySubcategoryNav
+        categories={categories}
+        subcategories={subcategories}
+        selectedCategory={selectedCategory}
+        selectedSubcategory={selectedSubcategory}
+        showSubcategories={selectionReady}
+        onCategorySelect={onCategorySelect}
+        onSubcategoryChange={onSubcategoryChange}
+        onCreateSubcategory={onCreateSubcategory}
+        onDeleteSubcategory={onDeleteSubcategory}
       />
 
-      <FilterSection
-        title="Unterkategorie"
-        options={subcategories[selectedCategory]}
-        selectedValue={selectedSubcategory}
-        onSelect={onSubcategoryChange}
-        category={selectedCategory}
-        onCreateOption={onCreateSubcategory}
-        onDeleteOption={onDeleteSubcategory}
-      />
-
-      <DrillCatalogFilterCard filters={drillFilters} onChange={onDrillFilterChange} />
+      <section className="ui-card">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="ui-card__title">Katalog-Filter</h2>
+            <p className="ui-card__subtitle">Video, Dauer und Ort — optional einklappbar.</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <FilterClearButton onClick={onDrillFiltersReset} disabled={drillActiveCount === 0} />
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((current) => !current)}
+              className="btn btn-ghost btn-sm shrink-0"
+              aria-expanded={filtersOpen}
+              aria-label={filtersOpen ? "Katalog-Filter schließen" : "Katalog-Filter öffnen"}
+            >
+              {filtersOpen ? "Schließen" : drillActiveCount > 0 ? `Filter (${drillActiveCount})` : "Filter"}
+            </button>
+          </div>
+        </div>
+        {!filtersOpen && drillActiveCount > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {drillFilters.video !== "all" ? (
+              <span className="filter-chip filter-chip--active">
+                Video: {drillFilters.video === "with" ? "Mit Video" : "Ohne Video"}
+              </span>
+            ) : null}
+            {drillFilters.duration !== "all" ? (
+              <span className="filter-chip filter-chip--active">
+                Dauer: {drillFilters.duration === "under10" ? "Unter 10 Min" : "Unter 15 Min"}
+              </span>
+            ) : null}
+            {drillFilters.equipment !== "all" ? (
+              <span className="filter-chip filter-chip--active">
+                Ort:{" "}
+                {drillFilters.equipment === "gym"
+                  ? "Gym"
+                  : drillFilters.equipment === "home"
+                    ? "Heim"
+                    : "Outdoor (BB)"}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {filtersOpen ? (
+          <div className="mt-4">
+            <DrillCatalogFilterFields filters={drillFilters} onChange={onDrillFilterChange} />
+          </div>
+        ) : null}
+      </section>
 
       <section className="ui-card">
         <h2 className="ui-card__title">Exercises in Auswahl</h2>
         <p className="ui-card__subtitle">
-          {selectedCategory} • {selectedSubcategory}
+          {selectionReady ? `${selectedCategory} • ${selectedSubcategory}` : "Kategorie und Unterkategorie wählen"}
         </p>
 
         <div className="mt-4 space-y-2">
-          {visibleExercises.length === 0 ? (
+          {!selectionReady ? (
+            <EmptyState
+              title="Kategorie wählen"
+              description="Tippe zuerst auf Basketball, Gym, Home oder Regeneration — danach erscheinen die Unterkategorien."
+            />
+          ) : visibleExercises.length === 0 ? (
             <EmptyState
               title="Keine Exercises"
               description="Für diese Auswahl gibt es noch keine Exercises. Erstelle eine mit dem + Button."
             />
           ) : (
-            visibleExercises.map((exercise) => (
-              <ExerciseCard
-                key={exercise.id}
-                exercise={exercise}
-                href={`/exercises/${exercise.id}`}
-                onEdit={() => onStartEditExercise(exercise)}
-                onDelete={() => onDeleteExercise(exercise.id)}
-              />
-            ))
-          )}
-        </div>
-      </section>
-
-      <section className="ui-card">
-        <h2 className="ui-card__title">Alle Exercises suchen</h2>
-        <input
-          value={exerciseSearch}
-          onChange={(event) => onExerciseSearchChange(event.target.value)}
-          placeholder="Exercise / Kategorie / Unterkategorie..."
-          className="input mt-3"
-        />
-
-        <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
-          {searchableExercises.length === 0 ? (
-            <p className="text-sm text-muted">Keine Treffer.</p>
-          ) : (
-            searchableExercises.map((exercise) => (
-              <ExerciseCard
-                key={exercise.id}
-                exercise={exercise}
-                href={`/exercises/${exercise.id}`}
-                onEdit={() => onStartEditExercise(exercise)}
-                onDelete={() => onDeleteExercise(exercise.id)}
-              />
-            ))
+            <GradientFadeList
+              items={visibleExercises}
+              listClassName="space-y-2"
+              getKey={(exercise) => exercise.id}
+              renderItem={(exercise) => (
+                <ExerciseCard
+                  exercise={exercise}
+                  href={`/exercises/${exercise.id}`}
+                  onEdit={() => onStartEditExercise(exercise)}
+                  onDelete={() => onDeleteExercise(exercise.id)}
+                />
+              )}
+            />
           )}
         </div>
       </section>
@@ -1028,19 +1076,17 @@ function ExerciseCard({
   );
 }
 
-function DrillCatalogFilterCard({
+function DrillCatalogFilterFields({
   filters,
   onChange,
 }: {
   filters: DrillCatalogFilters;
   onChange: (patch: Partial<DrillCatalogFilters>) => void;
+  onReset?: () => void;
 }) {
   return (
-    <section className="ui-card">
-      <h2 className="ui-card__title">Katalog-Filter</h2>
-      <p className="ui-card__subtitle">Filtert die Exercise-Listen nach Video, Dauer und Ort.</p>
-
-      <div className="mt-3">
+    <div className="space-y-3">
+      <div>
         <p className="input-label">Video</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {(
@@ -1062,7 +1108,7 @@ function DrillCatalogFilterCard({
         </div>
       </div>
 
-      <div className="mt-3">
+      <div>
         <p className="input-label">Dauer (planmäßig)</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {(
@@ -1084,7 +1130,7 @@ function DrillCatalogFilterCard({
         </div>
       </div>
 
-      <div className="mt-3">
+      <div>
         <p className="input-label">Ort / Equipment</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {(
@@ -1106,6 +1152,130 @@ function DrillCatalogFilterCard({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+type CategorySubcategoryNavProps = {
+  categories: Category[];
+  subcategories: Record<Category, string[]>;
+  selectedCategory: Category;
+  selectedSubcategory: string;
+  showSubcategories: boolean;
+  onCategorySelect: (category: Category) => void;
+  onSubcategoryChange: (subcategory: string) => void;
+  onCreateSubcategory: (category: Category, name: string) => void;
+  onDeleteSubcategory: (category: Category, subcategory: string) => void;
+};
+
+function CategorySubcategoryNav({
+  categories,
+  subcategories,
+  selectedCategory,
+  selectedSubcategory,
+  showSubcategories,
+  onCategorySelect,
+  onSubcategoryChange,
+  onCreateSubcategory,
+  onDeleteSubcategory,
+}: CategorySubcategoryNavProps) {
+  const [draft, setDraft] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+
+  const handleAddSubcategory = () => {
+    if (!showAdd) {
+      setShowAdd(true);
+      return;
+    }
+    if (!draft.trim()) return;
+    onCreateSubcategory(selectedCategory, draft.trim());
+    setDraft("");
+    setShowAdd(false);
+  };
+
+  return (
+    <section className="ui-card">
+      <h2 className="ui-card__title">Kategorie</h2>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {categories.map((category) => (
+          <button
+            key={category}
+            type="button"
+            onClick={() => onCategorySelect(category)}
+            className={`filter-chip ${selectedCategory === category && showSubcategories ? "filter-chip--active" : ""}`}
+            aria-pressed={selectedCategory === category && showSubcategories}
+          >
+            {category}
+          </button>
+        ))}
+      </div>
+
+      {showSubcategories ? (
+        <div className="mt-4 border-t border-[var(--surface-border)] pt-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="ui-card__title text-base">Unterkategorie</h3>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleAddSubcategory}
+                className="btn btn-ghost btn-xs"
+                aria-label="Unterkategorie hinzufügen"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteSubcategory(selectedCategory, selectedSubcategory)}
+                className="btn btn-danger-outline btn-xs"
+                aria-label="Unterkategorie löschen"
+              >
+                Löschen
+              </button>
+            </div>
+          </div>
+          {showAdd ? (
+            <div className="mt-3 app-card--flat">
+              <p className="input-label">Neue Unterkategorie</p>
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  className="input flex-1"
+                  placeholder="Name"
+                />
+                <button type="button" onClick={handleAddSubcategory} className="btn btn-primary btn-sm">
+                  Speichern
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdd(false);
+                    setDraft("");
+                  }}
+                  className="btn btn-ghost btn-sm"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {subcategories[selectedCategory].map((subcategory) => (
+              <button
+                key={`${selectedCategory}-${subcategory}`}
+                type="button"
+                onClick={() => onSubcategoryChange(subcategory)}
+                className={`filter-chip ${selectedSubcategory === subcategory ? "filter-chip--active" : ""}`}
+                aria-pressed={selectedSubcategory === subcategory}
+              >
+                {subcategory}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="ui-card__subtitle mt-3">Wähle eine Kategorie — die Unterkategorien erscheinen danach.</p>
+      )}
     </section>
   );
 }
@@ -1216,7 +1386,8 @@ type TabSwitcherProps = {
 
 export function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
   return (
-    <div className="segmented w-full max-w-md">
+    <div className="segmented-wrap">
+    <div className="segmented">
       {(["Workouts", "Exercises"] as TrainingTab[]).map((tab) => (
         <button
           key={tab}
@@ -1228,6 +1399,7 @@ export function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
           {tab}
         </button>
       ))}
+    </div>
     </div>
   );
 }

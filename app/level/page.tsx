@@ -13,6 +13,7 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadExercises } from "@/lib/training-storage";
 import { buildPlayerBadges, computeBadgeStats } from "@/lib/badge-system";
 import TopSubTabs from "@/components/TopSubTabs";
+import GradientFadeList from "@/components/GradientFadeList";
 import { loadGameStats } from "@/lib/game-stats";
 
 type DailyStreak = { current: number; best: number };
@@ -371,11 +372,19 @@ export default function LevelPage() {
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--bg-muted)]">
                   <div className="h-full rounded-full bg-[var(--accent-cyan)]" style={{ width: `${progress}%` }} />
                 </div>
-                {openCategory === group.category ? (<div className="mt-3 space-y-1 text-xs">
-                  {(decayedItems.length ? decayedItems : [{ subcategory: "Noch keine Daten", points: 0, gap: 0 }]).map((item) => (
-                    <p key={`pair-${group.category}-${item.subcategory}`} className="text-muted">{item.subcategory}: <span className="font-semibold text-strong">{item.points}</span> XP</p>
-                  ))}
-                </div>) : <p className="mt-3 text-xs text-faint">Tippen zum Anzeigen der Unterkategorien.</p>}
+                {openCategory === group.category ? (
+                  <GradientFadeList
+                    className="mt-3"
+                    items={decayedItems.length ? decayedItems : [{ subcategory: "Noch keine Daten", points: 0, gap: 0 }]}
+                    listClassName="space-y-1 text-xs"
+                    getKey={(item) => `pair-${group.category}-${item.subcategory}`}
+                    renderItem={(item) => (
+                      <p className="text-muted">{item.subcategory}: <span className="font-semibold text-strong">{item.points}</span> XP</p>
+                    )}
+                  />
+                ) : (
+                  <p className="mt-3 text-xs text-faint">Tippen zum Anzeigen der Unterkategorien.</p>
+                )}
               </div>
             );
           })}
@@ -388,35 +397,43 @@ export default function LevelPage() {
               <h3 className="section-title">{modalCategory} Details</h3>
               <button type="button" onClick={() => setModalCategory(null)} className="btn btn-outline btn-xs">Schließen</button>
             </div>
-            <div className="mt-3 space-y-2 text-sm">
-              {(categoryBreakdown.find((group) => group.category === modalCategory)?.items ?? []).map((item) => {
+            <GradientFadeList
+              className="mt-3"
+              items={categoryBreakdown.find((group) => group.category === modalCategory)?.items ?? []}
+              listClassName="space-y-2 text-sm"
+              getKey={(item) => `${modalCategory}-${item.subcategory}`}
+              renderItem={(item) => {
                 const level = getLevelFromXp(item.points);
                 const nextXp = getXpForNextLevel(level.level);
                 return (
-                  <div key={`${modalCategory}-${item.subcategory}`} className="list-card">
+                  <div className="list-card">
                     <p className="list-card__title">{item.subcategory}</p>
                     <p className="list-card__meta">Level {level.level} • {level.xpIntoLevel}/{nextXp} XP • {Math.max(0, nextXp - level.xpIntoLevel)} XP bis nächstes Level</p>
                     <p className="hint-success mt-1">Multiplikator: x{getCategoryXpMultiplier(modalCategory).toFixed(2)}</p>
                   </div>
                 );
-              })}
-            </div>
+              }}
+            />
           </div>
         </div>
       ) : null}
       {badges.length > 0 ? (
         <section className="mt-4 app-card--brand">
           <h3 className="section-title">Badges</h3>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {badges.map((badge) => (
-              <div key={`${badge.id}-${badge.name}`} className="list-card text-sm">
+          <GradientFadeList
+            className="mt-2"
+            items={badges}
+            listClassName="grid gap-2 sm:grid-cols-2"
+            getKey={(badge) => `${badge.id}-${badge.name}`}
+            renderItem={(badge) => (
+              <div className="list-card text-sm">
                 <p className="list-card__title text-brand">
                   {badge.emoji} {badge.name} • {badge.tier}
                 </p>
                 <p className="list-card__meta">{badge.description}</p>
               </div>
-            ))}
-          </div>
+            )}
+          />
         </section>
       ) : null}
       <section className="mt-4 app-card--accent-violet">

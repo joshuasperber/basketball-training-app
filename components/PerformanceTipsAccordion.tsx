@@ -25,12 +25,12 @@ export default function PerformanceTipsAccordion({ tips, basketballMode, classNa
   return (
     <div className={className}>
       {general.length > 0 ? (
-        <details open className="group mb-2 rounded-lg border border-cyan-800/50 bg-zinc-950/50 p-2">
-          <summary className="cursor-pointer text-sm font-semibold text-cyan-200">{generalSectionLabel(basketballMode)}</summary>
-          <ul className="mt-2 space-y-2 pl-1 text-sm text-cyan-50">
+        <details open className="group mb-2 list-card p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-strong">{generalSectionLabel(basketballMode)}</summary>
+          <ul className="mt-2 space-y-2 pl-1 text-sm text-muted">
             {general.map((tip) => (
               <li key={tip.id}>
-                <span className="font-medium text-cyan-100">{tip.title}:</span> {tip.content}
+                <span className="font-medium text-strong">{tip.title}:</span> {tip.content}
               </li>
             ))}
           </ul>
@@ -39,12 +39,12 @@ export default function PerformanceTipsAccordion({ tips, basketballMode, classNa
       {subKeys.map((key) => {
         const list = bySubcategory.get(key) ?? [];
         return (
-          <details key={key} className="group mb-2 rounded-lg border border-cyan-800/50 bg-zinc-950/50 p-2" open={openSingleSubOnly}>
-            <summary className="cursor-pointer text-sm font-semibold text-cyan-200">{key}</summary>
-            <ul className="mt-2 space-y-2 pl-1 text-sm text-cyan-50">
+          <details key={key} className="group mb-2 list-card p-3" open={openSingleSubOnly}>
+            <summary className="cursor-pointer text-sm font-semibold text-strong">{key}</summary>
+            <ul className="mt-2 space-y-2 pl-1 text-sm text-muted">
               {list.map((tip) => (
                 <li key={tip.id}>
-                  <span className="font-medium text-cyan-100">{tip.title}:</span> {tip.content}
+                  <span className="font-medium text-strong">{tip.title}:</span> {tip.content}
                 </li>
               ))}
             </ul>

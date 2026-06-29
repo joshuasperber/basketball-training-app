@@ -1,44 +1,27 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import GradientFadeList, { type GradientFadeListProps } from "@/components/GradientFadeList";
 
-type ShowMoreListProps<T> = {
-  items: T[];
+type ShowMoreListProps<T> = Omit<GradientFadeListProps<T>, "previewCount" | "showMoreLabel" | "showLessLabel"> & {
+  /** @deprecated Use previewCount on GradientFadeList directly */
   initialCount?: number;
-  renderItem: (item: T, index: number) => ReactNode;
-  getKey: (item: T, index: number) => string;
-  className?: string;
-  listClassName?: string;
   moreLabel?: (hiddenCount: number) => string;
+  showLessLabel?: string;
 };
 
+/** @deprecated Prefer GradientFadeList — thin wrapper for legacy call sites. */
 export default function ShowMoreList<T>({
-  items,
-  initialCount = 4,
-  renderItem,
-  getKey,
-  className = "",
-  listClassName = "",
-  moreLabel = (n) => `Mehr anzeigen (${n})`,
+  initialCount = 3,
+  moreLabel = (hiddenCount) => `Mehr anzeigen (${hiddenCount})`,
+  showLessLabel = "Weniger anzeigen",
+  ...props
 }: ShowMoreListProps<T>) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? items : items.slice(0, initialCount);
-  const hiddenCount = Math.max(0, items.length - initialCount);
-
-  if (items.length === 0) return null;
-
   return (
-    <div className={className}>
-      <div className={listClassName}>
-        {visible.map((item, index) => (
-          <Fragment key={getKey(item, index)}>{renderItem(item, index)}</Fragment>
-        ))}
-      </div>
-      {!expanded && hiddenCount > 0 ? (
-        <button type="button" className="show-more-btn mt-2 w-full" onClick={() => setExpanded(true)}>
-          {moreLabel(hiddenCount)}
-        </button>
-      ) : null}
-    </div>
+    <GradientFadeList
+      {...props}
+      previewCount={initialCount}
+      showMoreLabel={moreLabel}
+      showLessLabel={showLessLabel}
+    />
   );
 }

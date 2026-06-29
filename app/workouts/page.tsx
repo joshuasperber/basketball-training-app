@@ -55,8 +55,12 @@ import {
   shouldUseShootingInputs,
   validateSetLogForMetrics,
 } from "@/lib/workout-metrics";
+import { syncPausedWorkoutRegistry, isWorkoutPausedProgress } from "@/lib/paused-workouts";
+import { finishWorkoutSession, setLogHasStarted } from "@/lib/finish-workout-session";
+import { useAppDialog } from "@/components/ui/AppDialogProvider";
 import PerformanceTipsAccordion from "@/components/PerformanceTipsAccordion";
 import PageHeader from "@/components/PageHeader";
+import GradientFadeList from "@/components/GradientFadeList";
 import {
   applyGymGoalsAfterSession,
   formatGymGoalSummary,
@@ -65,8 +69,6 @@ import {
 } from "@/lib/training-goals";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
-const MOBILE_EXERCISE_PREVIEW_COUNT = 8;
-
 function workoutSportToCategory(sport: WorkoutPlan["sport"]): Category | null {
   return sport === "Rest" ? null : sport;
 }
@@ -310,6 +312,7 @@ function buildBasketballWarmupExerciseIds(params: {
 
 function WorkoutsPageContent() {
   const router = useRouter();
+  const appDialog = useAppDialog();
   const searchParams = useSearchParams();
   const dayParam = searchParams.get("day");
   const workoutIdParam = searchParams.get("workoutId");
@@ -339,8 +342,6 @@ function WorkoutsPageContent() {
   const [manualTemplateWorkoutId, setManualTemplateWorkoutId] = useState("");
   const [manualNotes, setManualNotes] = useState("");
   const [selectedManualExerciseIds, setSelectedManualExerciseIds] = useState<string[]>([]);
-  const [showAllManualExercises, setShowAllManualExercises] = useState(false);
-  const [showAllProgressExercises, setShowAllProgressExercises] = useState(false);
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
   const [isClientReady, setIsClientReady] = useState(false);
@@ -556,31 +557,25 @@ function WorkoutsPageContent() {
   useEffect(() => {
     const pauseActiveWorkout = () => {
       const current = progressRef.current;
-      if (current.status !== "in_progress" || !current.startedAtIso) return;
+      if (current.status !== "in_progress") return;
 
-      const endIso = new Date().toISOString();
-      const startedAt = Date.parse(current.startedAtIso);
-      const endedAt = Date.parse(endIso);
-      const elapsedSeconds =
-        Math.max(0, current.elapsedSeconds ?? 0) +
-        (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt > startedAt
-          ? Math.max(0, Math.round((endedAt - startedAt) / 1000))
-          : 0);
       const paused: WorkoutProgress = {
         ...current,
         status: "not_started",
-        elapsedSeconds,
         startedAtIso: undefined,
         endedAtIso: undefined,
+        elapsedSeconds: undefined,
       };
 
       progressRef.current = paused;
       window.localStorage.setItem(progressStorageKeyRef.current, JSON.stringify(paused));
       window.localStorage.setItem(buildWorkoutStorageKey(dateKeyRef.current), JSON.stringify(paused));
+      syncPausedWorkoutRegistry({ progress: paused, progressStorageKey: progressStorageKeyRef.current });
+      window.dispatchEvent(new Event("bt:workout-progress-updated"));
+      setProgress(paused);
       // #region agent log
       agentDebugLog("H5", "workout auto-paused on page leave", {
         workoutId: paused.workoutId,
-        elapsedSeconds: paused.elapsedSeconds ?? null,
         dateKey: dateKeyRef.current,
       });
       // #endregion
@@ -692,29 +687,6 @@ function WorkoutsPageContent() {
     if (selected.length === 0) return "";
     return deriveSmartWorkoutTitle(manualCategory, selected);
   }, [manualCategory, selectedManualExerciseIds, trainingExercises]);
-  const visibleManualExercisePool = useMemo(
-    () =>
-      showAllManualExercises
-        ? manualExercisePool
-        : manualExercisePool.slice(0, MOBILE_EXERCISE_PREVIEW_COUNT),
-    [manualExercisePool, showAllManualExercises],
-  );
-  const visibleProgressExercises = useMemo(
-    () =>
-      showAllProgressExercises
-        ? workoutForExecution.exercises
-        : workoutForExecution.exercises.slice(0, MOBILE_EXERCISE_PREVIEW_COUNT),
-    [showAllProgressExercises, workoutForExecution.exercises],
-  );
-
-  useEffect(() => {
-    setShowAllManualExercises(false);
-  }, [manualCategory, manualSubcategory, manualSearch]);
-
-  useEffect(() => {
-    setShowAllProgressExercises(false);
-  }, [workoutForExecution.id]);
-
   useEffect(() => {
     const rawOverride = window.localStorage.getItem(overrideStorageKey);
     const timer = window.setTimeout(() => {
@@ -856,6 +828,7 @@ function WorkoutsPageContent() {
     setProgress(next);
     window.localStorage.setItem(progressStorageKey, JSON.stringify(next));
     window.localStorage.setItem(buildWorkoutStorageKey(dateKey), JSON.stringify(next));
+    syncPausedWorkoutRegistry({ progress: next, progressStorageKey });
     window.dispatchEvent(new Event("bt:workout-progress-updated"));
     if (next.status === "in_progress" || next.status === "completed") {
       // #region agent log
@@ -896,22 +869,14 @@ function WorkoutsPageContent() {
     return parsed;
   };
 
-  const getAccumulatedElapsedSeconds = (workoutProgress: WorkoutProgress, endIso = new Date().toISOString()) => {
-    const saved = Math.max(0, workoutProgress.elapsedSeconds ?? 0);
-    if (!workoutProgress.startedAtIso || workoutProgress.status !== "in_progress") return saved;
-    const startMs = new Date(workoutProgress.startedAtIso).getTime();
-    const endMs = new Date(endIso).getTime();
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return saved;
-    return saved + Math.max(0, Math.round((endMs - startMs) / 1000));
-  };
-
   const activateProgressForInput = (workoutProgress: WorkoutProgress = progress): WorkoutProgress => {
-    if (workoutProgress.status === "in_progress" && workoutProgress.startedAtIso) return workoutProgress;
+    if (workoutProgress.status === "in_progress") return workoutProgress;
     return {
       ...workoutProgress,
       status: "in_progress",
-      startedAtIso: new Date().toISOString(),
       endedAtIso: undefined,
+      startedAtIso: undefined,
+      elapsedSeconds: undefined,
     };
   };
 
@@ -1401,19 +1366,19 @@ function WorkoutsPageContent() {
     persistProgress({
       ...progressRef.current,
       status: "in_progress",
-      startedAtIso: new Date().toISOString(),
       endedAtIso: undefined,
+      startedAtIso: undefined,
+      elapsedSeconds: undefined,
     });
     if (activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball") {
       setShowTipsReminder(true);
     }
   };
   const pauseWorkout = (sourceProgress: WorkoutProgress = progressRef.current) => {
-    const endedAtIso = new Date().toISOString();
     const pausedProgress: WorkoutProgress = {
       ...sourceProgress,
       status: "not_started",
-      elapsedSeconds: getAccumulatedElapsedSeconds(sourceProgress, endedAtIso),
+      elapsedSeconds: undefined,
       startedAtIso: undefined,
       endedAtIso: undefined,
     };
@@ -1421,7 +1386,6 @@ function WorkoutsPageContent() {
     // #region agent log
     agentDebugLog("H5", "workout paused instead of completed", {
       workoutId: pausedProgress.workoutId,
-      elapsedSeconds: pausedProgress.elapsedSeconds ?? null,
       completedExercises: workoutForExecution.exercises.filter((_, index) => getExerciseStatus(index, pausedProgress) === "completed").length,
       totalExercises: workoutForExecution.exercises.length,
     });
@@ -1447,7 +1411,7 @@ function WorkoutsPageContent() {
       ...sourceProgress,
       status: "completed",
       endedAtIso,
-      elapsedSeconds: getAccumulatedElapsedSeconds(sourceProgress, endedAtIso),
+      elapsedSeconds: undefined,
       startedAtIso: undefined,
     };
     persistProgress(completedProgress);
@@ -1537,9 +1501,7 @@ function WorkoutsPageContent() {
       const durationSeconds =
         plannedDurationSeconds > 0
           ? plannedDurationSeconds
-          : completedProgress.elapsedSeconds && completedProgress.elapsedSeconds > 0
-            ? Math.max(60, completedProgress.elapsedSeconds)
-            : Math.max(300, sessionLogs.length * 180);
+          : Math.max(300, sessionLogs.length * 180);
 
       const sessionId = isCatalogWorkoutRun
         ? `${completedProgress.date}-${completedProgress.workoutId}-${runStartedAtIso}`
@@ -1723,7 +1685,7 @@ function WorkoutsPageContent() {
         logs: updatedLogs,
         status: "completed",
         endedAtIso: nowIso,
-        elapsedSeconds: getAccumulatedElapsedSeconds(activeProgress, nowIso),
+        elapsedSeconds: undefined,
         startedAtIso: undefined,
       };
       persistProgress(next);
@@ -1755,7 +1717,14 @@ function WorkoutsPageContent() {
   }
 
   const workoutFullyTracked = isWorkoutFullyTracked();
-  const canContinueWorkout = progress.status !== "in_progress" && !workoutFullyTracked && (progress.elapsedSeconds ?? 0) > 0;
+  const hasLoggedSets = Object.values(progress.logs).some((log) => setLogHasStarted(log));
+  const canContinueWorkout =
+    progress.status !== "in_progress" &&
+    !(progress.status === "completed" && workoutFullyTracked) &&
+    isWorkoutPausedProgress(progress);
+  const canEndWorkout =
+    !(progress.status === "completed" && workoutFullyTracked) &&
+    (progress.status === "in_progress" || canContinueWorkout || hasLoggedSets);
   const workoutPrimaryLabel =
     progress.status === "completed" && workoutFullyTracked
       ? "Workout abgeschlossen"
@@ -1766,6 +1735,50 @@ function WorkoutsPageContent() {
       : canContinueWorkout
         ? "Workout fortfahren"
         : "Workout starten";
+  const endWorkoutEarly = async () => {
+    const latestProgress = progressRef.current;
+    const hasSets = Object.values(latestProgress.logs).some((log) => setLogHasStarted(log));
+    const confirmed = await appDialog.confirm({
+      message: hasSets
+        ? `„${latestProgress.title}“ beenden? Erfasster Fortschritt wird in Stats gespeichert.`
+        : `„${latestProgress.title}“ beenden? Es wurden noch keine Sätze erfasst.`,
+      confirmLabel: "Beenden",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    const result = finishWorkoutSession({
+      progress: latestProgress,
+      workoutPlan: workoutForExecution,
+      progressStorageKey,
+      allowPartial: true,
+      allowEmptyFinish: true,
+      isCatalogWorkoutRun,
+    });
+    if (!result.ok) {
+      void appDialog.alert({ message: result.error ?? "Workout konnte nicht beendet werden." });
+      return;
+    }
+    if (result.levelDelta && result.levelDelta > 0) {
+      void appDialog.alert({ message: `🎉 Level-Up! +${result.levelDelta} Level` });
+    } else if (result.bannerMessage) {
+      setCompletionBanner(result.bannerMessage);
+    } else {
+      setCompletionBanner("Workout beendet.");
+    }
+    if (isCatalogWorkoutRun) {
+      const freshProgress = getDefaultWorkoutProgress(dateKey, workoutForExecution);
+      progressRef.current = freshProgress;
+      setProgress(freshProgress);
+      window.localStorage.removeItem(progressStorageKey);
+      window.localStorage.removeItem(buildWorkoutStorageKey(dateKey));
+      router.push("/training?completed=workout");
+      return;
+    }
+    if (hasSets) {
+      router.push("/stats");
+    }
+  };
   const handleWorkoutPrimaryAction = () => {
     const latestProgress = progressRef.current;
     const latestFullyTracked = isWorkoutFullyTracked(latestProgress);
@@ -1776,6 +1789,10 @@ function WorkoutsPageContent() {
       } else {
         pauseWorkout(latestProgress);
       }
+      return;
+    }
+    if (canContinueWorkout) {
+      startWorkout();
       return;
     }
     startWorkout();
@@ -1957,9 +1974,13 @@ function WorkoutsPageContent() {
               className="input mt-3 w-full"
               placeholder="Exercise suchen..."
             />
-            <div className="mt-3 max-h-48 space-y-2 overflow-auto app-card--flat">
-              {visibleManualExercisePool.map((exercise) => (
-                <label key={exercise.id} className="flex items-center gap-2 text-sm">
+            <GradientFadeList
+              className="mt-3 app-card--flat p-2"
+              items={manualExercisePool}
+              listClassName="space-y-2"
+              getKey={(exercise) => exercise.id}
+              renderItem={(exercise) => (
+                <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={selectedManualExerciseIds.includes(exercise.id)}
@@ -1967,17 +1988,8 @@ function WorkoutsPageContent() {
                   />
                   <span>{exercise.name} <span className="text-faint">({exercise.subcategory})</span></span>
                 </label>
-              ))}
-            </div>
-            {manualExercisePool.length > MOBILE_EXERCISE_PREVIEW_COUNT ? (
-              <button
-                type="button"
-                onClick={() => setShowAllManualExercises((current) => !current)}
-                className="btn btn-ghost btn-xs mt-2"
-              >
-                {showAllManualExercises ? "Weniger anzeigen" : `Mehr anzeigen (${manualExercisePool.length - MOBILE_EXERCISE_PREVIEW_COUNT})`}
-              </button>
-            ) : null}
+              )}
+            />
             {selectedManualExerciseIds.length > 0 ? (
               <div className="mt-2 space-y-2 app-card--flat">
                 <p className="text-xs text-muted">Reihenfolge festlegen</p>
@@ -2042,8 +2054,12 @@ function WorkoutsPageContent() {
         <section className="mt-4 ui-card">
           <div className="mb-3">
             <p className="text-xs uppercase tracking-wide text-muted">Workout-Fortschritt</p>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {visibleProgressExercises.map((exercise, index) => {
+            <GradientFadeList
+              className="mt-2"
+              items={workoutForExecution.exercises}
+              listClassName="grid grid-cols-2 gap-2 sm:grid-cols-4"
+              getKey={(exercise, index) => `${workoutForExecution.id}-progress-${exercise.name}-${index}`}
+              renderItem={(exercise, index) => {
                 const status = getExerciseStatus(index);
                 const isActive = index === safeExerciseIndex;
                 const badgeClass =
@@ -2056,7 +2072,6 @@ function WorkoutsPageContent() {
                 return (
                   <button
                     type="button"
-                    key={`${workoutForExecution.id}-progress-${exercise.name}`}
                     onClick={() => jumpToExercise(index)}
                     className={`${badgeClass} ${isActive ? "progress-exercise-btn--active" : ""}`}
                   >
@@ -2070,19 +2085,8 @@ function WorkoutsPageContent() {
                     </p>
                   </button>
                 );
-              })}
-            </div>
-            {workoutForExecution.exercises.length > MOBILE_EXERCISE_PREVIEW_COUNT ? (
-              <button
-                type="button"
-                onClick={() => setShowAllProgressExercises((current) => !current)}
-                className="show-more-btn mt-3"
-              >
-                {showAllProgressExercises
-                  ? "Weniger anzeigen"
-                  : `Mehr anzeigen (${workoutForExecution.exercises.length - MOBILE_EXERCISE_PREVIEW_COUNT})`}
-              </button>
-            ) : null}
+              }}
+            />
           </div>
 
           {currentExercise ? (
@@ -2302,7 +2306,7 @@ function WorkoutsPageContent() {
                 <div className="mt-3 app-card--flat">
                   <div className="flex items-baseline justify-between">
                     <p className="text-xs uppercase tracking-wide text-muted">Anstrengung (RPE)</p>
-                    <p className="text-sm font-semibold text-cyan-200 tabular-nums">
+                    <p className="text-sm font-semibold text-strong tabular-nums">
                       {currentLog.rpe ? `${currentLog.rpe}/10` : "—"}
                     </p>
                   </div>
@@ -2355,6 +2359,11 @@ function WorkoutsPageContent() {
                   >
                     {workoutPrimaryLabel}
                   </button>
+                  {canEndWorkout ? (
+                    <button type="button" onClick={() => void endWorkoutEarly()} className="btn btn-outline btn-sm">
+                      Workout beenden
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={finishSet}
@@ -2426,12 +2435,12 @@ function WorkoutsPageContent() {
                 className="btn btn-emerald btn-sm w-full"
                 onClick={() => {
                   setShowTipsReminder(false);
-                  const nowIso = new Date().toISOString();
                   persistProgress({
                     ...progress,
                     status: "in_progress",
-                    startedAtIso: nowIso,
                     endedAtIso: undefined,
+                    startedAtIso: undefined,
+                    elapsedSeconds: undefined,
                   });
                 }}
               >

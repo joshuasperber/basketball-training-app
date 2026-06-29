@@ -2,6 +2,7 @@ export const GAME_STATS_KEY = "bt.game-stats.v1";
 
 import type { OpponentStyleTag } from "@/lib/opponent-styles";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
+import type { GameShootingSplit } from "@/lib/game-shooting-splits";
 
 export type GameStatEntry = {
   id: string;
@@ -23,6 +24,8 @@ export type GameStatEntry = {
   gamesPlayed?: number | null;
   /** true = gespeicherte Stats sind Ø pro Spiel (aus Summen/Ø-Eingabe berechnet). */
   statsAreTotals?: boolean;
+  /** NBA-Zonen aus Spiel-Track (At Rim, Corner 3, …). */
+  shootingSplits?: GameShootingSplit[];
   notes?: string;
   /** Pfad zum Foto im Supabase Storage Bucket "game-photos". */
   photoPath?: string | null;

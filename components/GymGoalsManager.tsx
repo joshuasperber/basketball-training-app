@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import GradientFadeList from "@/components/GradientFadeList";
 import { pushProgressToCloud } from "@/lib/progress-sync";
 import { loadExercises } from "@/lib/training-storage";
 import {
@@ -97,7 +98,7 @@ export default function GymGoalsManager() {
     const pct = Math.min(100, Math.round((goal.successfulSessionsInPhase / required) * 100));
     const pausedInjury = bundle.injuryExerciseIds.includes(goal.exerciseId);
     return (
-      <li key={goal.id} className="list-card text-sm">
+      <div className="list-card text-sm">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <p className="list-card__title">{goal.exerciseNameSnapshot}</p>
@@ -153,9 +154,13 @@ export default function GymGoalsManager() {
         {goal.history.length ? (
           <div className="mt-3 border-t border-[var(--surface-border)] pt-2">
             <p className="section-eyebrow">Verlauf (bearbeitbar)</p>
-            <ul className="mt-1 space-y-2">
-              {goal.history.slice(0, 12).map((row, index) => (
-                <li key={`${goal.id}-h-${index}-${row.dateISO}`} className="text-xs text-muted">
+            <GradientFadeList
+              className="mt-1"
+              items={goal.history}
+              listClassName="space-y-2"
+              getKey={(row, index) => `${goal.id}-h-${index}-${row.dateISO}`}
+              renderItem={(row, index) => (
+                <div className="text-xs text-muted">
                   <span className="text-[10px] text-faint">{new Date(row.dateISO).toLocaleString("de-DE")}</span>
                   <textarea
                     defaultValue={row.note}
@@ -169,12 +174,12 @@ export default function GymGoalsManager() {
                       void syncCloud();
                     }}
                   />
-                </li>
-              ))}
-            </ul>
+                </div>
+              )}
+            />
           </div>
         ) : null}
-      </li>
+      </div>
     );
   };
 
@@ -188,7 +193,8 @@ export default function GymGoalsManager() {
         </p>
       </div>
 
-      <div className="segmented mt-4">
+      <div className="segmented-wrap mt-4">
+      <div className="segmented">
         {(["base", "build", "peak", "deload"] as MesocyclePhase[]).map((phase) => (
           <button
             key={phase}
@@ -207,6 +213,7 @@ export default function GymGoalsManager() {
           </button>
         ))}
       </div>
+      </div>
       <p className="mt-2 text-xs text-muted">
         Deload: nach geschaffter Phase reduziert die App Last oder Volumen statt zu steigern.
       </p>
@@ -214,9 +221,13 @@ export default function GymGoalsManager() {
       <div className="mt-4 app-card--flat">
         <p className="section-eyebrow">Verletzung / Pause</p>
         <p className="mt-1 text-xs text-muted">Übung ankreuzen — keine Progression wird für sie gezählt.</p>
-        <div className="mt-2 max-h-32 space-y-1 overflow-y-auto text-xs">
-          {exercises.slice(0, 24).map((exercise) => (
-            <label key={exercise.id} className="flex cursor-pointer items-center gap-2 text-strong">
+        <GradientFadeList
+          className="mt-2"
+          items={exercises}
+          listClassName="space-y-1 text-xs"
+          getKey={(exercise) => exercise.id}
+          renderItem={(exercise) => (
+            <label className="flex cursor-pointer items-center gap-2 text-strong">
               <input
                 type="checkbox"
                 checked={bundle.injuryExerciseIds.includes(exercise.id)}
@@ -228,8 +239,8 @@ export default function GymGoalsManager() {
               />
               <span>{exercise.name}</span>
             </label>
-          ))}
-        </div>
+          )}
+        />
       </div>
 
       <div className="mt-4 app-card--flat">
@@ -290,7 +301,13 @@ export default function GymGoalsManager() {
 
       <div className="mt-6 border-t border-[var(--surface-border)] pt-4">
         <p className="section-eyebrow">Aktive &amp; pausierte Ziele</p>
-        <ul className="mt-2 space-y-2">{gymGoals.map(renderGoalRow)}</ul>
+        <GradientFadeList
+          className="mt-2"
+          items={gymGoals}
+          listClassName="space-y-2"
+          getKey={(goal) => goal.id}
+          renderItem={(goal) => renderGoalRow(goal)}
+        />
         {gymGoals.length === 0 ? <p className="mt-2 text-sm text-muted">Noch keine Ziele — anlegen oder aus Katalog laden.</p> : null}
       </div>
     </section>

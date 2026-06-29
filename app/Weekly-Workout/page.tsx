@@ -38,6 +38,7 @@ import { sumExerciseIdsDurationMin } from "@/lib/workout-duration";
 import { navigateToWeeklyWorkout, type WeeklyWorkoutNavCard } from "@/lib/weekly-workout-nav";
 import { weeklyRecoverySuggestionSlotVisible } from "@/lib/weekly-regeneration";
 import WeeklyBasketballCoach from "@/components/WeeklyBasketballCoach";
+import PausedWorkoutsBanner from "@/components/PausedWorkoutsBanner";
 import TopSubTabs from "@/components/TopSubTabs";
 import PageHeader from "@/components/PageHeader";
 import { buildBasketballCoachingPriorities } from "@/lib/basketball-coaching";
@@ -50,6 +51,7 @@ import { getPlannedSubcategoryFromTags } from "@/lib/planned-subcategory";
 import { writeWeeklySuggestionsCache } from "@/lib/weekly-suggestions-cache";
 import { getWarmupWorkouts, isWarmupWorkout } from "@/lib/warmup-workouts";
 import ShowMoreList from "@/components/ShowMoreList";
+import GradientFadeList from "@/components/GradientFadeList";
 import { PlusIcon } from "@/components/ui/IconButton";
 
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0] as const;
@@ -1269,6 +1271,8 @@ export default function WeeklyWorkoutPage() {
         <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]} />
       </div>
 
+      <PausedWorkoutsBanner className="mt-4" />
+
       <p className="mt-3 text-xs text-faint">Tipp: Wenn noch alles leer ist, im Profil zuerst Trainings-Tage und Schwerpunkte setzen.</p>
 
       <WeeklyBasketballCoach refreshKey={manualVersion + profileVersion} />
@@ -1493,7 +1497,6 @@ export default function WeeklyWorkoutPage() {
                 {orderedWorkoutCards.length > 0 && !isRestDisplay ? (
                   <ShowMoreList
                     items={orderedWorkoutCards}
-                    initialCount={4}
                     listClassName="grid gap-2 md:grid-cols-2"
                     getKey={(card, cardIndex) => `${day}-${card.id}-${cardIndex}`}
                     renderItem={(card) => {
@@ -1670,14 +1673,18 @@ export default function WeeklyWorkoutPage() {
                   {REST_QUOTES[(day + new Date().getDate()) % REST_QUOTES.length]}
                 </p>
               ) : (
-                <ul className="mt-3 space-y-1 text-sm text-muted">
-                  {workout.exercises.map((exercise) => (
-                    <li key={`${workout.id}-${exercise.name}`} className="flex gap-2">
+                <GradientFadeList
+                  className="mt-3"
+                  items={workout.exercises}
+                  listClassName="space-y-1 text-sm text-muted"
+                  getKey={(exercise) => `${workout.id}-${exercise.name}`}
+                  renderItem={(exercise) => (
+                    <div className="flex gap-2">
                       <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--brand-500)]" />
                       <span>{exercise.name}</span>
-                    </li>
-                  ))}
-                </ul>
+                    </div>
+                  )}
+                />
               )}
             </article>
           );

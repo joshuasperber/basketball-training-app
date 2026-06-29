@@ -11,6 +11,20 @@ export type DrillCatalogFilters = {
   equipment: DrillEquipmentFilter;
 };
 
+export const DEFAULT_DRILL_FILTERS: DrillCatalogFilters = {
+  video: "all",
+  duration: "all",
+  equipment: "all",
+};
+
+export function countActiveDrillFilters(filters: DrillCatalogFilters): number {
+  let count = 0;
+  if (filters.video !== "all") count += 1;
+  if (filters.duration !== "all") count += 1;
+  if (filters.equipment !== "all") count += 1;
+  return count;
+}
+
 export function exerciseDurationMinutes(exercise: Exercise): number {
   const raw = Math.max(0, exercise.durationMin ?? 0);
   if (exercise.timeUnit === "seconds") return raw / 60;

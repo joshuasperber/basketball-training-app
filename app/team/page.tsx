@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import GradientFadeList from "@/components/GradientFadeList";
 import {
   OPPONENT_STYLE_LABELS,
   OPPONENT_STYLE_TAGS,
@@ -286,6 +288,11 @@ export default function TeamPage() {
         eyebrow="Team"
         title="Team-Modus"
         subtitle="Form-Ranking, Scouting und Start-Empfehlungen für dein Team."
+        actions={
+          <Link href="/liga" className="btn btn-violet btn-sm">
+            Liga
+          </Link>
+        }
       />
 
       {message ? <p className="mt-3 text-sm text-amber-200">{message}</p> : null}
@@ -384,29 +391,34 @@ export default function TeamPage() {
                   <p className="mt-1 text-xs text-muted">
                     {detail.members.length} Spieler · Saison {detail.team.season ?? "—"}
                   </p>
-                  <div className="mt-4 space-y-2">
-                    {detail.members.slice(0, 5).map((member, index) => (
-                      <div
-                        key={member.id}
-                        className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm"
-                      >
+                  <GradientFadeList
+                    className="mt-4"
+                    items={detail.members}
+                    listClassName="space-y-2"
+                    getKey={(member) => member.id}
+                    renderItem={(member, index) => (
+                      <div className="list-card flex items-center justify-between text-sm">
                         <p className="font-semibold text-strong">
                           #{index + 1} {member.displayName}
                           <span className="ml-2 text-xs uppercase text-faint">{member.position ?? "—"}</span>
                         </p>
                         <p className={`font-semibold tabular-nums ${formToneClass(member.form.tone)}`}>{member.form.score}</p>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </section>
               ) : null}
 
               {tab === "roster" ? (
                 <section className="mt-4 app-card">
                   <h2 className="section-title">Kader & Form</h2>
-                  <div className="mt-3 space-y-2">
-                    {detail.members.map((member) => (
-                      <div key={member.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <GradientFadeList
+                    className="mt-3"
+                    items={detail.members}
+                    listClassName="space-y-2"
+                    getKey={(member) => member.id}
+                    renderItem={(member) => (
+                      <div className="list-card text-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="font-semibold text-strong">{member.displayName}</p>
@@ -415,7 +427,7 @@ export default function TeamPage() {
                               {member.recentGames} Spiele
                             </p>
                             {member.recentWorkouts === 0 && member.recentGames === 0 ? (
-                              <p className="mt-1 text-xs text-amber-200/90">
+                              <p className="mt-1 text-xs text-amber-600">
                                 Noch keine Cloud-Daten — Workout abschließen oder Team-Seite nach dem Training neu öffnen.
                               </p>
                             ) : null}
@@ -424,8 +436,8 @@ export default function TeamPage() {
                         </div>
                         <p className="mt-2 text-xs text-muted">{member.form.reasons[0] ?? "—"}</p>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </section>
               ) : null}
 
@@ -471,17 +483,21 @@ export default function TeamPage() {
                     Scouting speichern
                   </button>
 
-                  <div className="mt-5 space-y-2">
-                    {detail.scouting.map((entry) => (
-                      <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <GradientFadeList
+                    className="mt-5"
+                    items={detail.scouting}
+                    listClassName="space-y-2"
+                    getKey={(entry) => entry.id}
+                    renderItem={(entry) => (
+                      <div className="list-card text-sm">
                         <p className="font-semibold text-strong">{entry.opponentName}</p>
                         <p className="text-xs text-muted">
                           {entry.styles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(", ") || "Keine Tags"}
                         </p>
                         {entry.notes ? <p className="mt-1 text-muted">{entry.notes}</p> : null}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </section>
               ) : null}
 
@@ -526,14 +542,18 @@ export default function TeamPage() {
                   {matchupHints.length > 0 ? (
                     <div className="app-card">
                       <h3 className="section-title">Matchup-Hinweise</h3>
-                      <div className="mt-3 space-y-2">
-                        {matchupHints.map((hint) => (
-                          <div key={hint.title} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
+                      <GradientFadeList
+                        className="mt-3"
+                        items={matchupHints}
+                        listClassName="space-y-2"
+                        getKey={(hint) => hint.title}
+                        renderItem={(hint) => (
+                          <div className="list-card text-sm">
                             <p className="font-semibold text-strong">{hint.title}</p>
                             <p className="mt-1 text-muted">{hint.detail}</p>
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      />
                     </div>
                   ) : null}
 
@@ -541,11 +561,14 @@ export default function TeamPage() {
                     <section className="app-card--accent-violet">
                       <p className="section-eyebrow">Coach · {coachAdvice.source === "llm" ? "KI" : "Regeln"}</p>
                       <h3 className="section-title mt-1">{coachAdvice.headline}</h3>
-                      <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-strong">
-                        {coachAdvice.bullets.map((bullet) => (
-                          <li key={bullet}>{bullet}</li>
-                        ))}
-                      </ul>
+                      <GradientFadeList
+                        className="mt-3"
+                        items={coachAdvice.bullets}
+                        listClassName="list-disc space-y-2 pl-5 text-sm text-strong"
+                        getKey={(bullet, index) => `${bullet}-${index}`}
+                        renderItem={(bullet) => <div>{bullet}</div>}
+                        showMoreLabel={(hidden) => `Weitere Hinweise (${hidden})`}
+                      />
                       {coachAdvice.starters.length > 0 ? (
                         <p className="mt-3 text-xs text-muted">Start: {coachAdvice.starters.join(", ")}</p>
                       ) : null}

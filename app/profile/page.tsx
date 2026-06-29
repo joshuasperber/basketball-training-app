@@ -1,5 +1,6 @@
 "use client";
 
+import GradientFadeList from "@/components/GradientFadeList";
 import { supabase } from "@/lib/supabase";
 import {
   buildWeeklyPlan,
@@ -269,6 +270,7 @@ export default function ProfilePage() {
   const [feedback, setFeedback] = useState<{ text: string; tone: ProfileFeedbackTone } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const [stammdatenOpen, setStammdatenOpen] = useState(false);
 
   const showProfileFeedback = useCallback((text: string, tone: ProfileFeedbackTone = "info") => {
     if (feedbackTimerRef.current != null) {
@@ -750,7 +752,24 @@ const refreshProfileAndWeekly = () => {
       </section>
 
       <section className="mt-6 app-card">
-        <p className="section-eyebrow">Stammdaten</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="section-eyebrow">Stammdaten</p>
+            <h2 className="section-title mt-1">Spielerprofil</h2>
+            <p className="text-xs text-muted">Username, Position, Körperdaten und Spielstil.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStammdatenOpen((current) => !current)}
+            className="btn btn-ghost btn-sm shrink-0"
+            aria-expanded={stammdatenOpen}
+          >
+            {stammdatenOpen ? "Einklappen" : "Anzeigen"}
+          </button>
+        </div>
+
+        {stammdatenOpen ? (
+          <>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
             <label className="input-label">Username</label>
@@ -863,6 +882,8 @@ const refreshProfileAndWeekly = () => {
             />
           </div>
         </div>
+          </>
+        ) : null}
       </section>
 
       <section className="mt-4 app-card">
@@ -1063,28 +1084,39 @@ const refreshProfileAndWeekly = () => {
         <div className="mt-4 app-card--flat">
           <p className="text-xs font-semibold uppercase tracking-wider text-faint">{selectedDateKey}</p>
           {selectedDateKey < todayKey || (selectedDateKey === todayKey && isSelectedCompleted) ? (
-            <div className="mt-3 space-y-2 text-sm">
+            <div className="mt-3 text-sm">
               {selectedSessions.length === 0 ? (
                 <p className="text-muted">Kein Training an diesem Tag.</p>
-              ) : selectedSessions.map((session) => (
-                <div key={session.id} className="list-card">
-                  <p className="font-semibold text-strong">{session.workoutName}</p>
-                  <p className="text-xs text-muted">Exercises: {session.logs.length} · Dauer ca. {session.logs.length * 4} Min</p>
-                  <div className="mt-2 space-y-1 text-xs text-strong">
-                    {session.logs.map((log, idx) => (
-                      <div key={`${session.id}-${idx}`} className="app-card--flat mt-1 text-xs">
-                        <p className="font-semibold">{exerciseNameById.get(log.exerciseId) ?? log.exerciseId}</p>
-                        <p className="text-muted">Kategorie: {exerciseById.get(log.exerciseId)?.category ?? "-"} · Unterkategorie: {exerciseById.get(log.exerciseId)?.subcategory ?? "-"}</p>
-                        {log.made != null || log.misses != null || log.attempts != null ? (
-                          <p>Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"} · Reps: {log.attempts ?? "-"}</p>
-                        ) : null}
-                        {log.completedValue != null ? <p>Reps/Wert: {log.completedValue}</p> : null}
-                        {log.weightKg != null && log.weightKg > 0 ? <p>Gewicht: {log.weightKg} kg</p> : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+              ) : (
+                <GradientFadeList
+                  items={selectedSessions}
+                  listClassName="space-y-2"
+                  getKey={(session) => session.id}
+                  renderItem={(session) => (
+                    <div className="list-card">
+                      <p className="font-semibold text-strong">{session.workoutName}</p>
+                      <p className="text-xs text-muted">Exercises: {session.logs.length} · Dauer ca. {session.logs.length * 4} Min</p>
+                      <GradientFadeList
+                        className="mt-2"
+                        items={session.logs}
+                        listClassName="space-y-1 text-xs text-strong"
+                        getKey={(log, idx) => `${session.id}-${idx}`}
+                        renderItem={(log) => (
+                          <div className="app-card--flat mt-1 text-xs">
+                            <p className="font-semibold">{exerciseNameById.get(log.exerciseId) ?? log.exerciseId}</p>
+                            <p className="text-muted">Kategorie: {exerciseById.get(log.exerciseId)?.category ?? "-"} · Unterkategorie: {exerciseById.get(log.exerciseId)?.subcategory ?? "-"}</p>
+                            {log.made != null || log.misses != null || log.attempts != null ? (
+                              <p>Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"} · Reps: {log.attempts ?? "-"}</p>
+                            ) : null}
+                            {log.completedValue != null ? <p>Reps/Wert: {log.completedValue}</p> : null}
+                            {log.weightKg != null && log.weightKg > 0 ? <p>Gewicht: {log.weightKg} kg</p> : null}
+                          </div>
+                        )}
+                      />
+                    </div>
+                  )}
+                />
+              )}
             </div>
           ) : (
             <div className="mt-3">

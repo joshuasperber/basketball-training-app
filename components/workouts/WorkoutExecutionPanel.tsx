@@ -328,7 +328,7 @@ export default function WorkoutExecutionPanel({
             <div className="mt-3 app-card--flat">
               <div className="flex items-baseline justify-between">
                 <p className="text-xs uppercase tracking-wide text-muted">Anstrengung (RPE)</p>
-                <p className="text-sm font-semibold text-cyan-200 tabular-nums">
+                <p className="text-sm font-semibold text-strong tabular-nums">
                   {currentLog.rpe ? `${currentLog.rpe}/10` : "—"}
                 </p>
               </div>

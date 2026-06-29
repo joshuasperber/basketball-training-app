@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import GradientFadeList from "@/components/GradientFadeList";
 import { useAppDialog } from "@/components/ui/AppDialogProvider";
 import {
   OPPONENT_STYLE_LABELS,
@@ -218,7 +219,8 @@ export default function LigaPage() {
         </div>
       ) : null}
 
-      <div className="segmented mt-4">
+      <div className="segmented-wrap mt-4">
+      <div className="segmented">
         {(
           [
             ["schedule", "Spielplan"],
@@ -230,6 +232,7 @@ export default function LigaPage() {
             {label}
           </button>
         ))}
+      </div>
       </div>
 
       {activeSeason ? (
@@ -254,9 +257,13 @@ export default function LigaPage() {
           {bundle.seasons.length > 0 ? (
             <div className="app-card">
               <p className="section-eyebrow">Saisons</p>
-              <ul className="mt-3 space-y-2">
-                {bundle.seasons.map((season) => (
-                  <li key={season.id} className="list-card flex items-center justify-between gap-2">
+              <GradientFadeList
+                className="mt-3"
+                items={bundle.seasons}
+                listClassName="space-y-2"
+                getKey={(season) => season.id}
+                renderItem={(season) => (
+                  <div className="list-card flex items-center justify-between gap-2">
                     <div>
                       <p className="list-card__title">{season.name}</p>
                       {season.notes ? <p className="list-card__meta">{season.notes}</p> : null}
@@ -268,9 +275,9 @@ export default function LigaPage() {
                     >
                       {bundle.activeSeasonId === season.id ? "Aktiv" : "Aktivieren"}
                     </button>
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                )}
+              />
             </div>
           ) : null}
         </section>
@@ -307,9 +314,13 @@ export default function LigaPage() {
             {opponents.length === 0 ? (
               <p className="mt-3 text-sm text-muted">Noch keine Gegner.</p>
             ) : (
-              <ul className="mt-3 space-y-2">
-                {opponents.map((opponent) => (
-                  <li key={opponent.id} className="list-card">
+              <GradientFadeList
+                className="mt-3"
+                items={opponents}
+                listClassName="space-y-2"
+                getKey={(opponent) => opponent.id}
+                renderItem={(opponent) => (
+                  <div className="list-card">
                     <div className="flex items-start justify-between gap-2">
                       <p className="list-card__title">{opponent.name}</p>
                       <button type="button" className="btn btn-danger-outline btn-xs" onClick={() => handleDeleteOpponent(opponent.id)}>
@@ -324,9 +335,9 @@ export default function LigaPage() {
                         Tags: {opponent.opponentStyles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(", ")}
                       </p>
                     ) : null}
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                )}
+              />
             )}
           </div>
         </section>
@@ -337,6 +348,7 @@ export default function LigaPage() {
           <form className="app-card space-y-3" onSubmit={handleAddGame}>
             <p className="section-eyebrow">Spiel eintragen</p>
             <input type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} className="input" />
+            <div className="segmented-wrap">
             <div className="segmented">
               <button type="button" className="segmented__btn" aria-pressed={gameKind === "game"} onClick={() => setGameKind("game")}>
                 Spieltag
@@ -349,6 +361,7 @@ export default function LigaPage() {
               >
                 Spieltraining
               </button>
+            </div>
             </div>
             <select value={gameOpponentId} onChange={(e) => setGameOpponentId(e.target.value)} className="select">
               <option value="">Gegner wählen (optional)</option>
@@ -374,11 +387,15 @@ export default function LigaPage() {
             {schedule.length === 0 ? (
               <p className="mt-3 text-sm text-muted">Noch keine Spiele geplant.</p>
             ) : (
-              <ul className="mt-3 space-y-2">
-                {schedule.map((entry) => {
+              <GradientFadeList
+                className="mt-3"
+                items={schedule}
+                listClassName="space-y-2"
+                getKey={(entry) => entry.id}
+                renderItem={(entry) => {
                   const opponent = entry.opponentId ? opponentsById.get(entry.opponentId) : undefined;
                   return (
-                    <li key={entry.id} className="list-card">
+                    <div className="list-card">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="list-card__title">
@@ -397,10 +414,10 @@ export default function LigaPage() {
                           </button>
                         </div>
                       </div>
-                    </li>
+                    </div>
                   );
-                })}
-              </ul>
+                }}
+              />
             )}
           </div>
         </section>

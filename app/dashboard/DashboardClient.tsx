@@ -1,8 +1,10 @@
 "use client";
 
+import GradientFadeList from "@/components/GradientFadeList";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SportsNewsSection from "@/components/SportsNewsSection";
+import PausedWorkoutsBanner from "@/components/PausedWorkoutsBanner";
 import PageHeader from "@/components/PageHeader";
 import CoachInsight from "@/components/CoachInsight";
 import { getWorkoutSessions } from "@/lib/session-storage";
@@ -19,19 +21,15 @@ import {
   parseWorkoutProgress,
 } from "@/lib/workout";
 import {
-  HIDE_ALL_AUTO_WORKOUTS_ID,
-  MANUAL_DAY_WORKOUTS_KEY,
   readDailyPlanMap,
-  readHiddenAutoWorkoutsMap,
 } from "@/lib/activity-calendar";
 import { pullProgressFromCloud } from "@/lib/progress-sync";
 import { loadPerformanceTips } from "@/lib/performance-tips";
 import { getCompletedWorkoutIdsForDate, isWorkoutIdCompletedOnDate } from "@/lib/workout-completion";
 import { loadGameStats } from "@/lib/game-stats";
-import { loadWorkouts } from "@/lib/training-storage";
 import { gamePlanId } from "@/lib/game-plan-ids";
-import { readWeeklySuggestionsCache } from "@/lib/weekly-suggestions-cache";
-import { getWarmupWorkouts } from "@/lib/warmup-workouts";
+import { buildDayWorkoutCardsForToday, isEmptyRestDayCard, type DayWorkoutCard } from "@/lib/day-workout-cards";
+import { buildWeeklyWorkoutNavPath } from "@/lib/weekly-workout-nav";
 
 const dayByIndex: Record<number, import("@/lib/planner").DayKey> = {
   0: "sunday",
@@ -44,67 +42,46 @@ const dayByIndex: Record<number, import("@/lib/planner").DayKey> = {
 };
 
 const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
-const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
 
 function isSportType(value: string): value is SportType {
   return ALLOWED_SPORTS.includes(value as SportType);
 }
 
-function getWorkoutFromTodayTags(tags: string[]) {
-  const basketballTag = tags.find((tag) => tag.startsWith("Basketball:"))?.replace("Basketball:", "");
-  const gymTag = tags.find((tag) => tag.startsWith("Gym:"))?.replace("Gym:", "");
-  const homeTag = tags.find((tag) => tag.startsWith("Home:"))?.replace("Home:", "");
-  const recoveryTag = tags.find((tag) => tag.startsWith("Recovery:"))?.replace("Recovery:", "");
-
-  if (tags.includes("Spieltag")) {
-    return { sport: "Basketball" as SportType, title: "Spieltag", subcategory: "Spiel", kind: "game" as const };
-  }
-  if (tags.includes("Spieltraining")) {
-    return { sport: "Basketball" as SportType, title: "Spieltraining", subcategory: "Spieltraining", kind: "game_training" as const };
-  }
-  if (tags.includes("Trainingstag")) {
-    return { sport: "Basketball" as SportType, title: basketballTag ? `Basketball – ${basketballTag}` : "Basketball Training", subcategory: basketballTag ?? "Training" };
-  }
-  if (tags.includes("Gym")) {
-    return { sport: "Gym" as SportType, title: gymTag ? `Gym – ${gymTag}` : "Gym Session", subcategory: gymTag ?? "Gym" };
-  }
-  if (tags.includes("Home-Workout")) {
-    return { sport: "Home" as SportType, title: homeTag ? `Home – ${homeTag}` : "Home Workout", subcategory: homeTag ?? "Home" };
-  }
-  if (tags.includes("Regeneration")) {
-    return { sport: "Regeneration" as SportType, title: recoveryTag ? `Recovery – ${recoveryTag}` : "Regeneration", subcategory: recoveryTag ?? "Recovery" };
-  }
-  return null;
+function toSportType(value: string): SportType {
+  if (isSportType(value)) return value;
+  return "Basketball";
 }
 
-function getTodayTagsFromProfileFallback(dayIndex: number): string[] {
-  if (typeof window === "undefined") return [];
-  const raw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as {
-      weekConfig?: Record<string, { mode?: string; minutes?: number }>;
+function dayWorkoutCardToTodayCard(card: DayWorkoutCard, dayIndex: number, dateKey: string): TodayWorkoutCard {
+  if (card.kind === "game" || card.kind === "game_training") {
+    return {
+      id: card.id,
+      title: card.title,
+      sport: "Basketball",
+      subcategory: card.subcategory,
+      href: `/game-track?date=${dateKey}&context=${card.kind === "game_training" ? "game_training" : "game"}`,
+      kind: card.kind,
     };
-    const dayMap: Record<number, string> = {
-      0: "sunday",
-      1: "monday",
-      2: "tuesday",
-      3: "wednesday",
-      4: "thursday",
-      5: "friday",
-      6: "saturday",
-    };
-    const mode = parsed.weekConfig?.[dayMap[dayIndex]]?.mode;
-    if (mode === "game_day") return ["Spieltag"];
-    if (mode === "game_training") return ["Spieltraining"];
-    if (mode === "basketball_training") return ["Trainingstag"];
-    if (mode === "gym") return ["Gym"];
-    if (mode === "custom") return ["Home-Workout"];
-    if (mode === "recovery") return ["Regeneration"];
-  } catch {
-    // noop
   }
-  return [];
+
+  return {
+    id: card.id,
+    title: card.title,
+    sport: toSportType(card.sport),
+    subcategory: card.subcategory,
+    href: buildWeeklyWorkoutNavPath(dayIndex, "start", {
+      id: card.id,
+      title: card.title,
+      sport: card.sport,
+      subcategory: card.subcategory,
+      notes: card.notes,
+      manualWorkoutId: card.manualWorkoutId,
+      workoutId: card.workoutId,
+      durationMin: card.durationMin,
+      autoSuggestion: card.autoSuggestion,
+    }),
+    kind: "training",
+  };
 }
 
 type TodayWorkoutCard = {
@@ -182,8 +159,6 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         window.localStorage.getItem(buildWorkoutStorageKey(dateKey)),
         fallbackProgress,
       );
-      const plannedIds = new Set<string>();
-      const nextCards: TodayWorkoutCard[] = [];
       const nextCompletedIds = getCompletedWorkoutIdsForDate(dateKey);
       loadGameStats()
         .filter((entry) => entry.date === dateKey)
@@ -191,140 +166,28 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       setCompletedTodayIds(nextCompletedIds);
       setProgress(parsed);
       try {
-        setHasWorkoutPlanned(true);
-        setTodayLabel(null);
-        setTodaySport(todayWorkout.sport);
-        setTodaySubcategory(todayWorkout.subcategory);
-        const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
-        const dailyPlans = readDailyPlanMap();
-        const tags = dailyPlans[dateKey]?.length ? dailyPlans[dateKey] : getTodayTagsFromProfileFallback(todayDayIndex);
-        const cachedEntry = readWeeklySuggestionsCache()[dayByIndex[todayDayIndex]];
-        const cachedSuggestion = cachedEntry?.suggested ?? cachedEntry?.autoSuggested ?? null;
-        const workoutFromWeekly = getWorkoutFromTodayTags(tags);
-        const hasGameToday = tags.includes("Spieltag") || tags.includes("Spieltraining");
-        let todayManuals: Array<{ id?: string; title: string; sport?: string; subcategory?: string }> = [];
-        if (rawManual) {
-          const parsedManual = JSON.parse(rawManual) as Record<
-            string,
-            Array<{ id?: string; title: string; sport?: string; subcategory?: string }>
-          >;
-          todayManuals = parsedManual[dateKey] ?? [];
-        }
-        const hiddenAutoForToday = new Set(readHiddenAutoWorkoutsMap()[dateKey] ?? []);
-        const autoHidden = hiddenAutoForToday.has(HIDE_ALL_AUTO_WORKOUTS_ID);
-        const shouldShowWeeklySummaryCard = Boolean(
-          (workoutFromWeekly || cachedSuggestion) && (hasGameToday || todayManuals.length === 0),
+        const dayKey = dayByIndex[todayDayIndex];
+        const tags = readDailyPlanMap()[dateKey] ?? [];
+        const dayCards = buildDayWorkoutCardsForToday(todayDayIndex, dateKey, dayKey).filter(
+          (card) => !isEmptyRestDayCard(card),
         );
-        if (shouldShowWeeklySummaryCard) {
-          if (workoutFromWeekly?.kind === "game" || workoutFromWeekly?.kind === "game_training") {
-            const workoutId = gamePlanId(dateKey, workoutFromWeekly.kind);
-            nextCards.push({
-              id: workoutId,
-              title: workoutFromWeekly.title,
-              sport: workoutFromWeekly.sport,
-              subcategory: workoutFromWeekly.subcategory,
-              href: `/game-track?date=${dateKey}&context=${workoutFromWeekly.kind === "game_training" ? "game_training" : "game"}`,
-              kind: workoutFromWeekly.kind,
-            });
-            plannedIds.add(workoutId);
-          } else if (cachedSuggestion && cachedSuggestion.sport !== "-" && (cachedSuggestion.durationMin ?? 0) > 0) {
-            const workoutId = cachedSuggestion.workoutId ?? `auto-weekly-${todayDayIndex}`;
-            const sport = isSportType(cachedSuggestion.sport) ? cachedSuggestion.sport : "Basketball";
-            nextCards.push({
-              id: workoutId,
-              title: cachedSuggestion.title,
-              sport,
-              subcategory: cachedSuggestion.subcategory,
-              href: cachedSuggestion.workoutId
-                ? `/workouts?day=${todayDayIndex}&workoutId=${encodeURIComponent(cachedSuggestion.workoutId)}`
-                : `/workouts?day=${todayDayIndex}&autoWorkout=${todayDayIndex}`,
-              kind: "training",
-            });
-            plannedIds.add(workoutId);
-          } else if (workoutFromWeekly) {
-            nextCards.push({
-              id: todayWorkout.id,
-              title: workoutFromWeekly.title,
-              sport: workoutFromWeekly.sport,
-              subcategory: workoutFromWeekly.subcategory,
-              href: `/workouts?day=${todayDayIndex}`,
-            });
-            plannedIds.add(todayWorkout.id);
-          }
-        }
-        if (hasGameToday) {
-          const workout = getWarmupWorkouts(loadWorkouts())[0];
-          if (workout) {
-            nextCards.push({
-              id: workout.id,
-              title: workout.name,
-              sport: "Basketball",
-              subcategory: workout.subcategory,
-              href: `/workouts?day=${todayDayIndex}&workoutId=${encodeURIComponent(workout.id)}`,
-              kind: "training",
-            });
-            plannedIds.add(workout.id);
-          }
-        }
-        if (todayManuals.length > 0) {
-          todayManuals.forEach((entry) => {
-            if (!entry.id) return;
-            const sport = entry.sport && isSportType(entry.sport) ? entry.sport : "Basketball";
-            nextCards.push({
-              id: entry.id,
-              title: entry.title,
-              sport,
-              subcategory: entry.subcategory ?? "-",
-              href: `/workouts?day=${todayDayIndex}&manualWorkoutId=${encodeURIComponent(entry.id)}`,
-            });
-            plannedIds.add(entry.id);
-          });
-          const todayManual = todayManuals[0];
-          if (todayManual?.title) {
-            setHasWorkoutPlanned(true);
-            setTodayLabel(todayManual.title);
-          }
-          if (todayManual?.sport && isSportType(todayManual.sport)) setTodaySport(todayManual.sport);
-          if (todayManual?.subcategory) setTodaySubcategory(todayManual.subcategory);
-        }
-        if (nextCards.length === 0 && !autoHidden && tags.length > 0) {
-          nextCards.push({
-            id: todayWorkout.id,
-            title: todayWorkout.title,
-            sport: todayWorkout.sport,
-            subcategory: todayWorkout.subcategory,
-            href: `/workouts?day=${todayDayIndex}`,
-          });
-          plannedIds.add(todayWorkout.id);
-        }
-        setTodayWorkoutIds(Array.from(plannedIds));
+        const mappedCards = dayCards.map((card) => dayWorkoutCardToTodayCard(card, todayDayIndex, dateKey));
+
+        setTodayWorkoutIds(mappedCards.map((card) => card.id));
         setPlannedTags(tags);
-        const headlineSuggestion = cachedSuggestion ?? (workoutFromWeekly ? {
-          title: workoutFromWeekly.title,
-          sport: workoutFromWeekly.sport,
-          subcategory: workoutFromWeekly.subcategory,
-        } : null);
-        if (headlineSuggestion && headlineSuggestion.title) {
-          setHasWorkoutPlanned(true);
-          setTodayLabel(headlineSuggestion.title);
-          if (headlineSuggestion.sport && isSportType(headlineSuggestion.sport)) setTodaySport(headlineSuggestion.sport);
-          if (headlineSuggestion.subcategory) setTodaySubcategory(headlineSuggestion.subcategory);
-        } else if (workoutFromWeekly) {
-          setHasWorkoutPlanned(true);
-          setTodayLabel(workoutFromWeekly.title);
-          setTodaySport(workoutFromWeekly.sport);
-          setTodaySubcategory(workoutFromWeekly.subcategory);
+        setTodayWorkoutCards(mappedCards);
+        setHasWorkoutPlanned(mappedCards.length > 0);
+
+        if (mappedCards.length > 0) {
+          setTodayLabel(mappedCards[0].title);
+          setTodaySport(mappedCards[0].sport);
+          setTodaySubcategory(mappedCards[0].subcategory);
         } else {
-          setHasWorkoutPlanned(false);
           setTodayLabel(null);
+          setTodaySport(todayWorkout.sport);
+          setTodaySubcategory(todayWorkout.subcategory);
         }
-        setTodayWorkoutCards(nextCards);
-        if (nextCards.length > 0) {
-          setHasWorkoutPlanned(true);
-          setTodayLabel(nextCards[0].title);
-          setTodaySport(nextCards[0].sport);
-          setTodaySubcategory(nextCards[0].subcategory);
-        }
+
         const profileUsername = window.localStorage.getItem("profile_username");
         if (profileUsername) setUsername(profileUsername);
       } catch {
@@ -452,6 +315,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         actions={<div className="avatar-bubble">{getInitials(username)}</div>}
       />
 
+      <PausedWorkoutsBanner className="mt-5" />
+
       {forceProfileSetup ? (
         <section className="mt-5 app-card--accent-violet">
           <p className="text-sm text-strong">
@@ -499,14 +364,15 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                   : "Bereit? Starte jetzt deine Einheit."}
             </p>
 
-            <div className="mt-5 space-y-2">
-              {todayWorkoutCards.map((card, index) => {
+            <GradientFadeList
+              className="mt-5"
+              items={todayWorkoutCards}
+              listClassName="space-y-2"
+              getKey={(card, index) => `${card.id}-${index}`}
+              renderItem={(card, index) => {
                 const cardDone = isWorkoutIdCompletedOnDate(dateKey, card.id);
                 return (
-                  <div
-                    key={`${card.id}-${index}`}
-                    className="list-card"
-                  >
+                  <div className="list-card">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wide text-faint">
@@ -526,11 +392,11 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                     </div>
                   </div>
                 );
-              })}
-              <Link href="/Weekly-Workout" className="btn btn-ghost">
-                Weekly öffnen
-              </Link>
-            </div>
+              }}
+            />
+            <Link href="/Weekly-Workout" className="btn btn-ghost mt-2">
+              Weekly öffnen
+            </Link>
           </article>
         ) : !isCompleted ? (
           <article className="app-card--accent-violet">
@@ -559,30 +425,6 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         )}
       </section>
 
-      {/* Quick navigation */}
-      <section className="mt-6 ui-card">
-        <h3 className="ui-card__title">Schnellzugriff</h3>
-        <p className="ui-card__subtitle">Häufige Aktionen und Bereiche.</p>
-        <div className="quick-link-grid mt-4">
-          <Link href="/Weekly-Workout" className="quick-link">
-            <span className="quick-link__label">Weekly</span>
-            <span className="quick-link__hint">Wochenplan</span>
-          </Link>
-          <Link href="/training" className="quick-link">
-            <span className="quick-link__label">Training</span>
-            <span className="quick-link__hint">Bibliothek</span>
-          </Link>
-          <Link href="/workouts" className="quick-link">
-            <span className="quick-link__label">Workout</span>
-            <span className="quick-link__hint">Jetzt starten</span>
-          </Link>
-          <Link href="/stats" className="quick-link">
-            <span className="quick-link__label">Stats</span>
-            <span className="quick-link__hint">Fortschritt</span>
-          </Link>
-        </div>
-      </section>
-
       {/* Tips */}
       <section className="mt-4 app-card--accent-cyan">
         <div className="flex items-center justify-between">
@@ -592,14 +434,18 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         {dashboardTips.length === 0 ? (
           <p className="mt-2 text-sm text-muted">Keine aktiven Tipps.</p>
         ) : (
-          <ul className="mt-3 space-y-1.5 text-sm text-strong">
-            {dashboardTips.map((tip, index) => (
-              <li key={`db-tip-${index}`} className="flex gap-2">
+          <GradientFadeList
+            className="mt-3"
+            items={dashboardTips}
+            listClassName="space-y-1.5 text-sm text-strong"
+            getKey={(_, index) => `db-tip-${index}`}
+            renderItem={(tip) => (
+              <div className="flex gap-2">
                 <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--brand-500)]" />
                 <span>{tip}</span>
-              </li>
-            ))}
-          </ul>
+              </div>
+            )}
+          />
         )}
       </section>
 
@@ -660,10 +506,13 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
             badgeSections[section].length > 0 ? (
               <div key={`badge-section-${section}`}>
                 <p className="section-eyebrow mb-2">{section}</p>
-                <div className="flex flex-wrap gap-2">
-                  {badgeSections[section].map((badge) => (
+                <GradientFadeList
+                  className="mb-2"
+                  items={badgeSections[section]}
+                  listClassName="flex flex-wrap gap-2"
+                  getKey={(badge) => badge.id}
+                  renderItem={(badge) => (
                     <button
-                      key={badge.id}
                       type="button"
                       onClick={() => setSelectedBadge(badge)}
                       className="chip chip-interactive"
@@ -672,8 +521,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                       <span>{badge.name}</span>
                       <span className="text-faint">· {badge.tier}</span>
                     </button>
-                  ))}
-                </div>
+                  )}
+                />
               </div>
             ) : null,
           )}

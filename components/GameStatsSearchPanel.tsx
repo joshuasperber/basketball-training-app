@@ -81,7 +81,8 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
         </label>
       </div>
 
-      <div className="segmented mt-3">
+      <div className="segmented-wrap mt-3">
+      <div className="segmented">
         {(
           [
             ["all", "Alle"],
@@ -99,6 +100,7 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
             {label}
           </button>
         ))}
+      </div>
       </div>
 
       {filtered.length > 0 ? (
@@ -133,7 +135,6 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
         ) : (
           <ShowMoreList
             items={filtered}
-            initialCount={4}
             listClassName="space-y-2"
             getKey={(entry) => entry.id}
             renderItem={(entry) => (

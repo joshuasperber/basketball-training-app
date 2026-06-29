@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -14,11 +13,13 @@ import {
   type MetricKey,
   type Workout,
 } from "@/lib/training-data";
-import { matchesDrillCatalogFilters, type DrillCatalogFilters } from "@/lib/drill-catalog-filters";
+import { matchesDrillCatalogFilters, DEFAULT_DRILL_FILTERS, type DrillCatalogFilters } from "@/lib/drill-catalog-filters";
+import { rankByFuzzySearch } from "@/lib/fuzzy-search";
 import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
 import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab, WorkoutCreateForm, ExerciseCreateForm } from "@/components/training/TrainingTabs";
 import TopSubTabs from "@/components/TopSubTabs";
-import PageHeader from "@/components/PageHeader";
+import ExpandableCatalogSearch from "@/components/training/ExpandableCatalogSearch";
+import CatalogSearchPanel from "@/components/training/CatalogSearchPanel";
 import Sheet from "@/components/ui/Sheet";
 import IconButton, { PlusIcon } from "@/components/ui/IconButton";
 import { addManualGameToday } from "@/lib/plan-day-actions";
@@ -151,12 +152,11 @@ function TrainingPageContent() {
 
   const [exerciseCategory, setExerciseCategory] = useState<Category>("Basketball");
   const [exerciseSubcategory, setExerciseSubcategory] = useState("Shooting");
-  const [exerciseSearch, setExerciseSearch] = useState("");
-  const [drillFilters, setDrillFilters] = useState<DrillCatalogFilters>({
-    video: "all",
-    duration: "all",
-    equipment: "all",
-  });
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogSearchExpanded, setCatalogSearchExpanded] = useState(false);
+  const [drillFilters, setDrillFilters] = useState<DrillCatalogFilters>(DEFAULT_DRILL_FILTERS);
+  const [workoutSelectionReady, setWorkoutSelectionReady] = useState(false);
+  const [exerciseSelectionReady, setExerciseSelectionReady] = useState(false);
 
   const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
   const [workouts, setWorkouts] = useState<Workout[]>(defaultWorkouts);
@@ -227,13 +227,12 @@ function TrainingPageContent() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  const workoutsForSelection = useMemo(
-    () =>
-      workouts.filter(
-        (workout) => workout.category === workoutCategory && workout.subcategory === workoutSubcategory,
-      ),
-    [workouts, workoutCategory, workoutSubcategory],
-  );
+  const workoutsForSelection = useMemo(() => {
+    if (!workoutSelectionReady) return [];
+    return workouts.filter(
+      (workout) => workout.category === workoutCategory && workout.subcategory === workoutSubcategory,
+    );
+  }, [workouts, workoutCategory, workoutSubcategory, workoutSelectionReady]);
 
   const workoutExerciseOptions = useMemo(
     () =>
@@ -245,34 +244,36 @@ function TrainingPageContent() {
     [exercises, newWorkoutCategory, newWorkoutSubcategory],
   );
 
-  const exercisesForSelection = useMemo(
-    () =>
-      exercises
-        .filter(
-          (exercise) =>
-            exercise.category === exerciseCategory &&
-            exercise.subcategory === exerciseSubcategory &&
-            exercise.subcategory !== "Komplett",
-        )
-        .filter((exercise) => matchesDrillCatalogFilters(exercise, drillFilters)),
-    [exercises, exerciseCategory, exerciseSubcategory, drillFilters],
-  );
+  const catalogSearchExercises = useMemo(() => {
+    return rankByFuzzySearch(
+      exercises.filter(
+        (exercise) => exercise.subcategory !== "Komplett" && matchesDrillCatalogFilters(exercise, drillFilters),
+      ),
+      catalogSearch,
+      (exercise) => [exercise.name, exercise.category, exercise.subcategory, exercise.notes],
+    ).map((entry) => entry.item);
+  }, [exercises, catalogSearch, drillFilters]);
 
-  const allExercisesBySearch = useMemo(() => {
-    const searchTerm = exerciseSearch.trim().toLowerCase();
-    const base =
-      searchTerm.length === 0
-        ? exercises.filter((exercise) => exercise.subcategory !== "Komplett")
-        : exercises.filter((exercise) => {
-            if (exercise.subcategory === "Komplett") return false;
-            return (
-              exercise.name.toLowerCase().includes(searchTerm) ||
-              exercise.category.toLowerCase().includes(searchTerm) ||
-              exercise.subcategory.toLowerCase().includes(searchTerm)
-            );
-          });
-    return base.filter((exercise) => matchesDrillCatalogFilters(exercise, drillFilters));
-  }, [exerciseSearch, exercises, drillFilters]);
+  const catalogSearchWorkouts = useMemo(() => {
+    return rankByFuzzySearch(workouts, catalogSearch, (workout) => [
+      workout.name,
+      workout.category,
+      workout.subcategory,
+      workout.notes,
+    ]).map((entry) => entry.item);
+  }, [workouts, catalogSearch]);
+
+  const exercisesForSelection = useMemo(() => {
+    if (!exerciseSelectionReady) return [];
+    return exercises
+      .filter(
+        (exercise) =>
+          exercise.category === exerciseCategory &&
+          exercise.subcategory === exerciseSubcategory &&
+          exercise.subcategory !== "Komplett",
+      )
+      .filter((exercise) => matchesDrillCatalogFilters(exercise, drillFilters));
+  }, [exercises, exerciseCategory, exerciseSubcategory, drillFilters, exerciseSelectionReady]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -280,14 +281,16 @@ function TrainingPageContent() {
     window.localStorage.setItem(CUSTOM_SUBCATEGORY_KEY, JSON.stringify(subcategoriesByCategory));
   }, [customSubcategoriesLoaded, subcategoriesByCategory]);
 
-  function handleWorkoutCategoryChange(category: Category) {
+  function handleWorkoutCategorySelect(category: Category) {
     setWorkoutCategory(category);
     setWorkoutSubcategory(subcategoriesByCategory[category][0]);
+    setWorkoutSelectionReady(true);
   }
 
-  function handleExerciseCategoryChange(category: Category) {
+  function handleExerciseCategorySelect(category: Category) {
     setExerciseCategory(category);
     setExerciseSubcategory(subcategoriesByCategory[category][0]);
+    setExerciseSelectionReady(true);
   }
 
   function handleNewWorkoutCategoryChange(category: Category) {
@@ -647,47 +650,55 @@ function TrainingPageContent() {
   return (
     <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
-        <PageHeader
-          eyebrow="Bibliothek"
-          title="Training"
-          subtitle="Workouts und Exercises verwalten, filtern und starten."
-          actions={
-            <IconButton
-              variant="primary"
-              label={activeTab === "Workouts" ? "Workout hinzufügen" : "Exercise hinzufügen"}
-              onClick={() => setCreateOpen(true)}
+        <div className="training-top">
+          <div className="training-top__main">
+            <div>
+              <p className="page-eyebrow">Bibliothek</p>
+              <h1 className="page-title">Training</h1>
+              <p className="page-subtitle">Workouts und Exercises verwalten, filtern und starten.</p>
+            </div>
+            <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]} />
+            <TabSwitcher activeTab={activeTab} onTabChange={setActiveTab} />
+          </div>
+          <div className="training-top__rail">
+            <div className="training-top__tools">
+              <ExpandableCatalogSearch
+                value={catalogSearch}
+                onChange={setCatalogSearch}
+                expanded={catalogSearchExpanded}
+                onExpandedChange={setCatalogSearchExpanded}
+                placeholder="Exercise oder Workout suchen…"
+                ariaLabel="Katalog durchsuchen"
+              />
+              <IconButton
+                variant="primary"
+                label={activeTab === "Workouts" ? "Workout hinzufügen" : "Exercise hinzufügen"}
+                onClick={() => setCreateOpen(true)}
+              >
+                <PlusIcon />
+              </IconButton>
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline btn-xs shrink-0"
+              onClick={() => {
+                addManualGameToday("game");
+                window.dispatchEvent(new Event("bt:plan-updated"));
+              }}
             >
-              <PlusIcon />
-            </IconButton>
-          }
-        />
-
-        <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]} />
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn btn-outline btn-xs"
-            onClick={() => {
-              addManualGameToday("game");
-              window.dispatchEvent(new Event("bt:plan-updated"));
-            }}
-          >
-            + Spieltag heute
-          </button>
-          <button
-            type="button"
-            className="btn btn-outline btn-xs"
-            onClick={() => {
-              addManualGameToday("game_training");
-              window.dispatchEvent(new Event("bt:plan-updated"));
-            }}
-          >
-            + Spieltraining heute
-          </button>
-          <Link href="/Weekly-Workout" className="btn btn-ghost btn-xs">
-            Wochenplan
-          </Link>
+              + Spieltag heute
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-xs shrink-0"
+              onClick={() => {
+                addManualGameToday("game_training");
+                window.dispatchEvent(new Event("bt:plan-updated"));
+              }}
+            >
+              + Spieltraining heute
+            </button>
+          </div>
         </div>
 
         {completionMessage ? (
@@ -699,7 +710,20 @@ function TrainingPageContent() {
           </div>
         ) : null}
 
-        <TabSwitcher activeTab={activeTab} onTabChange={setActiveTab} />
+        {catalogSearch.trim() ? (
+          <CatalogSearchPanel
+            query={catalogSearch}
+            exercises={catalogSearchExercises}
+            workouts={catalogSearchWorkouts}
+            availableExercises={exercises}
+            onEditExercise={startEditExercise}
+            onEditWorkout={startEditWorkout}
+            onClose={() => {
+              setCatalogSearch("");
+              setCatalogSearchExpanded(false);
+            }}
+          />
+        ) : null}
 
         {activeTab === "Workouts" ? (
           <WorkoutsTab
@@ -709,10 +733,11 @@ function TrainingPageContent() {
             onDeleteSubcategory={handleDeleteSubcategory}
             selectedCategory={workoutCategory}
             selectedSubcategory={workoutSubcategory}
-            onCategoryChange={handleWorkoutCategoryChange}
             onSubcategoryChange={setWorkoutSubcategory}
             workouts={workoutsForSelection}
             availableExercises={exercises}
+            selectionReady={workoutSelectionReady}
+            onCategorySelect={handleWorkoutCategorySelect}
             createWorkoutExerciseOptions={workoutExerciseOptions}
             newWorkoutName={newWorkoutName}
             onNewWorkoutNameChange={setNewWorkoutName}
@@ -749,14 +774,13 @@ function TrainingPageContent() {
             onDeleteSubcategory={handleDeleteSubcategory}
             selectedCategory={exerciseCategory}
             selectedSubcategory={exerciseSubcategory}
-            onCategoryChange={handleExerciseCategoryChange}
             onSubcategoryChange={setExerciseSubcategory}
             drillFilters={drillFilters}
             onDrillFilterChange={(patch) => setDrillFilters((current) => ({ ...current, ...patch }))}
+            onDrillFiltersReset={() => setDrillFilters(DEFAULT_DRILL_FILTERS)}
             visibleExercises={exercisesForSelection}
-            searchableExercises={allExercisesBySearch}
-            exerciseSearch={exerciseSearch}
-            onExerciseSearchChange={setExerciseSearch}
+            selectionReady={exerciseSelectionReady}
+            onCategorySelect={handleExerciseCategorySelect}
             newExerciseName={newExerciseName}
             onNewExerciseNameChange={setNewExerciseName}
             newExerciseCategory={newExerciseCategory}

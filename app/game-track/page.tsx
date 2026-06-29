@@ -1,5 +1,6 @@
 "use client";
 
+import GradientFadeList from "@/components/GradientFadeList";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -243,12 +244,14 @@ export default function GameTrackPage() {
               </p>
             )}
             {prepNotes.length > 0 ? (
-              <div className="mt-3 space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-faint">Alle Notizen</p>
-                {prepNotes.map((note, index) => (
-                  <p key={`${note}-${index}`} className="text-xs text-muted">{note}</p>
-                ))}
-              </div>
+              <GradientFadeList
+                className="mt-3"
+                items={prepNotes}
+                listClassName="space-y-1"
+                getKey={(note, index) => `${note}-${index}`}
+                renderItem={(note) => <p className="text-xs text-muted">{note}</p>}
+                showMoreLabel={(hiddenCount) => `Alle Notizen anzeigen (${hiddenCount})`}
+              />
             ) : null}
           </div>
           <label className="input-label mt-2" htmlFor="opponent">Spiel / Gegner</label>

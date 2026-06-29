@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import TopSubTabs from "@/components/TopSubTabs";
+import GradientFadeList from "@/components/GradientFadeList";
 import {
   type PerformanceTip,
   type TipScope,
@@ -176,45 +177,49 @@ export default function TipsPage() {
         {TIP_GROUP_ORDER.map((key) => (
           <div key={key} className="app-card">
             <h3 className="section-title">{SCOPE_OPTIONS.find((option) => option.value === key)?.label}</h3>
-            <div className="mt-3 space-y-2">
-              {grouped[key].length === 0 ? (
-                <p className="text-sm text-muted">Keine Einträge.</p>
-              ) : (
-                grouped[key].map((tip) => (
-                  <article key={tip.id} className="list-card">
-                    <p className="font-semibold text-strong">{tip.title}</p>
-                    {tip.scope === "subcategory" ? (
-                      <p className="text-xs text-brand">Schwerpunkt: {tip.scopeValue}</p>
-                    ) : null}
-                    <p className="mt-1 text-sm text-muted">{tip.content}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => void startEdit(tip)}>
-                        Bearbeiten
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-xs"
-                        onClick={() => {
-                          const toggled = tips.map((entry) =>
-                            entry.id === tip.id ? { ...entry, active: !entry.active } : entry,
-                          );
-                          persist(toggled);
-                        }}
-                      >
-                        {tip.active ? "Deaktivieren" : "Aktivieren"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger-outline btn-xs"
-                        onClick={() => persist(removePerformanceTip(tips, tip.id))}
-                      >
-                        Löschen
-                      </button>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
+            {grouped[key].length === 0 ? (
+              <p className="mt-3 text-sm text-muted">Keine Einträge.</p>
+            ) : (
+              <GradientFadeList
+                className="mt-3"
+                  items={grouped[key]}
+                  listClassName="space-y-2"
+                  getKey={(tip) => tip.id}
+                  renderItem={(tip) => (
+                    <article className="list-card">
+                      <p className="font-semibold text-strong">{tip.title}</p>
+                      {tip.scope === "subcategory" ? (
+                        <p className="text-xs text-brand">Schwerpunkt: {tip.scopeValue}</p>
+                      ) : null}
+                      <p className="mt-1 text-sm text-muted">{tip.content}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button type="button" className="btn btn-ghost btn-xs" onClick={() => void startEdit(tip)}>
+                          Bearbeiten
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => {
+                            const toggled = tips.map((entry) =>
+                              entry.id === tip.id ? { ...entry, active: !entry.active } : entry,
+                            );
+                            persist(toggled);
+                          }}
+                        >
+                          {tip.active ? "Deaktivieren" : "Aktivieren"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger-outline btn-xs"
+                          onClick={() => persist(removePerformanceTip(tips, tip.id))}
+                        >
+                          Löschen
+                        </button>
+                      </div>
+                    </article>
+                  )}
+                />
+            )}
           </div>
         ))}
       </section>

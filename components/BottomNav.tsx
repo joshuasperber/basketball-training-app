@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 
 type NavItem = {
   label: string;
@@ -54,14 +55,14 @@ const TeamIcon = (
 );
 
 const navItems: NavItem[] = [
-  { label: "Start", href: "/dashboard", icon: HomeIcon },
+  { label: "Dashboard", href: "/dashboard", icon: HomeIcon },
   {
     label: "Train",
-    href: "/Weekly-Workout",
-    matches: ["/Weekly-Workout", "/workouts", "/training"],
+    href: WEEKLY_WORKOUT_PATH,
+    matches: [WEEKLY_WORKOUT_PATH, "/Weekly-Workout", "/workouts", "/training"],
     icon: TrainingIcon,
   },
-  { label: "Team", href: "/team", icon: TeamIcon },
+  { label: "Team", href: "/team", matches: ["/team", "/liga"], icon: TeamIcon },
   {
     label: "Stats",
     href: "/stats",

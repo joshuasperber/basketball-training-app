@@ -457,6 +457,15 @@ function resolveDaySuggestions(
   };
 }
 
+export function isEmptyRestDayCard(card: DayWorkoutCard) {
+  return (
+    (card.durationMin ?? 0) <= 0 ||
+    card.sport === "-" ||
+    card.subcategory.toLowerCase() === "frei" ||
+    card.title.toLowerCase().includes("freier tag")
+  );
+}
+
 export function buildDayWorkoutCardsForToday(dayIndex: number, dateKey: string, dayKey: DayKey) {
   const profilePlan = getProfilePlanEntryForDay(dayKey);
   const { suggested, autoSuggested } = resolveDaySuggestions(dayKey, dateKey, profilePlan);

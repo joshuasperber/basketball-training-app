@@ -4,10 +4,17 @@ type FilterClearButtonProps = {
   label?: string;
 };
 
-export default function FilterClearButton({ onClick, disabled = false, label = "Löschen" }: FilterClearButtonProps) {
+export default function FilterClearButton({ onClick, disabled = false, label = "Alle Filter löschen" }: FilterClearButtonProps) {
   return (
-    <button type="button" className="btn btn-ghost btn-sm shrink-0" onClick={onClick} disabled={disabled} aria-label="Filter löschen">
-      {label}
+    <button
+      type="button"
+      className="filter-clear-btn"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+    >
+      ×
     </button>
   );
 }

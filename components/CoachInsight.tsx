@@ -1,5 +1,6 @@
 "use client";
 
+import GradientFadeList from "@/components/GradientFadeList";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadGameStats } from "@/lib/game-stats";
@@ -413,14 +414,18 @@ export default function CoachInsight() {
       {error ? (
         <p className="mt-3 alert-error text-sm">{error}</p>
       ) : data ? (
-        <ul className="mt-3 space-y-2 text-sm text-strong">
-          {data.bullets.map((bullet, index) => (
-            <li key={`bullet-${index}`} className="flex gap-2">
+        <GradientFadeList
+          className="mt-3"
+          items={data.bullets}
+          listClassName="space-y-2 text-sm text-strong"
+          getKey={(_, index) => `bullet-${index}`}
+          renderItem={(bullet) => (
+            <div className="flex gap-2">
               <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-emerald)]" />
               <span>{bullet}</span>
-            </li>
-          ))}
-        </ul>
+            </div>
+          )}
+        />
       ) : (
         <p className="mt-3 text-sm text-muted">Noch keine Daten.</p>
       )}

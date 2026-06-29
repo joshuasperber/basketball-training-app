@@ -40,31 +40,31 @@ export default function WorkoutTimer({ startedAtIso, lastSetCompletedAtIso, stat
 
   if (status === "not_started") {
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+      <div className="app-card--flat px-4 py-3">
         <p className="section-eyebrow">Stoppuhr</p>
         <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-strong">00:00</p>
-        <p className="mt-1 text-xs text-faint">Starte das Workout oder den ersten Satz — die Stoppuhr beginnt sofort mit der Gesamtzeit.</p>
+        <p className="mt-1 text-xs text-faint">Starte das Workout oder den ersten Satz.</p>
       </div>
     );
   }
 
-  const restColor =
-    restElapsed >= 180 ? "text-amber-300"
-    : restElapsed >= 90 ? "text-emerald-300"
-    : "text-cyan-300";
+  const restTone =
+    restElapsed >= 180 ? "text-amber-600"
+    : restElapsed >= 90 ? "text-emerald-600"
+    : "text-strong";
 
   return (
     <div className="grid gap-2 sm:grid-cols-2">
-      <div className="rounded-2xl border border-orange-400/40 bg-orange-500/10 px-4 py-3">
+      <div className="app-card--accent-violet px-4 py-3">
         <p className="section-eyebrow">Workout-Zeit</p>
         <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-strong">
           {formatDuration(totalElapsed)}
         </p>
         <p className="mt-1 text-xs text-faint">{status === "completed" ? "Fertig" : "Läuft"}</p>
       </div>
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+      <div className="app-card--flat px-4 py-3">
         <p className="section-eyebrow">Pause seit letztem Satz</p>
-        <p className={`mt-1 text-2xl font-bold tabular-nums tracking-tight ${restColor}`}>
+        <p className={`mt-1 text-2xl font-bold tabular-nums tracking-tight ${restTone}`}>
           {lastSetCompletedAtIso ? formatDuration(restElapsed) : "—"}
         </p>
         <p className="mt-1 text-xs text-faint">

@@ -18,6 +18,7 @@ import GameTrainingInsights from "@/components/GameTrainingInsights";
 import MatchupHintsCard from "@/components/MatchupHintsCard";
 import GymGoalsManager from "@/components/GymGoalsManager";
 import TopSubTabs from "@/components/TopSubTabs";
+import GradientFadeList from "@/components/GradientFadeList";
 import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
@@ -26,6 +27,14 @@ import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync"
 import { loadGameStats } from "@/lib/game-stats";
 import { countTrackedSetsInLogs, logCountsAsTrackedSet } from "@/lib/workout-session-metrics";
 import { repCountFromSessionLog } from "@/lib/workout-metrics";
+import {
+  aggregateShootingByZone,
+  computeFieldGoalPercentage,
+  computeThreePointPercentage,
+  mergeShootingZoneTotals,
+  shootingZoneRows,
+} from "@/lib/shooting-zone-stats";
+import { aggregateGameShootingByZone } from "@/lib/game-shooting-splits";
 
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home" | "Regeneration";
@@ -395,14 +404,16 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
       <h2 className="section-title mt-1">{title}</h2>
       <div className="mt-4 flex items-center gap-4">
         <div className="stat-pie h-28 w-28" style={{ background: pieGradient(slices) }} />
-        <ul className="space-y-1.5 text-sm text-strong">
+        <ul className="min-w-0 flex-1 space-y-1.5 text-sm text-strong">
           {slices.length === 0 ? (
             <li className="text-muted">Noch keine Daten vorhanden.</li>
           ) : (
             slices.map((slice) => (
               <li key={slice.label} className="flex items-center gap-2">
-                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: slice.color }} />
-                <span className="text-muted">{slice.label}: <strong className="text-strong">{slice.value}</strong></span>
+                <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: slice.color }} />
+                <span className="text-muted">
+                  {slice.label}: <strong className="text-strong">{slice.value}</strong>
+                </span>
               </li>
             ))
           )}
@@ -775,37 +786,17 @@ useEffect(() => {
       ),
     [filteredGameStats],
   );
-  const basketballShotSummary = useMemo(() => {
-    const exercises = loadExercises();
-    const exerciseLookupMap = new Map(exercises.map((exercise) => [exercise.id, exercise]));
-    const summary = {
-      freeThrows: { made: 0, attempts: 0 },
-      twoPointers: { made: 0, attempts: 0 },
-      threePointers: { made: 0, attempts: 0 },
+
+  const shootingZoneStats = useMemo(() => {
+    const workoutTotals = aggregateShootingByZone(basketballSessions, exerciseLookupForSplit);
+    const gameTotals = aggregateGameShootingByZone(filteredGameStats);
+    const totals = mergeShootingZoneTotals(workoutTotals, gameTotals);
+    return {
+      rows: shootingZoneRows(totals),
+      fieldGoalPct: computeFieldGoalPercentage(totals),
+      threePointPct: computeThreePointPercentage(totals),
     };
-    filteredSessions.forEach((session) => {
-      session.logs.forEach((log) => {
-        const exercise = exerciseLookupMap.get(log.exerciseId);
-        if (!exercise || exercise.category !== "Basketball") return;
-        const normalizedSubcategory = normalizeBasketballSubcategory(exercise.subcategory);
-        const name = exercise.name.toLowerCase();
-        const attempts = Math.max(0, log.attempts ?? ((log.made ?? 0) + (log.misses ?? 0)));
-        const made = Math.max(0, log.made ?? 0);
-        if (attempts <= 0) return;
-        if (name.includes("freiwurf") || name.includes("free throw")) {
-          summary.freeThrows.attempts += attempts;
-          summary.freeThrows.made += made;
-        } else if (name.includes("3 pointer") || name.includes("3-pointer") || name.includes("3pt")) {
-          summary.threePointers.attempts += attempts;
-          summary.threePointers.made += made;
-        } else if (normalizedSubcategory === "Shooting" || normalizedSubcategory === "Finishing") {
-          summary.twoPointers.attempts += attempts;
-          summary.twoPointers.made += made;
-        }
-      });
-    });
-    return summary;
-  }, [filteredSessions]);
+  }, [basketballSessions, exerciseLookupForSplit, filteredGameStats]);
 
   const toggleSection = (
     key: "basketballQuotes" | "timeExercises" | "history" | "gymGoals" | "basketballHistory" | "gymHistory",
@@ -855,7 +846,7 @@ useEffect(() => {
           ]}
         />
       </div>
-      <div className="mt-4">
+      <div className="mt-4 segmented-wrap">
         <div className="segmented">
           {[
             { id: "all", label: "All Time" },
@@ -874,7 +865,7 @@ useEffect(() => {
           ))}
         </div>
       </div>
-      <div className="mt-4">
+      <div className="mt-4 top-tabs-wrap">
         <div className="top-tabs">
           {([
             { id: "overview", label: "Übersicht", href: "/stats?tab=overview" },
@@ -997,19 +988,29 @@ useEffect(() => {
                 ] as const).map(([title, bucket]) => (
                   <div key={title} className="list-card">
                     <p className="font-semibold text-strong">{title}</p>
-                    <div className="mt-2 space-y-2">
-                      {bucket.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : bucket.map((entry) => (
-                        <button
-                          type="button"
-                          key={entry.id}
-                          onClick={() => setSelectedSessionId(entry.id)}
-                          className="list-card block w-full text-left text-sm"
-                        >
-                          <p className="font-semibold text-strong">{entry.title}</p>
-                          <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
-                          <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
-                        </button>
-                      ))}
+                    <div className="mt-2">
+                      {bucket.length === 0 ? (
+                        <p className="text-sm text-muted">Keine Einträge.</p>
+                      ) : (
+                        <GradientFadeList
+                          items={bucket}
+                          listClassName="space-y-2"
+                          getKey={(entry) => entry.id}
+                          renderItem={(entry) => (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSessionId(entry.id)}
+                              className="list-card block w-full text-left text-sm"
+                            >
+                              <p className="font-semibold text-strong">{entry.title}</p>
+                              <p className="text-muted">
+                                {new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}
+                              </p>
+                              <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
+                            </button>
+                          )}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1032,6 +1033,66 @@ useEffect(() => {
               <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{basketballTotals.minutes}</p></div>
             </div>
           </section>
+
+          {shootingZoneStats.rows.length > 0 ? (
+            <section className="mt-6 app-card--accent-cyan">
+              <p className="section-eyebrow">Shooting Splits</p>
+              <h2 className="section-title mt-1">Wurfzonen (NBA-Standard)</h2>
+              <p className="mt-2 text-sm text-muted">
+                FT%, FG% und 3P% nach Zone — Workouts und Spiel-Track (At Rim, In The Paint, Mid-Range, Corner 3, Beyond the Arc).
+              </p>
+              {shootingZoneStats.fieldGoalPct != null || shootingZoneStats.threePointPct != null ? (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {shootingZoneStats.fieldGoalPct != null ? (
+                    <div className="stat-tile">
+                      <p className="stat-tile__label">FG% · Field Goal</p>
+                      <p className="stat-tile__value">
+                        {shootingZoneStats.fieldGoalPct}
+                        <span className="ml-1 text-sm font-medium text-muted">%</span>
+                      </p>
+                    </div>
+                  ) : null}
+                  {shootingZoneStats.threePointPct != null ? (
+                    <div className="stat-tile">
+                      <p className="stat-tile__label">3P% · Three Point</p>
+                      <p className="stat-tile__value">
+                        {shootingZoneStats.threePointPct}
+                        <span className="ml-1 text-sm font-medium text-muted">%</span>
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <GradientFadeList
+                className="mt-4"
+                items={shootingZoneStats.rows}
+                listClassName="space-y-3"
+                getKey={(row) => row.zone}
+                renderItem={(row) => (
+                  <div className="list-card">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-strong">{row.label}</p>
+                        <p className="text-xs text-muted">
+                          {row.makes}/{row.attempts} · {row.hint}
+                        </p>
+                      </div>
+                      <p className="text-lg font-bold text-strong">
+                        {row.pct ?? 0}%
+                        <span className="ml-1 text-xs font-medium text-faint">{row.pctKind}</span>
+                      </p>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--bg-muted)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--brand-500)]"
+                        style={{ width: `${row.pct ?? 0}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              />
+            </section>
+          ) : null}
 
           <section className="mt-6 app-card--accent-violet">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -1068,41 +1129,24 @@ useEffect(() => {
           </div>
 
           <section className="mt-6 app-card">
-            <p className="section-eyebrow">Wurfquoten</p>
-            <h2 className="section-title mt-1">Basketball aggregiert</h2>
-            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-              {[
-                { label: "Free Throws", value: basketballShotSummary.freeThrows },
-                { label: "2 Pointer", value: basketballShotSummary.twoPointers },
-                { label: "3 Pointer", value: basketballShotSummary.threePointers },
-              ].map((item) => {
-                const pct = item.value.attempts > 0 ? Math.round((item.value.made / item.value.attempts) * 100) : 0;
-                return (
-                  <div key={item.label} className="stat-tile">
-                    <p className="stat-tile__label">{item.label}</p>
-                    <p className="stat-tile__value">{pct}<span className="ml-1 text-sm font-medium text-muted">%</span></p>
-                    <p className="stat-tile__sub">{item.value.made}/{item.value.attempts}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="mt-6 app-card">
             <button type="button" onClick={() => toggleSection("basketballQuotes")} className="flex w-full items-center justify-between text-left">
               <span className="section-title">Basketball-Übungen</span>
               <span className="chip">{openSections.basketballQuotes ? "−" : "+"}</span>
             </button>
             {openSections.basketballQuotes ? (
               basketballStats.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Basketball-Übungsdaten vorhanden.</p> : (
-                <div className="mt-3 space-y-2">
-                  {basketballStats.map((entry) => (
-                    <div key={entry.exerciseId} className="list-card">
+                <GradientFadeList
+                  className="mt-3"
+                  items={basketballStats}
+                  listClassName="space-y-2"
+                  getKey={(entry) => entry.exerciseId}
+                  renderItem={(entry) => (
+                    <div className="list-card">
                       <p className="font-semibold text-strong">{entry.exerciseName}</p>
                       <p className="mt-1 text-sm text-muted">Quote: <strong className="text-strong">{entry.quote ?? 0}%</strong> · Makes: {entry.made} · Reps: {entry.attempts} · Misses: {entry.misses}</p>
                     </div>
-                  ))}
-                </div>
+                  )}
+                />
               )
             ) : null}
           </section>
@@ -1114,17 +1158,21 @@ useEffect(() => {
             </button>
             {openSections.timeExercises ? (
               basketballTimedTrends.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Distanz- oder zeitbasierten Basketball-Verläufe vorhanden.</p> : (
-                <div className="mt-3 space-y-3">
-                  {basketballTimedTrends.map((trend) => {
+                <GradientFadeList
+                  className="mt-3"
+                  items={basketballTimedTrends}
+                  listClassName="space-y-3"
+                  getKey={(trend) => trend.exerciseId}
+                  renderItem={(trend) => {
                     const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({ label: `S${index + 1}`, value }));
                     return (
-                      <div key={trend.exerciseId} className="list-card">
+                      <div className="list-card">
                         <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
                         <div className="mt-2"><TrendChart points={chartPoints} yLabel="Wert" /></div>
                       </div>
                     );
-                  })}
-                </div>
+                  }}
+                />
               )
             ) : null}
           </section>
@@ -1135,20 +1183,27 @@ useEffect(() => {
               <span className="chip">{openSections.basketballHistory ? "−" : "+"}</span>
             </button>
             {openSections.basketballHistory ? (
-              <div className="mt-3 space-y-2">
-                {historyBuckets.Basketball.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : historyBuckets.Basketball.map((entry) => (
-                  <button
-                    type="button"
-                    key={entry.id}
-                    onClick={() => setSelectedSessionId(entry.id)}
-                    className="list-card block w-full text-left text-sm"
-                  >
-                    <p className="font-semibold text-strong">{entry.title}</p>
-                    <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
-                    <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
-                  </button>
-                ))}
-              </div>
+              historyBuckets.Basketball.length === 0 ? (
+                <p className="mt-3 text-sm text-muted">Keine Einträge.</p>
+              ) : (
+                <GradientFadeList
+                  className="mt-3"
+                  items={historyBuckets.Basketball}
+                  listClassName="space-y-2"
+                  getKey={(entry) => entry.id}
+                  renderItem={(entry) => (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSessionId(entry.id)}
+                      className="list-card block w-full text-left text-sm"
+                    >
+                      <p className="font-semibold text-strong">{entry.title}</p>
+                      <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
+                      <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
+                    </button>
+                  )}
+                />
+              )
             ) : null}
           </section>
         </>
@@ -1178,16 +1233,20 @@ useEffect(() => {
             </button>
             {openSections.gymGoals ? (
               gymGoals.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Gym-Daten vorhanden.</p> : (
-                <div className="mt-3 space-y-2">
-                  {gymGoals.map((entry) => (
-                    <div key={entry.exerciseId} className="list-card text-sm">
+                <GradientFadeList
+                  className="mt-3"
+                  items={gymGoals}
+                  listClassName="space-y-2"
+                  getKey={(entry) => entry.exerciseId}
+                  renderItem={(entry) => (
+                    <div className="list-card text-sm">
                       <p className="font-semibold text-strong">{entry.exerciseName}</p>
                       <p className="text-muted">Ø Gewicht {entry.avgWeightKg} kg · Ø Reps {entry.avgReps} · Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
                       <p className="hint-success">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
                       <p className="mt-1 text-xs text-faint">{entry.progressionHint}</p>
                     </div>
-                  ))}
-                </div>
+                  )}
+                />
               )
             ) : null}
           </section>
@@ -1199,17 +1258,21 @@ useEffect(() => {
             </button>
             {openSections.timeExercises ? (
               gymTimedTrends.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Distanz- oder zeitbasierten Gym-Verläufe vorhanden.</p> : (
-                <div className="mt-3 space-y-3">
-                  {gymTimedTrends.map((trend) => {
+                <GradientFadeList
+                  className="mt-3"
+                  items={gymTimedTrends}
+                  listClassName="space-y-3"
+                  getKey={(trend) => trend.exerciseId}
+                  renderItem={(trend) => {
                     const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({ label: `S${index + 1}`, value }));
                     return (
-                      <div key={trend.exerciseId} className="list-card">
+                      <div className="list-card">
                         <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
                         <div className="mt-2"><TrendChart points={chartPoints} yLabel="Wert" /></div>
                       </div>
                     );
-                  })}
-                </div>
+                  }}
+                />
               )
             ) : null}
           </section>
@@ -1220,20 +1283,27 @@ useEffect(() => {
               <span className="chip">{openSections.gymHistory ? "−" : "+"}</span>
             </button>
             {openSections.gymHistory ? (
-              <div className="mt-3 space-y-2">
-                {historyBuckets.Gym.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : historyBuckets.Gym.map((entry) => (
-                  <button
-                    type="button"
-                    key={entry.id}
-                    onClick={() => setSelectedSessionId(entry.id)}
-                    className="list-card block w-full text-left text-sm"
-                  >
-                    <p className="font-semibold text-strong">{entry.title}</p>
-                    <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
-                    <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
-                  </button>
-                ))}
-              </div>
+              historyBuckets.Gym.length === 0 ? (
+                <p className="mt-3 text-sm text-muted">Keine Einträge.</p>
+              ) : (
+                <GradientFadeList
+                  className="mt-3"
+                  items={historyBuckets.Gym}
+                  listClassName="space-y-2"
+                  getKey={(entry) => entry.id}
+                  renderItem={(entry) => (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSessionId(entry.id)}
+                      className="list-card block w-full text-left text-sm"
+                    >
+                      <p className="font-semibold text-strong">{entry.title}</p>
+                      <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
+                      <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
+                    </button>
+                  )}
+                />
+              )
             ) : null}
           </section>
         </>
@@ -1265,9 +1335,13 @@ useEffect(() => {
               Notiz speichern
             </button>
           </div>
-          <div className="mt-3 space-y-2">
-            {selectedSession.logs.map((log, index) => (
-              <article key={`${selectedSession.id}-${log.exerciseId}-${index}`} className="list-card text-sm">
+          <GradientFadeList
+            className="mt-3"
+            items={selectedSession.logs}
+            listClassName="space-y-2"
+            getKey={(log, index) => `${selectedSession.id}-${log.exerciseId}-${index}`}
+            renderItem={(log, index) => (
+              <article className="list-card text-sm">
                 <p className="font-semibold text-strong">{exerciseLookup.get(log.exerciseId) ?? log.exerciseId}</p>
                 <p className="text-muted">
                   Reps/Wert: {log.completedValue ?? "-"} · Gewicht: {log.weightKg ?? "-"} kg · Reps: {log.attempts ?? "-"} · Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"}
@@ -1288,8 +1362,8 @@ useEffect(() => {
                   placeholder="Technik, Ballgefühl …"
                 />
               </article>
-            ))}
-          </div>
+            )}
+          />
         </section>
       ) : null}
     </main>

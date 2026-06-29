@@ -1,5 +1,6 @@
 "use client";
 
+import GradientFadeList from "@/components/GradientFadeList";
 import Link from "next/link";
 import { useState } from "react";
 import { useSportsNewsSpoilerPrefs } from "@/components/sports-news/SportsNewsSpoilerToolbar";
@@ -164,12 +165,13 @@ export default function SportsNewsSection() {
       : null}
 
       {news.length > 0 ?
-        <ul className="mt-5 space-y-3">
-          {news.map((item) => (
-            <li
-              key={`${item.title}-${item.date}-${item.status ?? ""}`}
-              className="list-card"
-            >
+        <GradientFadeList
+          className="mt-5"
+          items={news}
+          listClassName="space-y-3"
+          getKey={(item) => `${item.title}-${item.date}-${item.status ?? ""}`}
+          renderItem={(item) => (
+            <div className="list-card">
               <a href={item.url} target="_blank" rel="noreferrer" className="list-card__title underline decoration-brand/35 underline-offset-2 hover:decoration-brand/60">
                 {item.title}
               </a>
@@ -210,9 +212,9 @@ export default function SportsNewsSection() {
               <p className="mt-2 text-xs leading-relaxed text-faint">
                 {item.source} · {formatDate(item.date)}
               </p>
-            </li>
-          ))}
-        </ul>
+            </div>
+          )}
+        />
       : null}
     </section>
   );
