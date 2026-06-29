@@ -77,7 +77,7 @@ export default function PwaInstallBanner() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-24 left-1/2 z-40 w-[92%] max-w-sm -translate-x-1/2 rounded-2xl border border-orange-400/50 bg-[#101015]/95 p-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] backdrop-blur">
+    <div className="fixed bottom-24 left-1/2 z-40 w-[92%] max-w-sm -translate-x-1/2 app-card shadow-[var(--shadow-card)] p-3">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/20 text-lg">
           🏀

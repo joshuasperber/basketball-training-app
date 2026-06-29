@@ -30,7 +30,8 @@ export type MetricKey =
   | "distance"
   | "makes"
   | "misses"
-  | "points";
+  | "points"
+  | "completed";
 
 export type Workout = {
   id: string;

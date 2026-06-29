@@ -383,22 +383,10 @@ export default function LoginPage() {
         )}
 
         {message ? (
-          <p className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-strong">
+          <p className="mt-4 app-card--flat text-sm text-strong">
             {message}
           </p>
         ) : null}
-
-        <p className="mt-5 text-xs text-faint">
-          <strong className="text-muted">Projekt-REF:</strong> aus der URL, z. B.{" "}
-          <code className="text-[10px]">pqmqkvgtynqpdmiwugwc</code> →{" "}
-          <code className="text-[10px]">https://pqmqkvgtynqpdmiwugwc.supabase.co</code>
-          <br />
-          <strong className="text-muted">Lokale Tests ohne Bestätigungs-Mail:</strong> Sign In / Providers →{" "}
-          <strong>Confirm email</strong> ausschalten (siehe Screenshot).
-          <br />
-          <strong className="text-muted">„No API key“ im Browser:</strong> normal beim Öffnen der Settings-URL ohne Key —
-          die App sendet den Key automatisch mit.
-        </p>
       </div>
     </main>
   );

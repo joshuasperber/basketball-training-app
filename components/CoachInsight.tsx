@@ -355,8 +355,8 @@ export default function CoachInsight() {
 
   const badge = useMemo(() => {
     if (!data?.source) return null;
-    if (data.source === "llm") return { label: "KI-Coach", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200" };
-    return { label: "Regel-Coach", className: "border-cyan-400/40 bg-cyan-500/10 text-cyan-200" };
+    if (data.source === "llm") return { label: "KI-Coach", className: "chip chip-success" };
+    return { label: "Regel-Coach", className: "chip chip-info" };
   }, [data]);
 
   return (
@@ -368,9 +368,7 @@ export default function CoachInsight() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {badge ? (
-            <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${badge.className}`}>
-              {badge.label}
-            </span>
+            <span className={badge.className}>{badge.label}</span>
           ) : null}
           <button
             type="button"
@@ -389,8 +387,8 @@ export default function CoachInsight() {
         (Spieltag, Gym↔Basketball, …).
       </p>
 
-      <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-2.5">
-        <label className="text-[11px] font-medium text-muted" htmlFor="coach-weekly-note">
+      <div className="mt-3 app-card--flat">
+        <label className="input-label" htmlFor="coach-weekly-note">
           Notiz für den Coach (optional, max. 400 Zeichen)
         </label>
         <textarea
@@ -408,17 +406,17 @@ export default function CoachInsight() {
             }
           }}
           placeholder="z. B. Turnier am Samstag, Knie zwickt, Fokus Dreier …"
-          className="mt-1.5 w-full resize-y rounded-md border border-white/10 bg-zinc-950/80 px-2 py-1.5 text-xs text-strong placeholder:text-muted"
+          className="textarea mt-1.5 text-xs"
         />
       </div>
 
       {error ? (
-        <p className="mt-3 text-sm text-rose-200">{error}</p>
+        <p className="mt-3 alert-error text-sm">{error}</p>
       ) : data ? (
         <ul className="mt-3 space-y-2 text-sm text-strong">
           {data.bullets.map((bullet, index) => (
             <li key={`bullet-${index}`} className="flex gap-2">
-              <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />
+              <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-emerald)]" />
               <span>{bullet}</span>
             </li>
           ))}
@@ -427,7 +425,7 @@ export default function CoachInsight() {
         <p className="mt-3 text-sm text-muted">Noch keine Daten.</p>
       )}
 
-      {planNote ? <p className="mt-2 text-[11px] text-cyan-200/90">{planNote}</p> : null}
+      {planNote ? <p className="mt-2 text-[11px] text-muted">{planNote}</p> : null}
 
       {data?.warning ? (
         <p className="mt-2 text-[11px] text-amber-200">Hinweis: {data.warning}</p>

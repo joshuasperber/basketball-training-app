@@ -8,7 +8,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const protectedPrefixes = [
   "/dashboard",
   "/training",
-  "/Weekly-Workout",
+  "/weekly-workout",
   "/stats",
   "/level",
   "/profile",
@@ -31,19 +31,23 @@ type RefreshedSession = {
 async function refreshSession(refreshToken: string): Promise<RefreshedSession | null> {
   if (!supabaseUrl || !supabaseAnonKey) return null;
 
-  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-    method: "POST",
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${supabaseAnonKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
 
-  if (!response.ok) return null;
-  return (await response.json()) as RefreshedSession;
+    if (!response.ok) return null;
+    return (await response.json()) as RefreshedSession;
+  } catch {
+    return null;
+  }
 }
 
 function applySessionCookies(response: NextResponse, session: RefreshedSession, request: NextRequest) {
@@ -68,6 +72,11 @@ function applySessionCookies(response: NextResponse, session: RefreshedSession, 
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Legacy bookmark — case-sensitive, avoids redirect loop on macOS (Weekly-Workout === weekly-workout).
+  if (pathname === "/Weekly-Workout") {
+    return NextResponse.redirect(new URL("/weekly-workout", request.url));
+  }
 
   if (!isProtectedPath(pathname)) {
     return NextResponse.next();
@@ -97,9 +106,10 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/Weekly-Workout",
     "/dashboard/:path*",
     "/training/:path*",
-    "/Weekly-Workout/:path*",
+    "/weekly-workout/:path*",
     "/stats/:path*",
     "/level/:path*",
     "/profile/:path*",

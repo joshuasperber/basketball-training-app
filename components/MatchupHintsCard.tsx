@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { loadGameStats } from "@/lib/game-stats";
 import { OPPONENT_STYLE_LABELS, type OpponentStyleTag } from "@/lib/opponent-styles";
 import { aggregateOpponentStylesFromGames, buildSoloMatchupHints } from "@/lib/matchup-hints";
+import { useClientMounted } from "@/lib/use-client-mounted";
 
 function readProfileContext() {
   if (typeof window === "undefined") return { position: "sg", playStyle: "", heightCm: null as number | null };
@@ -24,9 +25,22 @@ function readProfileContext() {
   }
 }
 
+const EMPTY_HINTS = buildSoloMatchupHints({
+  opponentStyles: [],
+  position: "sg",
+  playStyle: "",
+  heightCm: null,
+});
+
 export default function MatchupHintsCard() {
-  const profile = useMemo(() => readProfileContext(), []);
+  const mounted = useClientMounted();
+
   const { hints, latestOpponent } = useMemo(() => {
+    if (!mounted) {
+      return { latestOpponent: undefined, hints: EMPTY_HINTS };
+    }
+
+    const profile = readProfileContext();
     const games = loadGameStats().filter((entry) => entry.context === "game");
     const latest = games[0];
     if (!latest?.opponentLabel) {
@@ -53,13 +67,13 @@ export default function MatchupHintsCard() {
         heightCm: profile.heightCm,
       }),
     };
-  }, [profile.heightCm, profile.playStyle, profile.position]);
+  }, [mounted]);
 
   return (
     <section className="app-card">
       <p className="section-eyebrow">Matchup</p>
       <h2 className="section-title mt-1">Solo Matchup-Hinweise</h2>
-      {latestOpponent?.opponentLabel ? (
+      {mounted && latestOpponent?.opponentLabel ? (
         <p className="mt-1 text-xs text-muted">
           Basierend auf letztem Spiel vs. <span className="text-strong">{latestOpponent.opponentLabel}</span>
           {latestOpponent.opponentStyles?.length ? (

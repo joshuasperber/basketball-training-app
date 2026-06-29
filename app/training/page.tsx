@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -15,8 +16,12 @@ import {
 } from "@/lib/training-data";
 import { matchesDrillCatalogFilters, type DrillCatalogFilters } from "@/lib/drill-catalog-filters";
 import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
-import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab } from "@/components/training/TrainingTabs";
+import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab, WorkoutCreateForm, ExerciseCreateForm } from "@/components/training/TrainingTabs";
 import TopSubTabs from "@/components/TopSubTabs";
+import PageHeader from "@/components/PageHeader";
+import Sheet from "@/components/ui/Sheet";
+import IconButton, { PlusIcon } from "@/components/ui/IconButton";
+import { addManualGameToday } from "@/lib/plan-day-actions";
 import { normalizeMetricKeysForCategory } from "@/lib/workout-metrics";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
@@ -133,6 +138,7 @@ function TrainingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TrainingTab>("Workouts");
+  const [createOpen, setCreateOpen] = useState(false);
   const completedParam = searchParams.get("completed");
   const completionMessage = useMemo(() => {
     if (completedParam === "workout") return "Workout abgeschlossen ✅";
@@ -641,26 +647,57 @@ function TrainingPageContent() {
   return (
     <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
-        <header>
-          <p className="page-eyebrow">Bibliothek</p>
-          <h1 className="page-title">Training</h1>
-          <p className="page-subtitle">Workouts und Exercises in einem Bereich.</p>
-          <div className="mt-3">
-            <TopSubTabs items={[{ label: "Weekly", href: "/Weekly-Workout" }, { label: "Training", href: "/training" }]} />
+        <PageHeader
+          eyebrow="Bibliothek"
+          title="Training"
+          subtitle="Workouts und Exercises verwalten, filtern und starten."
+          actions={
+            <IconButton
+              variant="primary"
+              label={activeTab === "Workouts" ? "Workout hinzufügen" : "Exercise hinzufügen"}
+              onClick={() => setCreateOpen(true)}
+            >
+              <PlusIcon />
+            </IconButton>
+          }
+        />
+
+        <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]} />
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-outline btn-xs"
+            onClick={() => {
+              addManualGameToday("game");
+              window.dispatchEvent(new Event("bt:plan-updated"));
+            }}
+          >
+            + Spieltag heute
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-xs"
+            onClick={() => {
+              addManualGameToday("game_training");
+              window.dispatchEvent(new Event("bt:plan-updated"));
+            }}
+          >
+            + Spieltraining heute
+          </button>
+          <Link href="/Weekly-Workout" className="btn btn-ghost btn-xs">
+            Wochenplan
+          </Link>
+        </div>
+
+        {completionMessage ? (
+          <div className="alert-success flex flex-wrap items-center justify-between gap-2">
+            <span>{completionMessage} Du bist wieder auf der Training-Startseite.</span>
+            <button type="button" onClick={() => router.replace("/training")} className="btn btn-ghost btn-xs">
+              Hinweis schließen
+            </button>
           </div>
-          {completionMessage ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 app-card--accent-emerald">
-              <span className="text-sm text-strong">{completionMessage} Du bist wieder auf der Training-Startseite.</span>
-              <button
-                type="button"
-                onClick={() => router.replace("/training")}
-                className="btn btn-ghost btn-xs"
-              >
-                Hinweis schließen
-              </button>
-            </div>
-          ) : null}
-        </header>
+        ) : null}
 
         <TabSwitcher activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -802,6 +839,80 @@ function TrainingPageContent() {
             editExerciseError={editExerciseError}
           />
         )}
+
+        <Sheet
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          title={activeTab === "Workouts" ? "Neues Workout" : "Neue Exercise"}
+          description={
+            activeTab === "Workouts"
+              ? "Workout aus Kategorie, Unterkategorie und Exercises zusammenstellen."
+              : "Exercise mit Metriken, Sets und optionalen Video-Anhang anlegen."
+          }
+        >
+          {activeTab === "Workouts" ? (
+            <WorkoutCreateForm
+              categories={categories}
+              subcategories={subcategoriesByCategory}
+              createWorkoutExerciseOptions={workoutExerciseOptions}
+              newWorkoutName={newWorkoutName}
+              onNewWorkoutNameChange={setNewWorkoutName}
+              selectedExerciseIds={newWorkoutExerciseIds}
+              onSelectedExerciseIdsChange={setNewWorkoutExerciseIds}
+              newWorkoutCategory={newWorkoutCategory}
+              onNewWorkoutCategoryChange={handleNewWorkoutCategoryChange}
+              newWorkoutSubcategory={newWorkoutSubcategory}
+              onNewWorkoutSubcategoryChange={setNewWorkoutSubcategory}
+              newWorkoutNotes={newWorkoutNotes}
+              onNewWorkoutNotesChange={setNewWorkoutNotes}
+              onCreateWorkout={handleAddWorkout}
+              availableExercises={exercises}
+            />
+          ) : (
+            <ExerciseCreateForm
+              categories={categories}
+              subcategories={subcategoriesByCategory}
+              newExerciseName={newExerciseName}
+              onNewExerciseNameChange={setNewExerciseName}
+              newExerciseCategory={newExerciseCategory}
+              onNewExerciseCategoryChange={handleNewExerciseCategoryChange}
+              newExerciseSubcategory={newExerciseSubcategory}
+              onNewExerciseSubcategoryChange={setNewExerciseSubcategory}
+              newExerciseNotes={newExerciseNotes}
+              onNewExerciseNotesChange={setNewExerciseNotes}
+              newExerciseVideoUrl={newExerciseVideoUrl}
+              onNewExerciseVideoUrlChange={setNewExerciseVideoUrl}
+              onNewExerciseVideoFile={(file) =>
+                readExerciseVideoFile(file, setNewExerciseVideoUrl, (msg) => window.alert(msg))
+              }
+              newExerciseDurationMin={newExerciseDurationMin}
+              onNewExerciseDurationMinChange={setNewExerciseDurationMin}
+              newExerciseDurationUnit={newExerciseDurationUnit}
+              onNewExerciseDurationUnitChange={setNewExerciseDurationUnit}
+              newExerciseSetCount={newExerciseSetCount}
+              onNewExerciseSetCountChange={(value) => {
+                setNewExerciseSetCount(value);
+                setNewExerciseSetTargets((current) => normalizeSetTargetsLength(current, value));
+              }}
+              newExerciseMetrics={newExerciseMetrics}
+              onToggleNewExerciseMetric={toggleNewExerciseMetric}
+              newExerciseTargets={newExerciseTargets}
+              onNewExerciseTargetChange={(metric, value) =>
+                setNewExerciseTargets((current) => ({ ...current, [metric]: value }))
+              }
+              newExerciseSetTargets={newExerciseSetTargets}
+              onNewExerciseSetTargetChange={(setIndex, metric, value) =>
+                setNewExerciseSetTargets((current) => {
+                  const normalized = normalizeSetTargetsLength(current, newExerciseSetCount);
+                  normalized[setIndex] = { ...(normalized[setIndex] ?? {}), [metric]: value };
+                  return [...normalized];
+                })
+              }
+              onCreateExercise={handleAddExercise}
+              newExerciseError={newExerciseError}
+            />
+          )}
+        </Sheet>
       </div>
     </main>
   );

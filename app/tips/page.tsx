@@ -181,10 +181,10 @@ export default function TipsPage() {
                 <p className="text-sm text-muted">Keine Einträge.</p>
               ) : (
                 grouped[key].map((tip) => (
-                  <article key={tip.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <article key={tip.id} className="list-card">
                     <p className="font-semibold text-strong">{tip.title}</p>
                     {tip.scope === "subcategory" ? (
-                      <p className="text-xs text-cyan-300">Schwerpunkt: {tip.scopeValue}</p>
+                      <p className="text-xs text-brand">Schwerpunkt: {tip.scopeValue}</p>
                     ) : null}
                     <p className="mt-1 text-sm text-muted">{tip.content}</p>
                     <div className="mt-2 flex flex-wrap gap-2">

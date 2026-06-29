@@ -394,7 +394,7 @@ function PieCard({ title, slices }: { title: string; slices: CategorySlice[] }) 
       <p className="section-eyebrow">Verteilung</p>
       <h2 className="section-title mt-1">{title}</h2>
       <div className="mt-4 flex items-center gap-4">
-        <div className="h-28 w-28 rounded-full border border-white/10" style={{ background: pieGradient(slices) }} />
+        <div className="stat-pie h-28 w-28" style={{ background: pieGradient(slices) }} />
         <ul className="space-y-1.5 text-sm text-strong">
           {slices.length === 0 ? (
             <li className="text-muted">Noch keine Daten vorhanden.</li>
@@ -954,7 +954,7 @@ useEffect(() => {
                 <div className="col-span-2 stat-tile md:row-span-2 md:col-span-1">
                   <p className="stat-tile__label text-center">Gesamtverteilung</p>
                   <div className="mt-3 flex justify-center">
-                    <div className="h-36 w-36 rounded-full border border-white/10" style={{ background: pieGradient(sportSlices) }} />
+                    <div className="stat-pie h-36 w-36" style={{ background: pieGradient(sportSlices) }} />
                   </div>
                   <div className="mt-3 space-y-1 text-xs text-strong">
                     {sportSlices.map((slice) => (
@@ -995,7 +995,7 @@ useEffect(() => {
                   ["Home-Workout-Historie", historyBuckets.Home],
                   ["Regeneration-Historie", historyBuckets.Regeneration],
                 ] as const).map(([title, bucket]) => (
-                  <div key={title} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div key={title} className="list-card">
                     <p className="font-semibold text-strong">{title}</p>
                     <div className="mt-2 space-y-2">
                       {bucket.length === 0 ? <p className="text-sm text-muted">Keine Einträge.</p> : bucket.map((entry) => (
@@ -1003,7 +1003,7 @@ useEffect(() => {
                           type="button"
                           key={entry.id}
                           onClick={() => setSelectedSessionId(entry.id)}
-                          className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
+                          className="list-card block w-full text-left text-sm"
                         >
                           <p className="font-semibold text-strong">{entry.title}</p>
                           <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
@@ -1054,7 +1054,7 @@ useEffect(() => {
                 </div>
               ))}
             </div>
-            <div className="mt-5 border-t border-white/10 pt-4">
+            <div className="mt-5 border-t border-[var(--surface-border)] pt-4">
               <GameStatsSearchPanel entries={filteredGameStats} variant="full" />
             </div>
           </section>
@@ -1097,7 +1097,7 @@ useEffect(() => {
               basketballStats.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Basketball-Übungsdaten vorhanden.</p> : (
                 <div className="mt-3 space-y-2">
                   {basketballStats.map((entry) => (
-                    <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <div key={entry.exerciseId} className="list-card">
                       <p className="font-semibold text-strong">{entry.exerciseName}</p>
                       <p className="mt-1 text-sm text-muted">Quote: <strong className="text-strong">{entry.quote ?? 0}%</strong> · Makes: {entry.made} · Reps: {entry.attempts} · Misses: {entry.misses}</p>
                     </div>
@@ -1118,7 +1118,7 @@ useEffect(() => {
                   {basketballTimedTrends.map((trend) => {
                     const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({ label: `S${index + 1}`, value }));
                     return (
-                      <div key={trend.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <div key={trend.exerciseId} className="list-card">
                         <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
                         <div className="mt-2"><TrendChart points={chartPoints} yLabel="Wert" /></div>
                       </div>
@@ -1141,7 +1141,7 @@ useEffect(() => {
                     type="button"
                     key={entry.id}
                     onClick={() => setSelectedSessionId(entry.id)}
-                    className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
+                    className="list-card block w-full text-left text-sm"
                   >
                     <p className="font-semibold text-strong">{entry.title}</p>
                     <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
@@ -1180,10 +1180,10 @@ useEffect(() => {
               gymGoals.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Gym-Daten vorhanden.</p> : (
                 <div className="mt-3 space-y-2">
                   {gymGoals.map((entry) => (
-                    <div key={entry.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
+                    <div key={entry.exerciseId} className="list-card text-sm">
                       <p className="font-semibold text-strong">{entry.exerciseName}</p>
                       <p className="text-muted">Ø Gewicht {entry.avgWeightKg} kg · Ø Reps {entry.avgReps} · Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
-                      <p className="text-emerald-300">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
+                      <p className="hint-success">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
                       <p className="mt-1 text-xs text-faint">{entry.progressionHint}</p>
                     </div>
                   ))}
@@ -1203,7 +1203,7 @@ useEffect(() => {
                   {gymTimedTrends.map((trend) => {
                     const chartPoints: TrendPoint[] = trend.points.map((value, index) => ({ label: `S${index + 1}`, value }));
                     return (
-                      <div key={trend.exerciseId} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <div key={trend.exerciseId} className="list-card">
                         <p className="text-sm font-semibold text-strong">{trend.exerciseName} <span className="text-muted">({trend.subcategory})</span></p>
                         <div className="mt-2"><TrendChart points={chartPoints} yLabel="Wert" /></div>
                       </div>
@@ -1226,7 +1226,7 @@ useEffect(() => {
                     type="button"
                     key={entry.id}
                     onClick={() => setSelectedSessionId(entry.id)}
-                    className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left text-sm transition hover:border-white/20 hover:bg-white/[0.05]"
+                    className="list-card block w-full text-left text-sm"
                   >
                     <p className="font-semibold text-strong">{entry.title}</p>
                     <p className="text-muted">{new Date(entry.dateISO).toLocaleString("de-DE")} · Übungen: {entry.exerciseCount}</p>
@@ -1267,7 +1267,7 @@ useEffect(() => {
           </div>
           <div className="mt-3 space-y-2">
             {selectedSession.logs.map((log, index) => (
-              <article key={`${selectedSession.id}-${log.exerciseId}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+              <article key={`${selectedSession.id}-${log.exerciseId}-${index}`} className="list-card text-sm">
                 <p className="font-semibold text-strong">{exerciseLookup.get(log.exerciseId) ?? log.exerciseId}</p>
                 <p className="text-muted">
                   Reps/Wert: {log.completedValue ?? "-"} · Gewicht: {log.weightKg ?? "-"} kg · Reps: {log.attempts ?? "-"} · Makes: {log.made ?? "-"} · Misses: {log.misses ?? "-"}

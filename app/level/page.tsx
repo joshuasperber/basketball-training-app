@@ -297,7 +297,7 @@ export default function LevelPage() {
         <p className="page-eyebrow">Progression</p>
         <h1 className="page-title">Level</h1>
         <p className="page-subtitle">Globales Level oben, darunter klare Skill-Level pro Bereich und Unterkategorie.</p>
-        <p className="mt-1 text-sm text-cyan-300">Weiter so, {username} – jede Session zählt.</p>
+        <p className="mt-1 text-sm text-brand">Weiter so, {username} – jede Session zählt.</p>
       </header>
       <div className="mt-3">
         <TopSubTabs
@@ -310,44 +310,45 @@ export default function LevelPage() {
       </div>
 
       {popupMessage ? (
-        <div className="mt-4 rounded-2xl border border-cyan-500 bg-cyan-950/40 p-4">
+        <div className="mt-4 app-card--accent-cyan">
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm font-semibold text-cyan-200">{popupMessage}</p>
-            <button type="button" onClick={() => setPopupMessage(null)} className="rounded-md border border-cyan-400 px-2 py-1 text-xs text-cyan-100">
+            <p className="text-sm font-semibold text-strong">{popupMessage}</p>
+            <button type="button" onClick={() => setPopupMessage(null)} className="btn btn-outline btn-xs">
               Schließen
             </button>
           </div>
         </div>
       ) : null}
 
-      <section className="mt-6 rounded-2xl border border-indigo-700/50 bg-gradient-to-br from-zinc-900 via-zinc-900 to-indigo-950/40 p-4">
-        <h2 className="text-xl font-semibold">Globales Level</h2>
-        <p className="mt-1 text-xs text-zinc-400">Globales Level = alle XP aus Workouts zusammen.</p>
+      <section className="mt-6 app-card--accent-violet">
+        <p className="section-eyebrow">Progression</p>
+        <h2 className="section-title mt-1">Globales Level</h2>
+        <p className="mt-1 text-xs text-muted">Globales Level = alle XP aus Workouts zusammen.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            <p className="text-xs text-zinc-500">Aktuelles Level</p>
-            <p className="text-3xl font-bold">Lv. {weightedLevelData.level}</p>
-            <p className="text-sm text-zinc-300">{weightedLevelData.xpIntoLevel}/{getXpForNextLevel(weightedLevelData.level)} XP in diesem Level</p>
-            <p className="text-xs text-zinc-500">{Math.max(0, getXpForNextLevel(weightedLevelData.level) - weightedLevelData.xpIntoLevel)} XP bis zum nächsten Level</p>
-            <p className="text-xs text-cyan-300">XP-Multiplikator (Regeneration): x{regenMultiplier.toFixed(2)}</p>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full rounded-full bg-indigo-400" style={{ width: `${levelProgressPercent}%` }} />
+          <div className="stat-tile">
+            <p className="stat-tile__label">Aktuelles Level</p>
+            <p className="stat-tile__value">Lv. {weightedLevelData.level}</p>
+            <p className="stat-tile__sub">{weightedLevelData.xpIntoLevel}/{getXpForNextLevel(weightedLevelData.level)} XP in diesem Level</p>
+            <p className="text-xs text-faint">{Math.max(0, getXpForNextLevel(weightedLevelData.level) - weightedLevelData.xpIntoLevel)} XP bis zum nächsten Level</p>
+            <p className="text-xs hint-success">XP-Multiplikator (Regeneration): x{regenMultiplier.toFixed(2)}</p>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--bg-muted)]">
+              <div className="h-full rounded-full bg-[var(--accent-violet)]" style={{ width: `${levelProgressPercent}%` }} />
             </div>
           </div>
-          <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            <p className="text-xs text-zinc-500">Gesamt-XP</p>
-            <p className="text-3xl font-bold">{weightedGlobalXp}</p>
-            <p className="text-sm text-zinc-300">Gewertete Sessions: {xpHistoryCount}</p>
-            <p className={`text-xs ${deloadActive ? "text-amber-300" : "text-emerald-300"}`}>
+          <div className="stat-tile">
+            <p className="stat-tile__label">Gesamt-XP</p>
+            <p className="stat-tile__value">{weightedGlobalXp}</p>
+            <p className="stat-tile__sub">Gewertete Sessions: {xpHistoryCount}</p>
+            <p className={deloadActive ? "hint-warning mt-1" : "hint-success mt-1"}>
               {deloadActive ? "Deload aktiv (XP-Multiplikator 0.6)." : "Normale Belastung."}
             </p>
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl border border-orange-500/50 bg-orange-950/30 p-3">
-          <p className="text-sm font-semibold text-orange-200">🔥 Streak: {streakData.current} Tage (Best: {streakData.best})</p>
+        <div className="mt-3 app-card--brand">
+          <p className="text-sm font-semibold text-strong">🔥 Streak: {streakData.current} Tage (Best: {streakData.best})</p>
         </div>
-        <p className="mt-3 text-sm text-zinc-400">Belastung letzte 7 Tage: <span className="font-semibold text-white">{thisWeekXp} XP</span> | davor: <span className="font-semibold text-white">{lastWeekXp} XP</span> (Ratio: {overloadRatio.toFixed(2)})</p>
+        <p className="mt-3 text-sm text-muted">Belastung letzte 7 Tage: <span className="font-semibold text-strong">{thisWeekXp} XP</span> | davor: <span className="font-semibold text-strong">{lastWeekXp} XP</span> (Ratio: {overloadRatio.toFixed(2)})</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {categoryBreakdown.map((group) => {
             const decayedItems = group.items.map((item) => {
@@ -364,38 +365,38 @@ export default function LevelPage() {
             const nextRequirement = getXpForNextLevel(levelInfo.level);
             const progress = Math.min(100, Math.round((levelInfo.xpIntoLevel / Math.max(1, nextRequirement)) * 100));
             return (
-              <div key={`split-${group.category}`} className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                <button type="button" onClick={() => { setOpenCategory((cur) => cur === group.category ? null : group.category as Category); setModalCategory(group.category as Category); }} className="font-semibold text-left w-full">{group.category}</button>
-                <p className="text-sm text-zinc-300">Level {levelInfo.level} • {levelInfo.xpIntoLevel}/{nextRequirement} XP • x{multiplier.toFixed(2)}</p>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">
-                  <div className="h-full rounded-full bg-cyan-400" style={{ width: `${progress}%` }} />
+              <div key={`split-${group.category}`} className="app-card--flat">
+                <button type="button" onClick={() => { setOpenCategory((cur) => cur === group.category ? null : group.category as Category); setModalCategory(group.category as Category); }} className="font-semibold text-strong text-left w-full">{group.category}</button>
+                <p className="text-sm text-muted">Level {levelInfo.level} • {levelInfo.xpIntoLevel}/{nextRequirement} XP • x{multiplier.toFixed(2)}</p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--bg-muted)]">
+                  <div className="h-full rounded-full bg-[var(--accent-cyan)]" style={{ width: `${progress}%` }} />
                 </div>
                 {openCategory === group.category ? (<div className="mt-3 space-y-1 text-xs">
                   {(decayedItems.length ? decayedItems : [{ subcategory: "Noch keine Daten", points: 0, gap: 0 }]).map((item) => (
-                    <p key={`pair-${group.category}-${item.subcategory}`} className="text-zinc-300">{item.subcategory}: <span className="font-semibold text-white">{item.points}</span> XP</p>
+                    <p key={`pair-${group.category}-${item.subcategory}`} className="text-muted">{item.subcategory}: <span className="font-semibold text-strong">{item.points}</span> XP</p>
                   ))}
-                </div>) : <p className="mt-3 text-xs text-zinc-500">Tippen zum Anzeigen der Unterkategorien.</p>}
+                </div>) : <p className="mt-3 text-xs text-faint">Tippen zum Anzeigen der Unterkategorien.</p>}
               </div>
             );
           })}
         </div>
       </section>
       {modalCategory ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-900 p-4">
+        <div className="modal-overlay">
+          <div className="modal-panel max-w-lg">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{modalCategory} Details</h3>
-              <button type="button" onClick={() => setModalCategory(null)} className="rounded border border-zinc-600 px-2 py-1 text-xs">Schließen</button>
+              <h3 className="section-title">{modalCategory} Details</h3>
+              <button type="button" onClick={() => setModalCategory(null)} className="btn btn-outline btn-xs">Schließen</button>
             </div>
             <div className="mt-3 space-y-2 text-sm">
               {(categoryBreakdown.find((group) => group.category === modalCategory)?.items ?? []).map((item) => {
                 const level = getLevelFromXp(item.points);
                 const nextXp = getXpForNextLevel(level.level);
                 return (
-                  <div key={`${modalCategory}-${item.subcategory}`} className="rounded-lg border border-zinc-700 bg-zinc-950 p-2">
-                    <p className="font-medium">{item.subcategory}</p>
-                    <p className="text-zinc-300">Level {level.level} • {level.xpIntoLevel}/{nextXp} XP • {Math.max(0, nextXp - level.xpIntoLevel)} XP bis nächstes Level</p>
-                    <p className="text-xs text-cyan-300">Multiplikator: x{getCategoryXpMultiplier(modalCategory).toFixed(2)}</p>
+                  <div key={`${modalCategory}-${item.subcategory}`} className="list-card">
+                    <p className="list-card__title">{item.subcategory}</p>
+                    <p className="list-card__meta">Level {level.level} • {level.xpIntoLevel}/{nextXp} XP • {Math.max(0, nextXp - level.xpIntoLevel)} XP bis nächstes Level</p>
+                    <p className="hint-success mt-1">Multiplikator: x{getCategoryXpMultiplier(modalCategory).toFixed(2)}</p>
                   </div>
                 );
               })}
@@ -404,31 +405,31 @@ export default function LevelPage() {
         </div>
       ) : null}
       {badges.length > 0 ? (
-        <section className="mt-4 rounded-2xl border border-amber-700 bg-amber-950/20 p-4">
-          <h3 className="text-lg font-semibold">Badges</h3>
+        <section className="mt-4 app-card--brand">
+          <h3 className="section-title">Badges</h3>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {badges.map((badge) => (
-              <div key={`${badge.id}-${badge.name}`} className="rounded-lg border border-amber-600/40 bg-zinc-950 p-2 text-sm">
-                <p className="font-semibold text-amber-200">
+              <div key={`${badge.id}-${badge.name}`} className="list-card text-sm">
+                <p className="list-card__title text-brand">
                   {badge.emoji} {badge.name} • {badge.tier}
                 </p>
-                <p className="text-zinc-300">{badge.description}</p>
+                <p className="list-card__meta">{badge.description}</p>
               </div>
             ))}
           </div>
         </section>
       ) : null}
-      <section className="mt-4 rounded-2xl border border-violet-600/40 bg-gradient-to-br from-violet-950/40 via-zinc-950 to-zinc-950 p-5">
-        <h3 className="text-lg font-semibold text-violet-100">Spiel-Level Kategorie</h3>
-        <p className="mt-2 text-sm text-zinc-300">
-          Getrackte Spiele/Spieltrainings: <strong>{gameStatsSummary.entries}</strong> • Punkte:{" "}
-          <strong>{gameStatsSummary.points}</strong> • Assists: <strong>{gameStatsSummary.assists}</strong> • Rebounds:{" "}
-          <strong>{gameStatsSummary.rebounds}</strong> • Steals: <strong>{gameStatsSummary.steals}</strong>
+      <section className="mt-4 app-card--accent-violet">
+        <h3 className="section-title">Spiel-Level Kategorie</h3>
+        <p className="mt-2 text-sm text-muted">
+          Getrackte Spiele/Spieltrainings: <strong className="text-strong">{gameStatsSummary.entries}</strong> • Punkte:{" "}
+          <strong className="text-strong">{gameStatsSummary.points}</strong> • Assists: <strong className="text-strong">{gameStatsSummary.assists}</strong> • Rebounds:{" "}
+          <strong className="text-strong">{gameStatsSummary.rebounds}</strong> • Steals: <strong className="text-strong">{gameStatsSummary.steals}</strong>
         </p>
         {gameStatsSummary.recentLabels.length > 0 ? (
-          <p className="mt-3 text-xs text-zinc-500">
+          <p className="mt-3 text-xs text-faint">
             Zuletzt:{" "}
-            <span className="text-zinc-300">{gameStatsSummary.recentLabels.join(" · ")}</span>
+            <span className="text-muted">{gameStatsSummary.recentLabels.join(" · ")}</span>
           </p>
         ) : null}
       </section>

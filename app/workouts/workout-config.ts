@@ -17,9 +17,10 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
   time: "Zeit",
   distance: "Distanz",
   points: "Punkte",
+  completed: "Geschafft (Ja/Nein)",
 };
 
-export const ALL_METRICS: MetricKey[] = ["makes", "misses", "weight", "reps", "time", "distance", "points"];
+export const ALL_METRICS: MetricKey[] = ["makes", "misses", "weight", "reps", "time", "distance", "points", "completed"];
 
 export const SHOT_RESULT_CATEGORIES = ["handles", "finishes", "shooting"] as const;
 

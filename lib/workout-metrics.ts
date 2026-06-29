@@ -13,6 +13,7 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
   makes: "Makes",
   misses: "Misses",
   points: "Punkte",
+  completed: "Geschafft",
 };
 
 export const METRICS_BY_CATEGORY: Record<Category, MetricKey[]> = {
@@ -71,6 +72,34 @@ export function completeShootingValues(values: { reps?: string; makes?: string; 
   if (hasMakes) return { reps: makes, makes, misses: 0 };
   if (hasMisses) return { reps: misses, makes: 0, misses };
   return { reps: 0, makes: 0, misses: 0 };
+}
+
+export function syncShootingTargetStrings(targets: Partial<Record<MetricKey, string>>): Partial<Record<MetricKey, string>> {
+  const repsRaw = targets.reps?.trim();
+  const makesRaw = targets.makes?.trim();
+  if (!repsRaw || !makesRaw) return targets;
+  const reps = parseNonNegativeNumber(repsRaw);
+  const makes = Math.min(parseNonNegativeNumber(makesRaw), reps);
+  return { ...targets, makes: String(makes), misses: String(Math.max(0, reps - makes)) };
+}
+
+export function syncShootingTargetNumbers(
+  targetByMetric: Partial<Record<MetricKey, number>>,
+): Partial<Record<MetricKey, number>> {
+  const reps = targetByMetric.reps;
+  const makes = targetByMetric.makes;
+  if (reps == null || makes == null) return targetByMetric;
+  const safeMakes = Math.min(makes, reps);
+  return { ...targetByMetric, makes: safeMakes, misses: Math.max(0, reps - safeMakes) };
+}
+
+export function normalizeExerciseShootingMetrics(exercise: Exercise): Exercise {
+  const metricKeys = normalizeMetricKeysForCategory(exercise.category, exercise.metricKeys);
+  const targetByMetric = exercise.targetByMetric
+    ? syncShootingTargetNumbers(exercise.targetByMetric)
+    : exercise.targetByMetric;
+  const setTargetsByMetric = exercise.setTargetsByMetric?.map((row) => syncShootingTargetNumbers(row));
+  return { ...exercise, metricKeys, targetByMetric, setTargetsByMetric };
 }
 
 export function validateSetLogForMetrics(log: Partial<SetLog>, metricKeys: MetricKey[]) {

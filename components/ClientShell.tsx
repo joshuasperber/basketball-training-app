@@ -8,29 +8,26 @@ import { syncWorkoutSessionsToCloud } from "@/lib/sync-workout-sessions";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
   return (
-    <div className="mx-auto max-w-md p-6 text-center">
-      <p className="text-lg font-semibold text-white">Etwas ist schiefgelaufen</p>
-      <p className="mt-2 text-sm text-zinc-400">Die App konnte diesen Bereich nicht laden. Bitte Seite neu laden.</p>
-      <button
-        type="button"
-        className="mt-4 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
-        onClick={() => resetError()}
-      >
-        Erneut versuchen
-      </button>
+    <div className="app-container flex min-h-[50vh] items-center justify-center">
+      <div className="app-card max-w-md w-full text-center">
+        <p className="text-lg font-semibold text-strong">Etwas ist schiefgelaufen</p>
+        <p className="mt-2 text-sm text-muted">Die App konnte diesen Bereich nicht laden. Bitte Seite neu laden.</p>
+        <button type="button" className="btn btn-primary btn-sm mt-4" onClick={() => resetError()}>
+          Erneut versuchen
+        </button>
+      </div>
     </div>
   );
 }
 
 import CoachIntakeLauncher from "@/components/CoachIntakeLauncher";
+import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 
 // #region agent log
 function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
-  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
-    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "components/ClientShell.tsx", message, data, timestamp: Date.now() }),
-  }).catch(() => {});
+  void hypothesisId;
+  void message;
+  void data;
 }
 // #endregion
 
@@ -96,9 +93,11 @@ function CloudSyncBridge() {
 export default function ClientShell({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary fallback={({ resetError }) => <CoachFallback resetError={resetError} />}>
-      <CloudSyncBridge />
-      <CoachIntakeLauncher />
-      {children}
+      <AppDialogProvider>
+        <CloudSyncBridge />
+        <CoachIntakeLauncher />
+        {children}
+      </AppDialogProvider>
     </ErrorBoundary>
   );
 }

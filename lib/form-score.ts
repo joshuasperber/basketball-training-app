@@ -29,10 +29,26 @@ function averageRpe(sessions: WorkoutSessionEntry[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function gameWeight(entry: GameStatEntry) {
+  const played = entry.gamesPlayed ?? 1;
+  return Math.max(1, Math.min(played, 12));
+}
+
 function averageGamePoints(games: GameStatEntry[]) {
-  const withPoints = games.filter((game) => game.points != null);
-  if (withPoints.length === 0) return null;
-  return withPoints.reduce((sum, game) => sum + (game.points ?? 0), 0) / withPoints.length;
+  let totalPoints = 0;
+  let weightSum = 0;
+  for (const game of games) {
+    if (game.points == null) continue;
+    const weight = gameWeight(game);
+    totalPoints += game.points * weight;
+    weightSum += weight;
+  }
+  if (weightSum === 0) return null;
+  return totalPoints / weightSum;
+}
+
+function countGameSessions(games: GameStatEntry[]) {
+  return games.reduce((sum, game) => sum + gameWeight(game), 0);
 }
 
 export function computeFormScore(input: {
@@ -100,9 +116,19 @@ export function computeFormScore(input: {
     }
   }
 
-  if (recentGames.length >= 2) {
+  const matchSessions = countGameSessions(recentGames);
+  if (matchSessions >= 2) {
     score += 4;
-    reasons.push(`${recentGames.length} Spiele im Fenster — Match-Fitness vorhanden.`);
+    reasons.push(`${Math.round(matchSessions)} Spiel(e)/Trainingsspiel(e) im Fenster — Match-Fitness vorhanden.`);
+  }
+
+  const trainingGames = recentGames.filter((game) => game.context === "game_training");
+  const trainingAvg = averageGamePoints(trainingGames);
+  if (trainingAvg != null && trainingGames.length > 0) {
+    if (trainingAvg >= 10) {
+      score += 3;
+      reasons.push(`Gutes Trainingsspiel-Niveau (Ø ${trainingAvg.toFixed(1)} Punkte).`);
+    }
   }
 
   let trend: FormScoreTrend = "stable";

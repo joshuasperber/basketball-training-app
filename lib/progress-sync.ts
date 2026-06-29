@@ -100,11 +100,9 @@ function readWorkoutOverrides(): Record<string, string> {
 
 // #region agent log
 function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
-  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
-    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "lib/progress-sync.ts", message, data, timestamp: Date.now() }),
-  }).catch(() => {});
+  void hypothesisId;
+  void message;
+  void data;
 }
 // #endregion
 
@@ -170,6 +168,57 @@ function writeRawStringIfPresent(key: string, value: string | null | undefined) 
   window.localStorage.setItem(key, value);
 }
 
+function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
+  if (!remoteCache || typeof window === "undefined") return;
+  const localRaw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
+  if (!localRaw) {
+    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
+    return;
+  }
+  try {
+    const local = JSON.parse(localRaw) as {
+      profile?: {
+        username?: string | null;
+        full_name?: string | null;
+        favorite_position?: string | null;
+        height_cm?: number | null;
+        weight_kg?: number | null;
+        email?: string | null;
+      };
+      playStyle?: string;
+      weekConfig?: unknown;
+      weeklyGoalSessions?: number;
+      bodyMetrics?: {
+        wingspan_cm?: number | null;
+        standing_reach_cm?: number | null;
+        body_fat_pct?: number | null;
+      };
+    };
+    const remote = JSON.parse(remoteCache) as typeof local;
+    const merged = {
+      ...remote,
+      ...local,
+      profile: {
+        ...remote.profile,
+        ...local.profile,
+        username: local.profile?.username || remote.profile?.username || "",
+        full_name: local.profile?.full_name || remote.profile?.full_name || "",
+        favorite_position: local.profile?.favorite_position ?? remote.profile?.favorite_position ?? "sg",
+        height_cm: local.profile?.height_cm ?? remote.profile?.height_cm ?? null,
+        weight_kg: local.profile?.weight_kg ?? remote.profile?.weight_kg ?? null,
+        email: local.profile?.email ?? remote.profile?.email ?? null,
+      },
+      playStyle: local.playStyle || remote.playStyle || "Shooter",
+      weekConfig: local.weekConfig ?? remote.weekConfig,
+      weeklyGoalSessions: local.weeklyGoalSessions ?? remote.weeklyGoalSessions ?? 4,
+      bodyMetrics: local.bodyMetrics ?? remote.bodyMetrics,
+    };
+    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(merged));
+  } catch {
+    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
+  }
+}
+
 function mergeLocalMap<T extends Record<string, unknown>>(key: string, remote: T | null | undefined, fallback: T): T {
   const local = readLocalJsonMap<T>(key, fallback);
   return { ...local, ...(remote ?? fallback) };
@@ -191,7 +240,7 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   writeRawStringIfPresent(MANUAL_PLAN_OVERRIDES_KEY, remote.manualPlanOverrides);
   window.localStorage.setItem(WEEKLY_REGEN_SLOT_MAP_KEY, JSON.stringify(mergeLocalMap(WEEKLY_REGEN_SLOT_MAP_KEY, remote.weeklyRegenSlotMap, {})));
   window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(mergeLocalMap(HIDDEN_AUTO_WORKOUTS_KEY, remote.hiddenAutoWorkoutsMap, {})));
-  writeRawStringIfPresent(PROFILE_LOCAL_CACHE_KEY, remote.profileCache);
+  mergeProfileCacheFromRemote(remote.profileCache);
   writeRawStringIfPresent(PROFILE_USERNAME_KEY, remote.profileUsername);
   writeRawStringIfPresent(PROFILE_WEEK_CONFIG_KEY, remote.profileWeekConfig);
   writeRawStringIfPresent(PLAYER_INTAKE_STORAGE_KEY, remote.playerIntake);

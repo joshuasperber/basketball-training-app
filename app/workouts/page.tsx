@@ -56,6 +56,7 @@ import {
   validateSetLogForMetrics,
 } from "@/lib/workout-metrics";
 import PerformanceTipsAccordion from "@/components/PerformanceTipsAccordion";
+import PageHeader from "@/components/PageHeader";
 import {
   applyGymGoalsAfterSession,
   formatGymGoalSummary,
@@ -125,11 +126,9 @@ type ManualDayWorkout = {
 
 // #region agent log
 function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
-  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
-    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "app/workouts/page.tsx", message, data, timestamp: Date.now() }),
-  }).catch(() => {});
+  void hypothesisId;
+  void message;
+  void data;
 }
 // #endregion
 
@@ -1791,31 +1790,29 @@ function WorkoutsPageContent() {
 
   return (
     <main className="app-container animate-in">
-      <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="page-eyebrow">Training</p>
-          <h1 className="page-title">Workout</h1>
-          <p className="page-subtitle">Hier planst und startest du dein Training.</p>
-          <p className="mt-1 text-xs text-emerald-300">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
-        </div>
-        <Link href="/tips" className="btn btn-ghost btn-sm">Tipps &amp; Notizen</Link>
-      </header>
+      <PageHeader
+        eyebrow="Training"
+        title="Workout"
+        subtitle="Hier planst und startest du dein Training."
+        actions={<Link href="/tips" className="btn btn-ghost btn-sm">Tipps &amp; Notizen</Link>}
+      />
+      <p className="-mt-2 text-xs hint-success">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
       {activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball" ? (
-        <section className="mt-3 rounded-xl border border-cyan-700 bg-cyan-950/30 p-3">
-          <p className="text-xs uppercase tracking-wide text-cyan-300">Aktive Fokus-Tipps</p>
+        <section className="app-card--accent-cyan mt-3">
+          <p className="section-eyebrow">Aktive Fokus-Tipps</p>
           <PerformanceTipsAccordion tips={activePerformanceTips} basketballMode={currentBasketballMode} className="mt-2" />
         </section>
       ) : null}
       {manualParam !== "1" ? (
 
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+      <section className="mt-6 ui-card">
         <h2 className="text-xl font-semibold">{workoutForExecution.title}</h2>
-        <p className="mt-1 text-sm text-zinc-400">Sport: {workoutForExecution.sport}</p>
-        <p className="mt-1 text-sm text-zinc-400">Unterkategorie: {workoutForExecution.subcategory}</p>
-        {workoutNotes ? <p className="mt-1 text-sm text-zinc-500">Notiz: {workoutNotes}</p> : null}
+        <p className="mt-1 text-sm text-muted">Sport: {workoutForExecution.sport}</p>
+        <p className="mt-1 text-sm text-muted">Unterkategorie: {workoutForExecution.subcategory}</p>
+        {workoutNotes ? <p className="mt-1 text-sm text-faint">Notiz: {workoutNotes}</p> : null}
 
         {effectiveDay === todayDayIndex && !manualWorkout && !workoutIdParam && !autoWorkoutParam && !manualWorkoutIdParam && manualParam !== "1" ? (
-          <label className="mt-3 block text-sm text-zinc-300">
+          <label className="mt-3 block text-sm text-muted">
             Heutiges Workout manuell wählen
             <select
               value={selectedOverrideWorkout?.id ?? defaultWorkout.id}
@@ -1833,7 +1830,7 @@ function WorkoutsPageContent() {
                   workoutOptions.find((workout) => workout.id === nextWorkoutId) ?? defaultWorkout;
                 persistProgress(getDefaultWorkoutProgress(dateKey, nextWorkout));
               }}
-              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-white"
+              className="select mt-1"
             >
               {workoutOptions.map((workout) => (
                 <option key={workout.id} value={workout.id}>
@@ -1841,13 +1838,13 @@ function WorkoutsPageContent() {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-faint">
               Bei Änderung wird das heutige Protokoll zurückgesetzt und neue Zukunfts-Vorschläge angepasst.
             </p>
           </label>
         ) : null}
         {effectiveDay === todayDayIndex && manualWorkout ? (
-          <p className="mt-3 text-xs text-emerald-300">
+          <p className="mt-3 text-xs hint-success">
             Manuelles Workout für heute aktiv. Die Standard-Auswahl ist ausgeblendet.
           </p>
         ) : null}
@@ -1902,7 +1899,7 @@ function WorkoutsPageContent() {
               </select>
             ) : null}
             {manualCategory === "Basketball" && manualBasketballMode !== "basketball_training" ? (
-              <p className="sm:col-span-2 text-xs text-emerald-300">
+              <p className="sm:col-span-2 text-xs hint-success">
                 Warmup wird automatisch erstellt: Handles + Shooting + Finishing.
               </p>
             ) : (
@@ -1941,7 +1938,7 @@ function WorkoutsPageContent() {
             placeholder={previewAutoTitle ? `Auto: ${previewAutoTitle}` : "Workout-Name (leer = Auto-Name)"}
           />
           {previewAutoTitle && (!manualTitle.trim() || manualTitle.trim() === DEFAULT_MANUAL_TITLE) ? (
-            <p className="mt-1 text-xs text-emerald-300">
+            <p className="mt-1 text-xs hint-success">
               ✨ Auto-Name wird verwendet: <span className="font-semibold">{previewAutoTitle}</span>
             </p>
           ) : null}
@@ -1960,7 +1957,7 @@ function WorkoutsPageContent() {
               className="input mt-3 w-full"
               placeholder="Exercise suchen..."
             />
-            <div className="mt-3 max-h-48 space-y-2 overflow-auto rounded-lg border border-zinc-700 p-2">
+            <div className="mt-3 max-h-48 space-y-2 overflow-auto app-card--flat">
               {visibleManualExercisePool.map((exercise) => (
                 <label key={exercise.id} className="flex items-center gap-2 text-sm">
                   <input
@@ -1968,7 +1965,7 @@ function WorkoutsPageContent() {
                     checked={selectedManualExerciseIds.includes(exercise.id)}
                     onChange={() => toggleManualExercise(exercise.id)}
                   />
-                  <span>{exercise.name} <span className="text-zinc-500">({exercise.subcategory})</span></span>
+                  <span>{exercise.name} <span className="text-faint">({exercise.subcategory})</span></span>
                 </label>
               ))}
             </div>
@@ -1976,14 +1973,14 @@ function WorkoutsPageContent() {
               <button
                 type="button"
                 onClick={() => setShowAllManualExercises((current) => !current)}
-                className="mt-2 rounded-lg border border-zinc-600 px-3 py-1 text-xs text-zinc-200"
+                className="btn btn-ghost btn-xs mt-2"
               >
                 {showAllManualExercises ? "Weniger anzeigen" : `Mehr anzeigen (${manualExercisePool.length - MOBILE_EXERCISE_PREVIEW_COUNT})`}
               </button>
             ) : null}
             {selectedManualExerciseIds.length > 0 ? (
-              <div className="mt-2 space-y-2 rounded-lg border border-zinc-700 p-2">
-                <p className="text-xs text-zinc-400">Reihenfolge festlegen</p>
+              <div className="mt-2 space-y-2 app-card--flat">
+                <p className="text-xs text-muted">Reihenfolge festlegen</p>
                 {selectedManualExerciseIds.map((exerciseId, index) => {
                   const exercise = trainingExercises.find((entry) => entry.id === exerciseId);
                   if (!exercise) return null;
@@ -1994,10 +1991,10 @@ function WorkoutsPageContent() {
                       <span className="min-w-0 flex-1 truncate">{index + 1}. {exercise.name}</span>
                       <div className="flex shrink-0 items-center gap-1">
                         {isFirst ? null : (
-                          <button type="button" onClick={() => moveManualExercise(exerciseId, "up")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↑</button>
+                          <button type="button" onClick={() => moveManualExercise(exerciseId, "up")} className="btn btn-ghost btn-xs">↑</button>
                         )}
                         {isLast ? null : (
-                          <button type="button" onClick={() => moveManualExercise(exerciseId, "down")} className="rounded border border-zinc-600 px-2 py-1 text-xs">↓</button>
+                          <button type="button" onClick={() => moveManualExercise(exerciseId, "down")} className="btn btn-ghost btn-xs">↓</button>
                         )}
                         <button
                           type="button"
@@ -2031,39 +2028,37 @@ function WorkoutsPageContent() {
       ) : null}
 
       {manualParam !== "1" && progress.status === "completed" && workoutFullyTracked ? (
-        <section className="mt-4 rounded-2xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-200">
-          Workout abgeschlossen. Sehr stark! ✅
+        <section className="app-card--accent-emerald mt-4">
+          <p className="text-sm text-strong">Workout abgeschlossen. Sehr stark! ✅</p>
         </section>
       ) : null}
       {completionBanner ? (
-        <section className="mt-4 rounded-2xl border border-cyan-700 bg-cyan-950/40 p-4 text-cyan-100">
-          {completionBanner}
+        <section className="app-card--accent-cyan mt-4">
+          <p className="text-sm text-strong">{completionBanner}</p>
         </section>
       ) : null}
 
       {manualParam !== "1" ? (
-        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <section className="mt-4 ui-card">
           <div className="mb-3">
-            <p className="text-xs uppercase tracking-wide text-zinc-400">Workout-Fortschritt</p>
+            <p className="text-xs uppercase tracking-wide text-muted">Workout-Fortschritt</p>
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {visibleProgressExercises.map((exercise, index) => {
                 const status = getExerciseStatus(index);
                 const isActive = index === safeExerciseIndex;
                 const badgeClass =
                   status === "completed"
-                    ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                    ? "progress-exercise-btn progress-exercise-btn--completed"
                     : status === "in_progress"
-                      ? "border-amber-500 bg-amber-500/20 text-amber-200"
-                      : "border-zinc-700 bg-zinc-950 text-zinc-300";
+                      ? "progress-exercise-btn progress-exercise-btn--in-progress"
+                      : "progress-exercise-btn";
 
                 return (
                   <button
                     type="button"
                     key={`${workoutForExecution.id}-progress-${exercise.name}`}
                     onClick={() => jumpToExercise(index)}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs ${badgeClass} ${
-                      isActive ? "ring-2 ring-indigo-500" : ""
-                    }`}
+                    className={`${badgeClass} ${isActive ? "progress-exercise-btn--active" : ""}`}
                   >
                     <p className="font-semibold">{exercise.name}</p>
                     <p>
@@ -2081,7 +2076,7 @@ function WorkoutsPageContent() {
               <button
                 type="button"
                 onClick={() => setShowAllProgressExercises((current) => !current)}
-                className="mt-3 rounded-lg border border-zinc-600 px-3 py-1 text-xs text-zinc-200"
+                className="show-more-btn mt-3"
               >
                 {showAllProgressExercises
                   ? "Weniger anzeigen"
@@ -2091,8 +2086,8 @@ function WorkoutsPageContent() {
           </div>
 
           {currentExercise ? (
-            <article className="rounded-xl border border-zinc-700 bg-zinc-950 p-4">
-              <p className="text-xs uppercase tracking-wide text-zinc-400">
+            <article className="list-card">
+              <p className="text-xs uppercase tracking-wide text-muted">
                 Exercise {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
               </p>
               <h3 className="mt-1 text-xl font-semibold">{currentExercise.name}</h3>
@@ -2100,31 +2095,31 @@ function WorkoutsPageContent() {
                 currentExerciseMeta.videoUrl.startsWith("data:video") ?
                   <video
                     controls
-                    className="mt-2 max-h-48 w-full max-w-md rounded-lg border border-zinc-600 bg-black"
+                    className="mt-2 max-h-48 w-full max-w-md rounded-lg border border-[var(--surface-border)]"
                     src={currentExerciseMeta.videoUrl}
                   />
                 : <a
                     href={currentExerciseMeta.videoUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 rounded-full border border-cyan-500/50 bg-cyan-950/30 px-3 py-1 text-xs text-cyan-100 hover:bg-cyan-900/40"
+                    className="video-link-chip mt-2"
                   >
                     ▶ Drill-Video ansehen
                   </a>
 
               : null}
               {gymGoalHint?.kind === "injury" ? (
-                <p className="mt-2 rounded-lg border border-amber-600/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-100">
+                <p className="hint-warning mt-2">
                   Übung für automatische Progression pausiert — weiter trainieren, aber keine Ziel-Zählung.
                 </p>
               ) : null}
               {gymGoalHint?.kind === "goal" ? (
-                <p className="mt-2 rounded-lg border border-violet-600/50 bg-violet-950/40 px-3 py-2 text-xs text-violet-100">
+                <p className="hint-violet mt-2">
                   Aktives Ziel: {formatGymGoalSummary(gymGoalHint.goal)}
                 </p>
               ) : null}
-              {currentExerciseMeta?.notes ? <p className="mt-1 text-xs text-zinc-500">{currentExerciseMeta.notes}</p> : null}
-              <p className="text-sm text-zinc-400">
+              {currentExerciseMeta?.notes ? <p className="mt-1 text-xs text-faint">{currentExerciseMeta.notes}</p> : null}
+              <p className="text-sm text-muted">
                 Satz {safeSetIndex + 1}/{currentExercise.sets.length}
               </p>
               {currentExercise.sets.length > 1 ? (
@@ -2134,11 +2129,7 @@ function WorkoutsPageContent() {
                       key={`${safeExerciseIndex}-set-tab-${setIdx}`}
                       type="button"
                       onClick={() => jumpToSet(setIdx)}
-                      className={`rounded-full border px-3 py-1 text-xs ${
-                        safeSetIndex === setIdx
-                          ? "border-indigo-400 bg-indigo-500/20 text-indigo-100"
-                          : "border-zinc-700 bg-zinc-900 text-zinc-300"
-                      }`}
+                      className={`set-tab ${safeSetIndex === setIdx ? "set-tab--active" : ""}`}
                     >
                       Satz {setIdx + 1}
                     </button>
@@ -2146,18 +2137,18 @@ function WorkoutsPageContent() {
                 </div>
               ) : null}
 
-              <div className="mt-4 rounded-xl border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 text-sm text-cyan-100">
+              <div className="target-banner mt-4">
                 <span className="font-semibold">Ziel:</span> {currentTargetText}
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {currentMetricOptions.includes("weight") ? (
-                  <label className="text-sm text-zinc-300">
+                  <label className="text-sm text-muted">
                     Gewicht (kg)
                     <input
                       value={currentLog.weight}
                       onChange={(event) => updateCurrentLog("weight", event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      className="input mt-1"
                       inputMode="decimal"
                     />
                   </label>
@@ -2165,7 +2156,7 @@ function WorkoutsPageContent() {
 
                 {tracksRepsAndMakes ? (
                   <>
-                    <label className="text-sm text-zinc-300">
+                    <label className="text-sm text-muted">
                       Reps
                       <input
                         value={currentLog.reps || currentLog.tries || ""}
@@ -2177,12 +2168,12 @@ function WorkoutsPageContent() {
                             reps > 0 && makes > 0 ? String(Math.max(0, reps - makes)) : currentLog.misses;
                           patchCurrentLog({ reps: value, tries: "", misses });
                         }}
-                        className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        className="input mt-1"
                         inputMode="numeric"
                         placeholder="z. B. 40"
                       />
                     </label>
-                    <label className="text-sm text-zinc-300">
+                    <label className="text-sm text-muted">
                       Makes
                       <input
                         value={currentLog.makes ?? ""}
@@ -2193,12 +2184,12 @@ function WorkoutsPageContent() {
                           const misses = total > 0 ? String(Math.max(0, total - makes)) : currentLog.misses;
                           patchCurrentLog({ makes: value, misses });
                         }}
-                        className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        className="input mt-1"
                         inputMode="numeric"
                         placeholder="z. B. 36"
                       />
                     </label>
-                    <label className="text-sm text-zinc-300">
+                    <label className="text-sm text-muted">
                       Misses
                       <div className="mt-1 flex gap-2">
                         <input
@@ -2215,7 +2206,7 @@ function WorkoutsPageContent() {
                               makes: reps > 0 ? String(Math.max(0, reps - misses)) : currentLog.makes,
                             });
                           }}
-                          className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                          className="input"
                           inputMode="numeric"
                           placeholder={`Auto: ${Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))}`}
                         />
@@ -2227,7 +2218,7 @@ function WorkoutsPageContent() {
                             const auto = Math.max(0, total - makes);
                             patchCurrentLog({ misses: String(auto), makes: String(Math.max(0, total - auto)) });
                           }}
-                          className="shrink-0 rounded-lg border border-zinc-600 px-3 text-xs font-semibold text-zinc-200"
+                          className="btn btn-outline btn-xs shrink-0"
                           aria-label="Misses automatisch aus Reps minus Makes setzen"
                         >
                           = Reps − Makes
@@ -2236,43 +2227,43 @@ function WorkoutsPageContent() {
                     </label>
                   </>
                 ) : currentMetricOptions.includes("reps") ? (
-                  <label className="text-sm text-zinc-300">
+                  <label className="text-sm text-muted">
                     Reps
                     <input
                       value={currentLog.reps}
                       onChange={(event) => updateCurrentLog("reps", event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      className="input mt-1"
                       inputMode="numeric"
                     />
                   </label>
                 ) : null}
 
                 {currentMetricOptions.includes("time") ? (
-                  <label className="text-sm text-zinc-300">
+                  <label className="text-sm text-muted">
                     Zeit ({currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."})
                     <input
                       value={currentLog.time ?? ""}
                       onChange={(event) => updateCurrentLog("time", event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      className="input mt-1"
                       inputMode="decimal"
                     />
                   </label>
                 ) : null}
 
                 {currentMetricOptions.includes("distance") ? (
-                  <label className="text-sm text-zinc-300">
+                  <label className="text-sm text-muted">
                     Distanz
                     <div className="mt-1 flex gap-2">
                       <input
                         value={currentLog.distance ?? ""}
                         onChange={(event) => updateCurrentLog("distance", event.target.value)}
-                        className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        className="input"
                         inputMode="decimal"
                       />
                       <select
                         value={currentLog.distanceUnit ?? "m"}
                         onChange={(event) => updateCurrentLog("distanceUnit", event.target.value)}
-                        className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                        className="input"
                       >
                         <option value="m">m</option>
                         <option value="km">km</option>
@@ -2282,12 +2273,12 @@ function WorkoutsPageContent() {
                 ) : null}
 
                 {currentMetricOptions.includes("points") ? (
-                  <label className="text-sm text-zinc-300">
+                  <label className="text-sm text-muted">
                     Punkte (optional, zählt nicht als Reps)
                     <input
                       value={currentLog.points ?? ""}
                       onChange={(event) => updateCurrentLog("points", event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-white"
+                      className="input mt-1"
                       inputMode="numeric"
                     />
                   </label>
@@ -2296,21 +2287,21 @@ function WorkoutsPageContent() {
 
               {!isRestDay ? (
                 <div className="mt-3">
-                  <label className="text-sm text-zinc-300">Satz-Notiz (optional)</label>
+                  <label className="text-sm text-muted">Satz-Notiz (optional)</label>
                   <input
                     type="text"
                     value={currentLog.note ?? ""}
                     onChange={(event) => updateCurrentLog("note", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm text-white"
+                    className="textarea mt-1"
                     placeholder="z. B. Technik, Ballgefühl …"
                   />
                 </div>
               ) : null}
 
               {!isRestDay ? (
-                <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
+                <div className="mt-3 app-card--flat">
                   <div className="flex items-baseline justify-between">
-                    <p className="text-xs uppercase tracking-wide text-zinc-400">Anstrengung (RPE)</p>
+                    <p className="text-xs uppercase tracking-wide text-muted">Anstrengung (RPE)</p>
                     <p className="text-sm font-semibold text-cyan-200 tabular-nums">
                       {currentLog.rpe ? `${currentLog.rpe}/10` : "—"}
                     </p>
@@ -2335,7 +2326,7 @@ function WorkoutsPageContent() {
                     }
                     className="mt-2 w-full accent-cyan-400"
                   />
-                  <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
+                  <div className="mt-1 flex justify-between text-[10px] text-faint">
                     <span>locker</span>
                     <span>moderat</span>
                     <span>schwer</span>
@@ -2344,7 +2335,7 @@ function WorkoutsPageContent() {
                 </div>
               ) : null}
 
-              <div className="mt-3 text-sm text-zinc-400">
+              <div className="mt-3 text-sm text-muted">
                 <p>
                   Ziel: {currentTargetText}
                 </p>
@@ -2360,14 +2351,14 @@ function WorkoutsPageContent() {
                     type="button"
                     onClick={handleWorkoutPrimaryAction}
                     disabled={progress.status === "completed" && workoutFullyTracked}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-emerald-700 disabled:text-emerald-100"
+                    className="btn btn-primary btn-sm disabled:opacity-50"
                   >
                     {workoutPrimaryLabel}
                   </button>
                   <button
                     type="button"
                     onClick={finishSet}
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                    className="btn btn-emerald btn-sm"
                   >
                     Satz abschließen
                   </button>
@@ -2377,14 +2368,14 @@ function WorkoutsPageContent() {
                   type="button"
                   onClick={() => jumpToSet(Math.max(0, safeSetIndex - 1))}
                   disabled={safeSetIndex <= 0}
-                  className="rounded-lg border border-zinc-600 px-3 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40"
+                  className="btn btn-outline btn-xs disabled:opacity-40"
                 >
                   ← Satz zurück
                 </button>
                 <button
                   type="button"
                   onClick={addSetToCurrentExercise}
-                  className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-950"
+                  className="btn btn-cyan btn-sm"
                 >
                   Satz hinzufügen
                 </button>
@@ -2392,7 +2383,7 @@ function WorkoutsPageContent() {
                   type="button"
                   onClick={() => jumpToSet(Math.min(currentExercise.sets.length - 1, safeSetIndex + 1))}
                   disabled={safeSetIndex >= currentExercise.sets.length - 1}
-                  className="rounded-lg border border-zinc-600 px-3 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-40"
+                  className="btn btn-outline btn-xs disabled:opacity-40"
                 >
                   Satz vor →
                 </button>
@@ -2400,7 +2391,7 @@ function WorkoutsPageContent() {
               </div>
             </article>
           ) : (
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-faint">
               {isRestDay ? "Keine Zeit aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
             </p>
           )}
@@ -2408,15 +2399,15 @@ function WorkoutsPageContent() {
       ) : null}
 
       <div className="mt-4">
-        <Link href="/Weekly-Workout" className="text-sm text-indigo-300 hover:text-indigo-200">
+        <Link href="/Weekly-Workout" className="btn btn-ghost btn-sm">
           ← Zurück zum Weekly Plan
         </Link>
       </div>
       {showTipsReminder ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-cyan-600 bg-zinc-900 p-4">
-            <h3 className="text-lg font-semibold text-cyan-200">Fokus vor dem Start</h3>
-            <p className="mt-1 text-sm text-zinc-300">
+        <div className="modal-overlay">
+          <div className="modal-panel w-full max-w-lg">
+            <h3 className="section-title">Fokus vor dem Start</h3>
+            <p className="mt-1 text-sm text-muted">
               Lies deine Notizen kurz durch, dann starte konzentriert.
             </p>
             <div className="mt-3 max-h-72 overflow-auto pr-1">
@@ -2425,14 +2416,14 @@ function WorkoutsPageContent() {
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
-                className="w-full rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-200"
+                className="btn btn-outline btn-sm w-full"
                 onClick={() => setShowTipsReminder(false)}
               >
                 Schließen
               </button>
               <button
                 type="button"
-                className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold"
+                className="btn btn-emerald btn-sm w-full"
                 onClick={() => {
                   setShowTipsReminder(false);
                   const nowIso = new Date().toISOString();
@@ -2451,16 +2442,16 @@ function WorkoutsPageContent() {
         </div>
       ) : null}
       {showRecoveryPrompt && pendingManualEntry ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-cyan-600 bg-zinc-900 p-4">
-            <h3 className="text-lg font-semibold text-cyan-200">Regeneration ergänzen?</h3>
-            <p className="mt-2 text-sm text-zinc-300">
+        <div className="modal-overlay">
+          <div className="modal-panel w-full max-w-md">
+            <h3 className="section-title">Regeneration ergänzen?</h3>
+            <p className="mt-2 text-sm text-muted">
               Soll zusätzlich ein Regenerations-Workout eingeplant werden?
             </p>
             <div className="mt-4 grid gap-2">
               <button
                 type="button"
-                className="rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+                className="btn btn-outline btn-sm w-full"
                 onClick={() => {
                   persistManualWorkoutForDay(pendingManualEntry, pendingStartImmediately, "none");
                   setShowRecoveryPrompt(false);
@@ -2471,7 +2462,7 @@ function WorkoutsPageContent() {
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-emerald-600 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-900/30"
+                className="btn btn-emerald btn-sm w-full"
                 onClick={() => {
                   persistManualWorkoutForDay(pendingManualEntry, pendingStartImmediately, "today");
                   setShowRecoveryPrompt(false);
@@ -2482,7 +2473,7 @@ function WorkoutsPageContent() {
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-indigo-600 px-3 py-2 text-sm text-indigo-200 hover:bg-indigo-900/30"
+                className="btn btn-primary btn-sm w-full"
                 onClick={() => {
                   persistManualWorkoutForDay(pendingManualEntry, pendingStartImmediately, "tomorrow");
                   setShowRecoveryPrompt(false);

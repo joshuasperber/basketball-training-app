@@ -6,7 +6,6 @@ import {
   type PlayerIntakeV1,
   savePlayerIntake,
 } from "@/lib/coach-intake";
-import { pushProgressToCloud } from "@/lib/progress-sync";
 
 type StepId = "welcome" | "strengths" | "weaknesses" | "focus" | "age" | "role" | "extra" | "done";
 
@@ -172,7 +171,6 @@ export default function CoachIntakeChat({ onClose }: Props) {
         skipped: data.skipped === true,
       };
       savePlayerIntake(full);
-      void pushProgressToCloud();
       onClose();
     },
     [onClose],

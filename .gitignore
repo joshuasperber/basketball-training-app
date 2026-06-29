@@ -42,3 +42,6 @@ next-env.d.ts
 
 # lighthouse (npm run lighthouse)
 lighthouse-report.html
+
+# lighthouse (npm run lighthouse)
+lighthouse-report.html

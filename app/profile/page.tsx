@@ -31,6 +31,7 @@ import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import PageHeader from "@/components/PageHeader";
+import ViewportToast from "@/components/ViewportToast";
 import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 
 const PROFILE_USERNAME_KEY = "profile_username";
@@ -255,12 +256,12 @@ type ProfileFeedbackTone = "success" | "error" | "info";
 
 function profileFeedbackClass(tone: ProfileFeedbackTone) {
   if (tone === "success") {
-    return "border-emerald-400/60 bg-emerald-500/20 text-emerald-100";
+    return "app-card--accent-emerald text-strong";
   }
   if (tone === "error") {
-    return "border-rose-400/60 bg-rose-500/20 text-rose-100";
+    return "rounded-[var(--radius-md)] border border-rose-200 bg-rose-50 text-rose-800";
   }
-  return "border-cyan-400/60 bg-cyan-500/20 text-cyan-100";
+  return "app-card--accent-cyan text-strong";
 }
 
 export default function ProfilePage() {
@@ -274,6 +275,9 @@ export default function ProfilePage() {
       window.clearTimeout(feedbackTimerRef.current);
     }
     setFeedback({ text, tone });
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
     feedbackTimerRef.current = window.setTimeout(() => {
       setFeedback(null);
       feedbackTimerRef.current = null;
@@ -404,13 +408,20 @@ export default function ProfilePage() {
       const mergedProfile: ProfileRow = {
         username: localCache?.profile.username ?? data.username ?? username,
         full_name: localCache?.profile.full_name ?? data.full_name ?? "",
-        favorite_position: localCache?.profile.favorite_position ?? data.favorite_position ?? "sg",
-        height_cm: localCache?.profile.height_cm ?? data.height_cm ?? null,
-        weight_kg: localCache?.profile.weight_kg ?? data.weight_kg ?? null,
+        favorite_position: data.favorite_position ?? localCache?.profile.favorite_position ?? "sg",
+        height_cm: data.height_cm ?? localCache?.profile.height_cm ?? null,
+        weight_kg: data.weight_kg ?? localCache?.profile.weight_kg ?? null,
         email: authEmail ?? localCache?.profile.email ?? null,
       };
       setProfile(mergedProfile);
       setPlayStyle(localCache?.playStyle ?? getDefaultPlayStyle(mergedProfile.favorite_position));
+      saveLocalCache({
+        profile: mergedProfile,
+        playStyle: localCache?.playStyle ?? getDefaultPlayStyle(mergedProfile.favorite_position),
+        weekConfig: resolvedWeekConfig,
+        weeklyGoalSessions: localCache?.weeklyGoalSessions ?? 4,
+        bodyMetrics: localCache?.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null },
+      });
     } else {
       setProfile((current: ProfileRow) => ({ ...current, email: authEmail ?? localCache?.profile.email ?? null }));
     }
@@ -435,9 +446,22 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (loading) return;
-    persistCurrentCache();
-    void pushProgressToCloud();
-  }, [loading, persistCurrentCache]);
+    const timer = window.setTimeout(() => {
+      persistCurrentCache();
+      void pushProgressToCloud();
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    loading,
+    persistCurrentCache,
+    profile.favorite_position,
+    profile.height_cm,
+    profile.weight_kg,
+    playStyle,
+    bodyMetrics.wingspan_cm,
+    bodyMetrics.standing_reach_cm,
+    bodyMetrics.body_fat_pct,
+  ]);
 
   useEffect(() => {
     const loadCustom = () => {
@@ -880,7 +904,7 @@ const refreshProfileAndWeekly = () => {
               <div
                 key={dayKey}
                 className={`flex flex-wrap items-center gap-2 rounded-2xl border p-3 transition ${
-                  isAvailable ? "border-emerald-500/40 bg-emerald-500/5" : "border-white/10 bg-white/[0.02]"
+                  isAvailable ? "app-card--accent-emerald" : "app-card--flat"
                 }`}
               >
                 <button
@@ -895,8 +919,8 @@ const refreshProfileAndWeekly = () => {
                   }}
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-sm font-bold transition ${
                     isAvailable
-                      ? "border-emerald-400 bg-emerald-500 text-white"
-                      : "border-white/20 bg-white/[0.05] text-faint"
+                      ? "border-emerald-500 bg-emerald-600 text-white"
+                      : "border-[var(--surface-border)] bg-[var(--surface-strong)] text-faint"
                   }`}
                   aria-pressed={isAvailable}
                   aria-label={`${DAY_LABELS[dayKey]} ${isAvailable ? "verfügbar" : "nicht verfügbar"}`}
@@ -1000,7 +1024,7 @@ const refreshProfileAndWeekly = () => {
         </div>
         <div className="mt-1.5 grid grid-cols-7 gap-1.5">
           {monthCells.map((cell, index) => {
-            if (!cell) return <div key={`empty-${index}`} className="h-12 rounded-lg bg-white/[0.02]" />;
+            if (!cell) return <div key={`empty-${index}`} className="h-12 rounded-lg bg-[var(--bg-muted)]" />;
             const key = toLocalDateKey(cell);
             const isToday = key === todayKey;
             const isSelected = key === selectedDateKey;
@@ -1013,23 +1037,23 @@ const refreshProfileAndWeekly = () => {
                 onClick={() => setSelectedDateKey(key)}
                 className={`relative rounded-lg border text-sm font-semibold transition ${
                   isSelected
-                    ? `border-orange-400 bg-orange-500/20 text-white shadow-[0_0_0_2px_rgba(255,122,24,0.25)] ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300/70 z-10" : "h-12"}`
+                    ? `border-[var(--brand-500)] bg-[var(--brand-soft)] text-strong shadow-[0_0_0_2px_rgba(255,107,0,0.15)] ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300 z-10" : "h-12"}`
                     : trained
-                      ? `border-emerald-500/40 bg-emerald-500/15 text-emerald-100 ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300/70 z-10 shadow-[0_0_20px_rgba(34,211,238,0.25)]" : "h-12"}`
+                      ? `border-emerald-300 bg-emerald-50 text-emerald-800 ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300 z-10" : "h-12"}`
                       : isToday
-                        ? "h-16 scale-[1.08] z-10 border-cyan-300 bg-cyan-400/20 text-white ring-2 ring-cyan-300/70 shadow-[0_0_22px_rgba(34,211,238,0.35)]"
-                        : "h-12 border-white/10 bg-white/[0.02] text-strong hover:bg-white/[0.05]"
+                        ? "h-16 scale-[1.08] z-10 border-cyan-400 bg-cyan-50 text-strong ring-2 ring-cyan-200"
+                        : "h-12 border-[var(--surface-border)] bg-white text-strong hover:bg-[var(--bg-muted)]"
                 }`}
               >
                 {isToday ? (
-                  <span className="absolute left-1/2 top-1 -translate-x-1/2 rounded-full bg-cyan-300 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-slate-950">
+                  <span className="absolute left-1/2 top-1 -translate-x-1/2 rounded-full bg-cyan-500 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-white">
                     Heute
                   </span>
                 ) : null}
                 <span className={isToday ? "mt-3 block text-lg font-black" : ""}>{cell.getDate()}</span>
                 {trained ? <span className="block text-[9px] opacity-80">✓</span> : null}
                 {hasPlannedTags ? (
-                  <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-orange-400" />
+                  <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-[var(--brand-500)]" />
                 ) : null}
               </button>
             );
@@ -1043,12 +1067,12 @@ const refreshProfileAndWeekly = () => {
               {selectedSessions.length === 0 ? (
                 <p className="text-muted">Kein Training an diesem Tag.</p>
               ) : selectedSessions.map((session) => (
-                <div key={session.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div key={session.id} className="list-card">
                   <p className="font-semibold text-strong">{session.workoutName}</p>
                   <p className="text-xs text-muted">Exercises: {session.logs.length} · Dauer ca. {session.logs.length * 4} Min</p>
                   <div className="mt-2 space-y-1 text-xs text-strong">
                     {session.logs.map((log, idx) => (
-                      <div key={`${session.id}-${idx}`} className="rounded-lg border border-white/5 bg-white/[0.02] p-2">
+                      <div key={`${session.id}-${idx}`} className="app-card--flat mt-1 text-xs">
                         <p className="font-semibold">{exerciseNameById.get(log.exerciseId) ?? log.exerciseId}</p>
                         <p className="text-muted">Kategorie: {exerciseById.get(log.exerciseId)?.category ?? "-"} · Unterkategorie: {exerciseById.get(log.exerciseId)?.subcategory ?? "-"}</p>
                         {log.made != null || log.misses != null || log.attempts != null ? (
@@ -1186,19 +1210,10 @@ const refreshProfileAndWeekly = () => {
         </ul>
       </section>
 
-      {feedback ? (
-        <div
-          className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-4 pt-[max(0.75rem,env(safe-area-inset-top))]"
-          role="status"
-          aria-live="polite"
-        >
-          <p
-            className={`pointer-events-auto max-w-md rounded-2xl border px-4 py-3 text-center text-sm font-semibold shadow-lg backdrop-blur-md ${profileFeedbackClass(feedback.tone)}`}
-          >
-            {feedback.text}
-          </p>
-        </div>
-      ) : null}
+      <ViewportToast
+        message={feedback?.text ?? null}
+        className={feedback ? profileFeedbackClass(feedback.tone) : ""}
+      />
     </main>
   );
 }

@@ -8,12 +8,9 @@ type Props = {
 };
 
 export default function AppCard({ children, className = "", variant = "default", id }: Props) {
-  const surface =
-    variant === "elevated"
-      ? "border-zinc-700/80 bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 shadow-lg shadow-black/40"
-      : "border-zinc-800 bg-zinc-900/90";
+  const surface = variant === "elevated" ? "app-card shadow-[var(--shadow-card)]" : "app-card app-card--flat";
   return (
-    <div id={id} className={`rounded-2xl border p-4 ${surface} ${className}`}>
+    <div id={id} className={`${surface} ${className}`}>
       {children}
     </div>
   );

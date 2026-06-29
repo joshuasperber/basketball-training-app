@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import EmptyState from "@/components/ui/EmptyState";
 import {
   type Category,
   type Exercise,
@@ -79,296 +80,6 @@ type WorkoutsTabProps = {
   onDeleteWorkout: (workoutId: string) => void;
 };
 
-export function WorkoutsTab({
-  categories,
-  subcategories,
-  onCreateSubcategory,
-  onDeleteSubcategory,
-  selectedCategory,
-  selectedSubcategory,
-  onCategoryChange,
-  onSubcategoryChange,
-  workouts,
-  availableExercises,
-  createWorkoutExerciseOptions,
-  newWorkoutName,
-  onNewWorkoutNameChange,
-  selectedExerciseIds,
-  onSelectedExerciseIdsChange,
-  newWorkoutCategory,
-  onNewWorkoutCategoryChange,
-  newWorkoutSubcategory,
-  onNewWorkoutSubcategoryChange,
-  newWorkoutNotes,
-  onNewWorkoutNotesChange,
-  onCreateWorkout,
-  editingWorkoutId,
-  onStartEditWorkout,
-  onCancelEditWorkout,
-  editWorkoutName,
-  onEditWorkoutNameChange,
-  editWorkoutCategory,
-  onEditWorkoutCategoryChange,
-  editWorkoutSubcategory,
-  onEditWorkoutSubcategoryChange,
-  editWorkoutNotes,
-  onEditWorkoutNotesChange,
-  editWorkoutExerciseIds,
-  onEditWorkoutExerciseIdsChange,
-  onUpdateWorkout,
-  onDeleteWorkout,
-}: WorkoutsTabProps) {
-  const editExerciseOptions = useMemo(() => availableExercises, [availableExercises]);
-
-  const selectedExercises = useMemo(
-    () => availableExercises.filter((exercise) => selectedExerciseIds.includes(exercise.id)),
-    [availableExercises, selectedExerciseIds],
-  );
-
-  const selectedWorkoutMinutes = useMemo(() => calculateWorkoutMinutes(selectedExercises), [selectedExercises]);
-
-  return (
-    <section className="grid gap-4 lg:grid-cols-2">
-      <div className="space-y-4">
-        <FilterSection
-          title="1) Kategorie"
-          options={categories}
-          selectedValue={selectedCategory}
-          onSelect={onCategoryChange}
-        />
-
-        <FilterSection
-          title="2) Unterkategorie"
-          options={subcategories[selectedCategory]}
-          selectedValue={selectedSubcategory}
-          onSelect={onSubcategoryChange}
-          category={selectedCategory}
-          onCreateOption={onCreateSubcategory}
-          onDeleteOption={onDeleteSubcategory}
-        />
-
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-2xl font-semibold">3) Workout wählen</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Target-Score (pro Exercise): <span className="font-semibold text-white">80 + Progression</span>
-          </p>
-
-          <div className="mt-4 space-y-2">
-            {workouts.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-zinc-700 p-3 text-zinc-400">
-                Noch kein Workout für diese Auswahl vorhanden.
-              </p>
-            ) : (
-              workouts.map((workout) => (
-                <div key={workout.id} className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3">
-                  <p className="text-xl font-semibold">{workout.name}</p>
-                  {workout.notes ? <p className="mt-1 text-xs text-zinc-500">{workout.notes}</p> : null}
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Geplante Zeit:{" "}
-                    {calculateWorkoutMinutes(
-                      availableExercises.filter((exercise) => workout.exerciseIds.includes(exercise.id)),
-                    )}{" "}
-                    Min
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center justify-start gap-2">
-                    <Link
-                      href={
-                        isGameWorkout(workout)
-                          ? `/game-track?context=${gameContextForWorkout(workout)}`
-                          : `/workouts/${workout.id}`
-                      }
-                      className="rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
-                    >
-                      {isGameWorkout(workout) ? "Spiel tracken" : "Workout starten"}
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => onStartEditWorkout(workout)}
-                      className="rounded-lg border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-950"
-                    >
-                      Bearbeiten
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteWorkout(workout.id)}
-                      className="rounded-lg border border-rose-500 px-3 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-950"
-                    >
-                      Löschen
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-      </div>
-
-      <section id="new-workout-form" className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-        <h3 className="text-2xl font-semibold">Neues Workout erstellen</h3>
-
-        <form className="mt-3 space-y-3" onSubmit={onCreateWorkout}>
-          <FilterSection
-            title="Kategorie"
-            options={categories}
-            selectedValue={newWorkoutCategory}
-            onSelect={onNewWorkoutCategoryChange}
-          />
-
-          <FilterSection
-            title="Unterkategorie"
-            options={subcategories[newWorkoutCategory]}
-            selectedValue={newWorkoutSubcategory}
-            onSelect={onNewWorkoutSubcategoryChange}
-          />
-
-          <input
-            value={newWorkoutName}
-            onChange={(event) => onNewWorkoutNameChange(event.target.value)}
-            placeholder="Workout Name *"
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-          />
-          <p className="text-xs text-rose-300">* Pflichtfeld</p>
-          <textarea
-            value={newWorkoutNotes}
-            onChange={(event) => onNewWorkoutNotesChange(event.target.value)}
-            placeholder="Notizen zum Workout"
-            rows={2}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-          />
-
-          <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-            {newWorkoutCategory === "Basketball" && newWorkoutSubcategory === "Spiel" ? (
-              <p className="text-sm text-zinc-400">
-                Für Spiel-Workouts brauchst du keine Exercises. Beim Start öffnet sich automatisch das Game-Tracking für Minuten, Punkte, Intensität und Notizen.
-              </p>
-            ) : createWorkoutExerciseOptions.length === 0 ? (
-              <p className="text-sm text-zinc-400">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
-            ) : (
-              createWorkoutExerciseOptions.map((exercise) => {
-                const checked = selectedExerciseIds.includes(exercise.id);
-
-                return (
-                  <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm">
-                    <span>{exercise.name}</span>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        onSelectedExerciseIdsChange(
-                          checked
-                            ? selectedExerciseIds.filter((id) => id !== exercise.id)
-                            : [...selectedExerciseIds, exercise.id],
-                        )
-                      }
-                    />
-                  </label>
-                );
-              })
-            )}
-          </div>
-          {selectedExercises.length > 0 ? (
-            <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-              <p className="text-xs text-zinc-400">Bereits ausgewählt</p>
-              <ul className="mt-2 list-inside list-disc text-sm text-zinc-300">
-                {selectedExercises.map((exercise) => (
-                  <li key={`selected-${exercise.id}`}>{exercise.name}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          <p className="text-xs text-zinc-400">
-            Zeitberechnung: {selectedExercises.reduce((sum, item) => sum + item.durationMin, 0)} Min × 1.10 ⇒{" "}
-            {selectedWorkoutMinutes} Min (auf 5er-Schritte aufgerundet)
-          </p>
-
-          <button type="submit" className="w-full rounded-xl bg-indigo-600 px-4 py-2 font-semibold">
-            Workout hinzufügen
-          </button>
-        </form>
-      </section>
-
-      {editingWorkoutId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <form
-            className="max-h-[90vh] w-full max-w-2xl space-y-3 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-4"
-            onSubmit={onUpdateWorkout}
-          >
-            <h4 className="text-xl font-semibold text-amber-300">Workout bearbeiten</h4>
-            <FilterSection
-              title="Kategorie"
-              options={categories}
-              selectedValue={editWorkoutCategory}
-              onSelect={onEditWorkoutCategoryChange}
-            />
-
-            <FilterSection
-              title="Unterkategorie"
-              options={subcategories[editWorkoutCategory]}
-              selectedValue={editWorkoutSubcategory}
-              onSelect={onEditWorkoutSubcategoryChange}
-            />
-
-            <input
-              value={editWorkoutName}
-              onChange={(event) => onEditWorkoutNameChange(event.target.value)}
-              placeholder="Workout Name"
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-            />
-            <textarea
-              value={editWorkoutNotes}
-              onChange={(event) => onEditWorkoutNotesChange(event.target.value)}
-              placeholder="Notizen zum Workout"
-              rows={2}
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-            />
-
-            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-              {editExerciseOptions.length === 0 ? (
-                <p className="text-sm text-zinc-400">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
-              ) : (
-                editExerciseOptions.map((exercise) => {
-                  const checked = editWorkoutExerciseIds.includes(exercise.id);
-
-                  return (
-                    <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm">
-                      <span>{exercise.name}</span>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          onEditWorkoutExerciseIdsChange(
-                            checked
-                              ? editWorkoutExerciseIds.filter((id) => id !== exercise.id)
-                              : [...editWorkoutExerciseIds, exercise.id],
-                          )
-                        }
-                      />
-                    </label>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="flex gap-2">
-              <button type="submit" className="flex-1 rounded-xl bg-amber-600 px-4 py-2 font-semibold">
-                Änderungen speichern
-              </button>
-              <button
-                type="button"
-                onClick={onCancelEditWorkout}
-                className="flex-1 rounded-xl border border-zinc-600 px-4 py-2 font-semibold text-zinc-200"
-              >
-                Abbrechen
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 type ExercisesTabProps = {
   categories: Category[];
   subcategories: Record<Category, string[]>;
@@ -440,6 +151,618 @@ type ExercisesTabProps = {
   editExerciseError: string | null;
 };
 
+export type WorkoutCreateFormProps = Pick<
+  WorkoutsTabProps,
+  | "categories"
+  | "subcategories"
+  | "createWorkoutExerciseOptions"
+  | "newWorkoutName"
+  | "onNewWorkoutNameChange"
+  | "selectedExerciseIds"
+  | "onSelectedExerciseIdsChange"
+  | "newWorkoutCategory"
+  | "onNewWorkoutCategoryChange"
+  | "newWorkoutSubcategory"
+  | "onNewWorkoutSubcategoryChange"
+  | "newWorkoutNotes"
+  | "onNewWorkoutNotesChange"
+  | "onCreateWorkout"
+  | "availableExercises"
+>;
+
+export function WorkoutCreateForm({
+  categories,
+  subcategories,
+  createWorkoutExerciseOptions,
+  newWorkoutName,
+  onNewWorkoutNameChange,
+  selectedExerciseIds,
+  onSelectedExerciseIdsChange,
+  newWorkoutCategory,
+  onNewWorkoutCategoryChange,
+  newWorkoutSubcategory,
+  onNewWorkoutSubcategoryChange,
+  newWorkoutNotes,
+  onNewWorkoutNotesChange,
+  onCreateWorkout,
+  availableExercises,
+}: WorkoutCreateFormProps) {
+  const selectedExercises = useMemo(
+    () => availableExercises.filter((exercise) => selectedExerciseIds.includes(exercise.id)),
+    [availableExercises, selectedExerciseIds],
+  );
+  const selectedWorkoutMinutes = useMemo(() => calculateWorkoutMinutes(selectedExercises), [selectedExercises]);
+
+  return (
+    <form id="new-workout-form" className="space-y-3" onSubmit={onCreateWorkout}>
+      <FilterSection
+        title="Kategorie"
+        options={categories}
+        selectedValue={newWorkoutCategory}
+        onSelect={onNewWorkoutCategoryChange}
+      />
+      <FilterSection
+        title="Unterkategorie"
+        options={subcategories[newWorkoutCategory]}
+        selectedValue={newWorkoutSubcategory}
+        onSelect={onNewWorkoutSubcategoryChange}
+      />
+      <div>
+        <label className="input-label" htmlFor="new-workout-name">
+          Workout Name *
+        </label>
+        <input
+          id="new-workout-name"
+          value={newWorkoutName}
+          onChange={(event) => onNewWorkoutNameChange(event.target.value)}
+          placeholder="z. B. Shooting Fokus"
+          className="input"
+        />
+      </div>
+      <div>
+        <label className="input-label" htmlFor="new-workout-notes">
+          Notizen
+        </label>
+        <textarea
+          id="new-workout-notes"
+          value={newWorkoutNotes}
+          onChange={(event) => onNewWorkoutNotesChange(event.target.value)}
+          placeholder="Notizen zum Workout"
+          rows={2}
+          className="textarea"
+        />
+      </div>
+      <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
+        {newWorkoutCategory === "Basketball" && newWorkoutSubcategory === "Spiel" ? (
+          <p className="text-sm text-muted">
+            Für Spiel-Workouts brauchst du keine Exercises. Beim Start öffnet sich automatisch das Game-Tracking.
+          </p>
+        ) : createWorkoutExerciseOptions.length === 0 ? (
+          <p className="text-sm text-muted">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
+        ) : (
+          createWorkoutExerciseOptions.map((exercise) => {
+            const checked = selectedExerciseIds.includes(exercise.id);
+            return (
+              <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm text-strong">
+                <span>{exercise.name}</span>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() =>
+                    onSelectedExerciseIdsChange(
+                      checked
+                        ? selectedExerciseIds.filter((id) => id !== exercise.id)
+                        : [...selectedExerciseIds, exercise.id],
+                    )
+                  }
+                />
+              </label>
+            );
+          })
+        )}
+      </div>
+      {selectedExercises.length > 0 ? (
+        <div className="app-card--flat">
+          <p className="text-xs text-muted">Bereits ausgewählt</p>
+          <ul className="mt-2 list-inside list-disc text-sm text-strong">
+            {selectedExercises.map((exercise) => (
+              <li key={`selected-${exercise.id}`}>{exercise.name}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <p className="text-xs text-muted">
+        Zeitberechnung: {selectedExercises.reduce((sum, item) => sum + item.durationMin, 0)} Min × 1.10 ⇒{" "}
+        {selectedWorkoutMinutes} Min (auf 5er-Schritte aufgerundet)
+      </p>
+      <button type="submit" className="btn btn-primary btn-block">
+        Workout hinzufügen
+      </button>
+    </form>
+  );
+}
+
+export function WorkoutsTab({
+  categories,
+  subcategories,
+  onCreateSubcategory,
+  onDeleteSubcategory,
+  selectedCategory,
+  selectedSubcategory,
+  onCategoryChange,
+  onSubcategoryChange,
+  workouts,
+  availableExercises,
+  editingWorkoutId,
+  onStartEditWorkout,
+  onCancelEditWorkout,
+  editWorkoutName,
+  onEditWorkoutNameChange,
+  editWorkoutCategory,
+  onEditWorkoutCategoryChange,
+  editWorkoutSubcategory,
+  onEditWorkoutSubcategoryChange,
+  editWorkoutNotes,
+  onEditWorkoutNotesChange,
+  editWorkoutExerciseIds,
+  onEditWorkoutExerciseIdsChange,
+  onUpdateWorkout,
+  onDeleteWorkout,
+}: WorkoutsTabProps) {
+  const editExerciseOptions = useMemo(() => availableExercises, [availableExercises]);
+
+  return (
+    <section className="space-y-4">
+      <FilterSection
+        title="Kategorie"
+        options={categories}
+        selectedValue={selectedCategory}
+        onSelect={onCategoryChange}
+      />
+
+      <FilterSection
+        title="Unterkategorie"
+        options={subcategories[selectedCategory]}
+        selectedValue={selectedSubcategory}
+        onSelect={onSubcategoryChange}
+        category={selectedCategory}
+        onCreateOption={onCreateSubcategory}
+        onDeleteOption={onDeleteSubcategory}
+      />
+
+      <section className="ui-card">
+        <h2 className="ui-card__title">Workouts</h2>
+        <p className="ui-card__subtitle">
+          Target-Score (pro Exercise): <span className="font-semibold text-strong">80 + Progression</span>
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {workouts.length === 0 ? (
+            <EmptyState
+              title="Noch kein Workout"
+              description="Erstelle ein Workout mit dem + Button oben rechts."
+            />
+          ) : (
+            workouts.map((workout) => (
+              <article key={workout.id} className="list-card">
+                <p className="list-card__title">{workout.name}</p>
+                {workout.notes ? <p className="list-card__meta">{workout.notes}</p> : null}
+                <p className="list-card__meta">
+                  Geplante Zeit:{" "}
+                  {calculateWorkoutMinutes(
+                    availableExercises.filter((exercise) => workout.exerciseIds.includes(exercise.id)),
+                  )}{" "}
+                  Min
+                </p>
+                <div className="list-card__actions">
+                  <Link
+                    href={
+                      isGameWorkout(workout)
+                        ? `/game-track?context=${gameContextForWorkout(workout)}`
+                        : `/workouts/${workout.id}`
+                    }
+                    className="btn btn-primary btn-xs"
+                  >
+                    {isGameWorkout(workout) ? "Spiel tracken" : "Workout starten"}
+                  </Link>
+                  <button type="button" onClick={() => onStartEditWorkout(workout)} className="btn btn-outline btn-xs">
+                    Bearbeiten
+                  </button>
+                  <button type="button" onClick={() => onDeleteWorkout(workout.id)} className="btn btn-danger-outline btn-xs">
+                    Löschen
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+
+      {editingWorkoutId ? (
+        <div className="modal-overlay">
+          <form className="modal-panel space-y-3" onSubmit={onUpdateWorkout}>
+            <h4 className="section-title">Workout bearbeiten</h4>
+            <FilterSection
+              title="Kategorie"
+              options={categories}
+              selectedValue={editWorkoutCategory}
+              onSelect={onEditWorkoutCategoryChange}
+            />
+
+            <FilterSection
+              title="Unterkategorie"
+              options={subcategories[editWorkoutCategory]}
+              selectedValue={editWorkoutSubcategory}
+              onSelect={onEditWorkoutSubcategoryChange}
+            />
+
+            <input
+              value={editWorkoutName}
+              onChange={(event) => onEditWorkoutNameChange(event.target.value)}
+              placeholder="Workout Name"
+              className="input"
+            />
+            <textarea
+              value={editWorkoutNotes}
+              onChange={(event) => onEditWorkoutNotesChange(event.target.value)}
+              placeholder="Notizen zum Workout"
+              rows={2}
+              className="textarea"
+            />
+
+            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
+              {editExerciseOptions.length === 0 ? (
+                <p className="text-sm text-muted">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
+              ) : (
+                editExerciseOptions.map((exercise) => {
+                  const checked = editWorkoutExerciseIds.includes(exercise.id);
+
+                  return (
+                    <label key={exercise.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span>{exercise.name}</span>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          onEditWorkoutExerciseIdsChange(
+                            checked
+                              ? editWorkoutExerciseIds.filter((id) => id !== exercise.id)
+                              : [...editWorkoutExerciseIds, exercise.id],
+                          )
+                        }
+                      />
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button type="submit" className="btn btn-primary flex-1">
+                Änderungen speichern
+              </button>
+              <button type="button" onClick={onCancelEditWorkout} className="btn btn-ghost flex-1">
+                Abbrechen
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+export type ExerciseCreateFormProps = Pick<
+  ExercisesTabProps,
+  | "categories"
+  | "subcategories"
+  | "newExerciseName"
+  | "onNewExerciseNameChange"
+  | "newExerciseCategory"
+  | "onNewExerciseCategoryChange"
+  | "newExerciseSubcategory"
+  | "onNewExerciseSubcategoryChange"
+  | "newExerciseNotes"
+  | "onNewExerciseNotesChange"
+  | "newExerciseVideoUrl"
+  | "onNewExerciseVideoUrlChange"
+  | "onNewExerciseVideoFile"
+  | "newExerciseDurationMin"
+  | "onNewExerciseDurationMinChange"
+  | "newExerciseDurationUnit"
+  | "onNewExerciseDurationUnitChange"
+  | "newExerciseSetCount"
+  | "onNewExerciseSetCountChange"
+  | "newExerciseMetrics"
+  | "onToggleNewExerciseMetric"
+  | "newExerciseTargets"
+  | "onNewExerciseTargetChange"
+  | "newExerciseSetTargets"
+  | "onNewExerciseSetTargetChange"
+  | "onCreateExercise"
+  | "newExerciseError"
+>;
+
+export function ExerciseCreateForm(props: ExerciseCreateFormProps) {
+  return (
+    <form id="new-exercise-form" className="space-y-3" onSubmit={props.onCreateExercise}>
+      <ExerciseFormFields {...props} mode="create" />
+    </form>
+  );
+}
+
+type ExerciseFormBaseProps = Omit<ExerciseCreateFormProps, "onCreateExercise">;
+
+type ExerciseFormFieldsProps = ExerciseFormBaseProps & {
+  mode: "create" | "edit";
+  editExerciseName?: string;
+  onEditExerciseNameChange?: (value: string) => void;
+  editExerciseCategory?: Category;
+  onEditExerciseCategoryChange?: (category: Category) => void;
+  editExerciseSubcategory?: string;
+  onEditExerciseSubcategoryChange?: (value: string) => void;
+  editExerciseNotes?: string;
+  onEditExerciseNotesChange?: (value: string) => void;
+  editExerciseVideoUrl?: string;
+  onEditExerciseVideoUrlChange?: (value: string) => void;
+  onEditExerciseVideoFile?: (file: File | null) => void;
+  editExerciseDurationMin?: string;
+  onEditExerciseDurationMinChange?: (value: string) => void;
+  editExerciseDurationUnit?: "minutes" | "seconds";
+  onEditExerciseDurationUnitChange?: (value: "minutes" | "seconds") => void;
+  editExerciseSetCount?: string;
+  onEditExerciseSetCountChange?: (value: string) => void;
+  editExerciseMetrics?: MetricKey[];
+  onToggleEditExerciseMetric?: (metric: MetricKey) => void;
+  editExerciseTargets?: Partial<Record<MetricKey, string>>;
+  onEditExerciseTargetChange?: (metric: MetricKey, value: string) => void;
+  editExerciseSetTargets?: Partial<Record<MetricKey, string>>[];
+  onEditExerciseSetTargetChange?: (setIndex: number, metric: MetricKey, value: string) => void;
+  editExerciseError?: string | null;
+};
+
+function ExerciseFormFields({
+  mode,
+  categories,
+  subcategories,
+  newExerciseName,
+  onNewExerciseNameChange,
+  newExerciseCategory,
+  onNewExerciseCategoryChange,
+  newExerciseSubcategory,
+  onNewExerciseSubcategoryChange,
+  newExerciseNotes,
+  onNewExerciseNotesChange,
+  newExerciseVideoUrl,
+  onNewExerciseVideoUrlChange,
+  onNewExerciseVideoFile,
+  newExerciseDurationMin,
+  onNewExerciseDurationMinChange,
+  newExerciseDurationUnit,
+  onNewExerciseDurationUnitChange,
+  newExerciseSetCount,
+  onNewExerciseSetCountChange,
+  newExerciseMetrics,
+  onToggleNewExerciseMetric,
+  newExerciseTargets,
+  onNewExerciseTargetChange,
+  newExerciseSetTargets,
+  onNewExerciseSetTargetChange,
+  newExerciseError,
+  editExerciseName,
+  onEditExerciseNameChange,
+  editExerciseCategory,
+  onEditExerciseCategoryChange,
+  editExerciseSubcategory,
+  onEditExerciseSubcategoryChange,
+  editExerciseNotes,
+  onEditExerciseNotesChange,
+  editExerciseVideoUrl,
+  onEditExerciseVideoUrlChange,
+  onEditExerciseVideoFile,
+  editExerciseDurationMin,
+  onEditExerciseDurationMinChange,
+  editExerciseDurationUnit,
+  onEditExerciseDurationUnitChange,
+  editExerciseSetCount,
+  onEditExerciseSetCountChange,
+  editExerciseMetrics,
+  onToggleEditExerciseMetric,
+  editExerciseTargets,
+  onEditExerciseTargetChange,
+  editExerciseSetTargets,
+  onEditExerciseSetTargetChange,
+  editExerciseError,
+}: ExerciseFormFieldsProps) {
+  const isEdit = mode === "edit";
+  const category = isEdit ? (editExerciseCategory ?? newExerciseCategory) : newExerciseCategory;
+  const metrics = isEdit ? (editExerciseMetrics ?? newExerciseMetrics) : newExerciseMetrics;
+  const setCount = isEdit ? (editExerciseSetCount ?? newExerciseSetCount) : newExerciseSetCount;
+  const setTargets = isEdit ? (editExerciseSetTargets ?? newExerciseSetTargets) : newExerciseSetTargets;
+  const error = isEdit ? editExerciseError : newExerciseError;
+
+  return (
+    <>
+      <FilterSection
+        title="Kategorie"
+        options={categories}
+        selectedValue={category}
+        onSelect={isEdit ? onEditExerciseCategoryChange! : onNewExerciseCategoryChange}
+      />
+      <FilterSection
+        title="Unterkategorie"
+        options={subcategories[category]}
+        selectedValue={isEdit ? (editExerciseSubcategory ?? newExerciseSubcategory) : newExerciseSubcategory}
+        onSelect={isEdit ? onEditExerciseSubcategoryChange! : onNewExerciseSubcategoryChange}
+      />
+      <input
+        value={isEdit ? editExerciseName : newExerciseName}
+        onChange={(event) =>
+          isEdit ? onEditExerciseNameChange?.(event.target.value) : onNewExerciseNameChange(event.target.value)
+        }
+        placeholder="Exercise Name"
+        className="input"
+      />
+      <textarea
+        value={isEdit ? editExerciseNotes : newExerciseNotes}
+        onChange={(event) =>
+          isEdit ? onEditExerciseNotesChange?.(event.target.value) : onNewExerciseNotesChange(event.target.value)
+        }
+        placeholder="Notizen zur Exercise"
+        rows={2}
+        className="textarea"
+      />
+      <div className="app-card--flat">
+        <p className="text-sm font-medium text-strong">Demo-Video</p>
+        <p className="mt-1 text-xs text-muted">YouTube-/Vimeo-Link oder kurzes Video (lokal, max. ca. 2,5 MB).</p>
+        <input
+          type="url"
+          value={isEdit ? editExerciseVideoUrl : newExerciseVideoUrl}
+          onChange={(event) =>
+            isEdit ? onEditExerciseVideoUrlChange?.(event.target.value) : onNewExerciseVideoUrlChange(event.target.value)
+          }
+          placeholder="https://www.youtube.com/watch?v=…"
+          className="input mt-2"
+        />
+        <label className="mt-2 block text-xs text-muted">
+          Video hochladen
+          <input
+            type="file"
+            accept="video/*"
+            className="mt-1 block w-full text-xs file:mr-2 file:rounded file:border-0 file:bg-[var(--brand-500)] file:px-2 file:py-1 file:text-white"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              if (isEdit) onEditExerciseVideoFile?.(file);
+              else onNewExerciseVideoFile(file);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      <label className="block text-sm text-muted">
+        Zeit (Dauer)
+        <input
+          type="number"
+          min={1}
+          value={isEdit ? editExerciseDurationMin : newExerciseDurationMin}
+          onChange={(event) =>
+            isEdit
+              ? onEditExerciseDurationMinChange?.(event.target.value)
+              : onNewExerciseDurationMinChange(event.target.value)
+          }
+          placeholder="z. B. 12"
+          className="input mt-1"
+        />
+      </label>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {metrics.includes("time") ? (
+          <label className="block text-sm text-muted">
+            Zeiteinheit
+            <select
+              value={isEdit ? editExerciseDurationUnit : newExerciseDurationUnit}
+              onChange={(event) => {
+                const unit = event.target.value as "minutes" | "seconds";
+                if (isEdit) onEditExerciseDurationUnitChange?.(unit);
+                else onNewExerciseDurationUnitChange(unit);
+              }}
+              className="select mt-1"
+            >
+              <option value="minutes">Minuten</option>
+              <option value="seconds">Sekunden</option>
+            </select>
+          </label>
+        ) : null}
+        <label className="block text-sm text-muted">
+          Anzahl Sets
+          <input
+            type="number"
+            min={1}
+            value={setCount}
+            onChange={(event) =>
+              isEdit ? onEditExerciseSetCountChange?.(event.target.value) : onNewExerciseSetCountChange(event.target.value)
+            }
+            className="input mt-1"
+          />
+        </label>
+      </div>
+      <div>
+        <p className="mb-2 text-sm font-medium text-strong">Messfelder wählen</p>
+        <div className="flex flex-wrap gap-2">
+          {METRICS_BY_CATEGORY[category].map((metric) => {
+            const active = metrics.includes(metric);
+            return (
+              <button
+                key={metric}
+                type="button"
+                onClick={() =>
+                  isEdit ? onToggleEditExerciseMetric?.(metric) : onToggleNewExerciseMetric(metric)
+                }
+                className={`filter-chip ${active ? "filter-chip--active" : ""}`}
+              >
+                {METRIC_LABELS[metric]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {metrics.length > 0 ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {metrics.map((metric) => (
+            <input
+              key={metric}
+              type="number"
+              value={(isEdit ? editExerciseTargets : newExerciseTargets)?.[metric] ?? ""}
+              onChange={(event) =>
+                isEdit
+                  ? onEditExerciseTargetChange?.(metric, event.target.value)
+                  : onNewExerciseTargetChange(metric, event.target.value)
+              }
+              placeholder={`Ziel ${METRIC_LABELS[metric]}`}
+              className="input"
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-brand">Bitte mindestens ein Messfeld auswählen.</p>
+      )}
+      {Number(setCount) > 1 && metrics.length > 0 ? (
+        <div className="app-card--flat">
+          <p className="text-xs text-muted">Set-spezifische Ziele</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {setTargets.map((setTargetRow, setIndex) => (
+              <div key={`set-goal-${setIndex}`} className="w-full rounded-lg border border-[var(--surface-border)] p-2">
+                <p className="text-xs text-brand">Satz {setIndex + 1}</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {metrics.map((metric) => (
+                    <input
+                      key={`set-${setIndex}-${metric}`}
+                      type="number"
+                      value={setTargetRow[metric] ?? ""}
+                      onChange={(event) =>
+                        isEdit
+                          ? onEditExerciseSetTargetChange?.(setIndex, metric, event.target.value)
+                          : onNewExerciseSetTargetChange(setIndex, metric, event.target.value)
+                      }
+                      placeholder={`${METRIC_LABELS[metric]} (Satz ${setIndex + 1})`}
+                      className="input"
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {mode === "create" ? (
+        <button type="submit" className="btn btn-primary btn-block">
+          Exercise hinzufügen
+        </button>
+      ) : null}
+      {error ? <p className="text-sm text-brand">{error}</p> : null}
+    </>
+  );
+}
+
 export function ExercisesTab({
   categories,
   subcategories,
@@ -478,7 +801,6 @@ export function ExercisesTab({
   onNewExerciseTargetChange,
   newExerciseSetTargets,
   onNewExerciseSetTargetChange,
-  onCreateExercise,
   editingExerciseId,
   onStartEditExercise,
   onCancelEditExercise,
@@ -510,66 +832,70 @@ export function ExercisesTab({
   newExerciseError,
   editExerciseError,
 }: ExercisesTabProps) {
+  const exerciseFormSharedProps = {
+    categories,
+    subcategories,
+    newExerciseName,
+    onNewExerciseNameChange,
+    newExerciseCategory,
+    onNewExerciseCategoryChange,
+    newExerciseSubcategory,
+    onNewExerciseSubcategoryChange,
+    newExerciseNotes,
+    onNewExerciseNotesChange,
+    newExerciseVideoUrl,
+    onNewExerciseVideoUrlChange,
+    onNewExerciseVideoFile,
+    newExerciseDurationMin,
+    onNewExerciseDurationMinChange,
+    newExerciseDurationUnit,
+    onNewExerciseDurationUnitChange,
+    newExerciseSetCount,
+    onNewExerciseSetCountChange,
+    newExerciseMetrics,
+    onToggleNewExerciseMetric,
+    newExerciseTargets,
+    onNewExerciseTargetChange,
+    newExerciseSetTargets,
+    onNewExerciseSetTargetChange,
+    newExerciseError,
+  };
+
   return (
-    <section className="grid gap-4 lg:grid-cols-2">
-      <div className="space-y-4">
-        <FilterSection
-          title="1) Kategorie"
-          options={categories}
-          selectedValue={selectedCategory}
-          onSelect={onCategoryChange}
-        />
+    <section className="space-y-4">
+      <FilterSection
+        title="Kategorie"
+        options={categories}
+        selectedValue={selectedCategory}
+        onSelect={onCategoryChange}
+      />
 
-        <FilterSection
-          title="2) Unterkategorie"
-          options={subcategories[selectedCategory]}
-          selectedValue={selectedSubcategory}
-          onSelect={onSubcategoryChange}
-          category={selectedCategory}
-          onCreateOption={onCreateSubcategory}
-          onDeleteOption={onDeleteSubcategory}
-        />
+      <FilterSection
+        title="Unterkategorie"
+        options={subcategories[selectedCategory]}
+        selectedValue={selectedSubcategory}
+        onSelect={onSubcategoryChange}
+        category={selectedCategory}
+        onCreateOption={onCreateSubcategory}
+        onDeleteOption={onDeleteSubcategory}
+      />
 
-        <DrillCatalogFilterCard filters={drillFilters} onChange={onDrillFilterChange} />
+      <DrillCatalogFilterCard filters={drillFilters} onChange={onDrillFilterChange} />
 
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-xl font-semibold">Exercises in Auswahl</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            {selectedCategory} • {selectedSubcategory}
-          </p>
+      <section className="ui-card">
+        <h2 className="ui-card__title">Exercises in Auswahl</h2>
+        <p className="ui-card__subtitle">
+          {selectedCategory} • {selectedSubcategory}
+        </p>
 
-          <div className="mt-4 space-y-2">
-            {visibleExercises.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-zinc-700 p-3 text-zinc-400">
-                Keine Exercises für diese Auswahl.
-              </p>
-            ) : (
-              visibleExercises.map((exercise) => (
-                <ExerciseCard
-                  key={exercise.id}
-                  exercise={exercise}
-                  href={`/exercises/${exercise.id}`}
-                  onEdit={() => onStartEditExercise(exercise)}
-                  onDelete={() => onDeleteExercise(exercise.id)}
-                />
-              ))
-            )}
-          </div>
-        </section>
-      </div>
-
-      <div className="space-y-4">
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-xl font-semibold">Alle Exercises suchen</h2>
-          <input
-            value={exerciseSearch}
-            onChange={(event) => onExerciseSearchChange(event.target.value)}
-            placeholder="Exercise / Kategorie / Unterkategorie..."
-            className="mt-3 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-          />
-
-          <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
-            {searchableExercises.map((exercise) => (
+        <div className="mt-4 space-y-2">
+          {visibleExercises.length === 0 ? (
+            <EmptyState
+              title="Keine Exercises"
+              description="Für diese Auswahl gibt es noch keine Exercises. Erstelle eine mit dem + Button."
+            />
+          ) : (
+            visibleExercises.map((exercise) => (
               <ExerciseCard
                 key={exercise.id}
                 exercise={exercise}
@@ -577,362 +903,78 @@ export function ExercisesTab({
                 onEdit={() => onStartEditExercise(exercise)}
                 onDelete={() => onDeleteExercise(exercise.id)}
               />
-            ))}
-          </div>
-        </section>
+            ))
+          )}
+        </div>
+      </section>
 
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-          <h3 className="text-xl font-semibold">Neue Exercise hinzufügen</h3>
+      <section className="ui-card">
+        <h2 className="ui-card__title">Alle Exercises suchen</h2>
+        <input
+          value={exerciseSearch}
+          onChange={(event) => onExerciseSearchChange(event.target.value)}
+          placeholder="Exercise / Kategorie / Unterkategorie..."
+          className="input mt-3"
+        />
 
-          <form className="mt-3 space-y-3" onSubmit={onCreateExercise}>
-            <FilterSection
-              title="Kategorie"
-              options={categories}
-              selectedValue={newExerciseCategory}
-              onSelect={onNewExerciseCategoryChange}
-            />
-
-            <FilterSection
-              title="Unterkategorie"
-              options={subcategories[newExerciseCategory]}
-              selectedValue={newExerciseSubcategory}
-              onSelect={onNewExerciseSubcategoryChange}
-            />
-
-            <input
-              value={newExerciseName}
-              onChange={(event) => onNewExerciseNameChange(event.target.value)}
-              placeholder="Exercise Name"
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-            />
-            <textarea
-              value={newExerciseNotes}
-              onChange={(event) => onNewExerciseNotesChange(event.target.value)}
-              placeholder="Notizen zur Exercise"
-              rows={2}
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-            />
-
-            <div className="rounded-xl border border-zinc-700 bg-zinc-950/80 p-3">
-              <p className="text-sm font-medium text-zinc-200">Demo-Video</p>
-              <p className="mt-1 text-xs text-zinc-500">YouTube-/Vimeo-Link oder kurzes Video (lokal, max. ca. 2,5 MB — wird im Browser gespeichert).</p>
-              <input
-                type="url"
-                value={newExerciseVideoUrl}
-                onChange={(event) => onNewExerciseVideoUrlChange(event.target.value)}
-                placeholder="https://www.youtube.com/watch?v=…"
-                className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm"
+        <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+          {searchableExercises.length === 0 ? (
+            <p className="text-sm text-muted">Keine Treffer.</p>
+          ) : (
+            searchableExercises.map((exercise) => (
+              <ExerciseCard
+                key={exercise.id}
+                exercise={exercise}
+                href={`/exercises/${exercise.id}`}
+                onEdit={() => onStartEditExercise(exercise)}
+                onDelete={() => onDeleteExercise(exercise.id)}
               />
-              <label className="mt-2 block text-xs text-zinc-400">
-                Video hochladen
-                <input
-                  type="file"
-                  accept="video/*"
-                  className="mt-1 block w-full text-xs text-zinc-300 file:mr-2 file:rounded file:border-0 file:bg-indigo-600 file:px-2 file:py-1 file:text-white"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
-                    onNewExerciseVideoFile(file);
-                    event.target.value = "";
-                  }}
-                />
-              </label>
-            </div>
-
-            <label className="block text-sm text-zinc-300">
-              Zeit (Dauer)
-              <input
-                type="number"
-                min={1}
-                value={newExerciseDurationMin}
-                onChange={(event) => onNewExerciseDurationMinChange(event.target.value)}
-                placeholder="z. B. 12"
-                className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-              />
-            </label>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              {newExerciseMetrics.includes("time") ? (
-                <label className="block text-sm text-zinc-300">
-                  Zeiteinheit
-                  <select
-                    value={newExerciseDurationUnit}
-                    onChange={(event) => onNewExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
-                    className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                  >
-                    <option value="minutes">Minuten</option>
-                    <option value="seconds">Sekunden</option>
-                  </select>
-                </label>
-              ) : null}
-              <label className="block text-sm text-zinc-300">
-                Anzahl Sets
-                <input
-                  type="number"
-                  min={1}
-                  value={newExerciseSetCount}
-                  onChange={(event) => onNewExerciseSetCountChange(event.target.value)}
-                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                />
-              </label>
-            </div>
-
-            <p className="text-xs text-zinc-500">
-              Diese Zeit wird in der Dauer-Spalte angezeigt und in die Workout-Gesamtzeit übernommen.
-            </p>
-
-            <div>
-              <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
-              <div className="flex flex-wrap gap-2">
-                {METRICS_BY_CATEGORY[newExerciseCategory].map((metric) => {
-                  const active = newExerciseMetrics.includes(metric);
-                  return (
-                    <button
-                      key={metric}
-                      type="button"
-                      onClick={() => onToggleNewExerciseMetric(metric)}
-                      className={`rounded-full border px-3 py-1 text-sm ${
-                        active
-                          ? "border-emerald-400 bg-emerald-500/20 text-emerald-300"
-                          : "border-zinc-700 text-zinc-300"
-                      }`}
-                    >
-                      {METRIC_LABELS[metric]}
-                    </button>
-                  );
-                })}
-              </div>
-              {newExerciseMetrics.includes("distance") ? (
-                <p className="mt-2 text-xs text-cyan-200">Bei Distanz wird Zeit automatisch mit erfasst.</p>
-              ) : null}
-            </div>
-
-            {newExerciseMetrics.length > 0 ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {newExerciseMetrics.map((metric) =>
-                    <input
-                      key={metric}
-                      type="number"
-                      value={newExerciseTargets[metric] ?? ""}
-                      onChange={(event) => onNewExerciseTargetChange(metric, event.target.value)}
-                      placeholder={`Ziel ${METRIC_LABELS[metric]}`}
-                      className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                    />
-                )}
-              </div>
-            ) : (
-              <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
-            )}
-            {Number(newExerciseSetCount) > 1 && newExerciseMetrics.length > 0 ? (
-              <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                <p className="text-xs text-zinc-400">Set-spezifische Ziele</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {newExerciseSetTargets.map((setTargets, setIndex) => (
-                    <div key={`new-set-goal-${setIndex}`} className="w-full rounded-lg border border-zinc-700 p-2">
-                      <p className="text-xs text-cyan-200">Satz {setIndex + 1}</p>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        {newExerciseMetrics.map((metric) => (
-                          <input
-                            key={`new-set-${setIndex}-${metric}`}
-                            type="number"
-                            value={setTargets[metric] ?? ""}
-                            onChange={(event) => onNewExerciseSetTargetChange(setIndex, metric, event.target.value)}
-                            placeholder={`${METRIC_LABELS[metric]} (Satz ${setIndex + 1})`}
-                            className="w-full rounded-xl border border-zinc-700 bg-black px-3 py-2"
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <button type="submit" className="w-full rounded-xl bg-indigo-600 px-4 py-2 font-semibold">
-              Exercise hinzufügen
-            </button>
-            {newExerciseError ? <p className="text-sm text-rose-300">{newExerciseError}</p> : null}
-          </form>
-        </section>
-      </div>
+            ))
+          )}
+        </div>
+      </section>
 
       {editingExerciseId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <section className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-4">
-            <h3 className="text-xl font-semibold text-amber-300">Exercise bearbeiten</h3>
-
+        <div className="modal-overlay">
+          <section className="modal-panel">
+            <h3 className="section-title">Exercise bearbeiten</h3>
             <form className="mt-3 space-y-3" onSubmit={onUpdateExercise}>
-              <FilterSection
-                title="Kategorie"
-                options={categories}
-                selectedValue={editExerciseCategory}
-                onSelect={onEditExerciseCategoryChange}
+              <ExerciseFormFields
+                {...exerciseFormSharedProps}
+                mode="edit"
+                editExerciseName={editExerciseName}
+                onEditExerciseNameChange={onEditExerciseNameChange}
+                editExerciseCategory={editExerciseCategory}
+                onEditExerciseCategoryChange={onEditExerciseCategoryChange}
+                editExerciseSubcategory={editExerciseSubcategory}
+                onEditExerciseSubcategoryChange={onEditExerciseSubcategoryChange}
+                editExerciseNotes={editExerciseNotes}
+                onEditExerciseNotesChange={onEditExerciseNotesChange}
+                editExerciseVideoUrl={editExerciseVideoUrl}
+                onEditExerciseVideoUrlChange={onEditExerciseVideoUrlChange}
+                onEditExerciseVideoFile={onEditExerciseVideoFile}
+                editExerciseDurationMin={editExerciseDurationMin}
+                onEditExerciseDurationMinChange={onEditExerciseDurationMinChange}
+                editExerciseDurationUnit={editExerciseDurationUnit}
+                onEditExerciseDurationUnitChange={onEditExerciseDurationUnitChange}
+                editExerciseSetCount={editExerciseSetCount}
+                onEditExerciseSetCountChange={onEditExerciseSetCountChange}
+                editExerciseMetrics={editExerciseMetrics}
+                onToggleEditExerciseMetric={onToggleEditExerciseMetric}
+                editExerciseTargets={editExerciseTargets}
+                onEditExerciseTargetChange={onEditExerciseTargetChange}
+                editExerciseSetTargets={editExerciseSetTargets}
+                onEditExerciseSetTargetChange={onEditExerciseSetTargetChange}
+                editExerciseError={editExerciseError}
               />
-
-              <FilterSection
-                title="Unterkategorie"
-                options={subcategories[editExerciseCategory]}
-                selectedValue={editExerciseSubcategory}
-                onSelect={onEditExerciseSubcategoryChange}
-              />
-
-              <input
-                value={editExerciseName}
-                onChange={(event) => onEditExerciseNameChange(event.target.value)}
-                placeholder="Exercise Name"
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-              />
-              <textarea
-                value={editExerciseNotes}
-                onChange={(event) => onEditExerciseNotesChange(event.target.value)}
-                placeholder="Notizen zur Exercise"
-                rows={2}
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-              />
-
-              <div className="rounded-xl border border-zinc-700 bg-zinc-950/80 p-3">
-                <p className="text-sm font-medium text-zinc-200">Demo-Video</p>
-                <p className="mt-1 text-xs text-zinc-500">Link oder lokales Video (max. ca. 2,5 MB).</p>
-                <input
-                  type="url"
-                  value={editExerciseVideoUrl}
-                  onChange={(event) => onEditExerciseVideoUrlChange(event.target.value)}
-                  placeholder="https://…"
-                  className="mt-2 w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm"
-                />
-                <label className="mt-2 block text-xs text-zinc-400">
-                  Video hochladen
-                  <input
-                    type="file"
-                    accept="video/*"
-                    className="mt-1 block w-full text-xs text-zinc-300 file:mr-2 file:rounded file:border-0 file:bg-indigo-600 file:px-2 file:py-1 file:text-white"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0] ?? null;
-                      onEditExerciseVideoFile(file);
-                      event.target.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-
-              <label className="block text-sm text-zinc-300">
-                Zeit (Dauer)
-                <input
-                  type="number"
-                  min={1}
-                  value={editExerciseDurationMin}
-                  onChange={(event) => onEditExerciseDurationMinChange(event.target.value)}
-                  placeholder="z. B. 12"
-                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                />
-              </label>
-
-              <div className="grid gap-2 sm:grid-cols-2">
-                {editExerciseMetrics.includes("time") ? (
-                  <label className="block text-sm text-zinc-300">
-                    Zeiteinheit
-                    <select
-                      value={editExerciseDurationUnit}
-                      onChange={(event) => onEditExerciseDurationUnitChange(event.target.value as "minutes" | "seconds")}
-                      className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                    >
-                      <option value="minutes">Minuten</option>
-                      <option value="seconds">Sekunden</option>
-                    </select>
-                  </label>
-                ) : null}
-                <label className="block text-sm text-zinc-300">
-                  Anzahl Sets
-                  <input
-                    type="number"
-                    min={1}
-                    value={editExerciseSetCount}
-                    onChange={(event) => onEditExerciseSetCountChange(event.target.value)}
-                    className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                  />
-                </label>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-medium text-zinc-300">Messfelder wählen</p>
-                <div className="flex flex-wrap gap-2">
-                  {METRICS_BY_CATEGORY[editExerciseCategory].map((metric) => {
-                    const active = editExerciseMetrics.includes(metric);
-                    return (
-                      <button
-                        key={metric}
-                        type="button"
-                        onClick={() => onToggleEditExerciseMetric(metric)}
-                        className={`rounded-full border px-3 py-1 text-sm ${
-                          active
-                            ? "border-emerald-400 bg-emerald-500/20 text-emerald-300"
-                            : "border-zinc-700 text-zinc-300"
-                        }`}
-                      >
-                        {METRIC_LABELS[metric]}
-                      </button>
-                    );
-                  })}
-                </div>
-                {editExerciseMetrics.includes("distance") ? (
-                  <p className="mt-2 text-xs text-cyan-200">Bei Distanz wird Zeit automatisch mit erfasst.</p>
-                ) : null}
-              </div>
-
-              {editExerciseMetrics.length > 0 ? (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {editExerciseMetrics.map((metric) =>
-                      <input
-                        key={metric}
-                        type="number"
-                        value={editExerciseTargets[metric] ?? ""}
-                        onChange={(event) => onEditExerciseTargetChange(metric, event.target.value)}
-                        placeholder={`Ziel ${METRIC_LABELS[metric]}`}
-                        className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-                      />
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-amber-300">Bitte mindestens ein Messfeld auswählen.</p>
-              )}
-              {Number(editExerciseSetCount) > 1 && editExerciseMetrics.length > 0 ? (
-                <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-                  <p className="text-xs text-zinc-400">Set-spezifische Ziele</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {editExerciseSetTargets.map((setTargets, setIndex) => (
-                      <div key={`edit-set-goal-${setIndex}`} className="w-full rounded-lg border border-zinc-700 p-2">
-                        <p className="text-xs text-cyan-200">Satz {setIndex + 1}</p>
-                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                          {editExerciseMetrics.map((metric) => (
-                            <input
-                              key={`edit-set-${setIndex}-${metric}`}
-                              type="number"
-                              value={setTargets[metric] ?? ""}
-                              onChange={(event) => onEditExerciseSetTargetChange(setIndex, metric, event.target.value)}
-                              placeholder={`${METRIC_LABELS[metric]} (Satz ${setIndex + 1})`}
-                              className="w-full rounded-xl border border-zinc-700 bg-black px-3 py-2"
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
               <div className="flex gap-2">
-                <button type="submit" className="flex-1 rounded-xl bg-amber-600 px-4 py-2 font-semibold">
+                <button type="submit" className="btn btn-primary flex-1">
                   Änderungen speichern
                 </button>
-                <button
-                  type="button"
-                  onClick={onCancelEditExercise}
-                  className="flex-1 rounded-xl border border-zinc-600 px-4 py-2 font-semibold text-zinc-200"
-                >
+                <button type="button" onClick={onCancelEditExercise} className="btn btn-ghost flex-1">
                   Abbrechen
                 </button>
               </div>
-
-              {editExerciseError ? <p className="text-sm text-rose-300">{editExerciseError}</p> : null}
             </form>
           </section>
         </div>
@@ -953,47 +995,35 @@ function ExerciseCard({
   onDelete?: () => void;
 }) {
   return (
-    <article className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2">
-      <p className="font-semibold">{exercise.name}</p>
-      <p className="text-sm text-zinc-400">
+    <article className="list-card">
+      <p className="list-card__title">{exercise.name}</p>
+      <p className="list-card__meta">
         {exercise.category} • {exercise.subcategory} •{" "}
         {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
       </p>
-      <p className="text-xs text-zinc-500">
-        Dauer: {exercise.durationMin} {exercise.timeUnit === "seconds" ? "Sek" : "Min"}
+      <p className="list-card__meta">
+        Dauer: {exercise.durationMin} {exercise.timeUnit === "seconds" ? "Sek" : "Min"} · Sets: {exercise.setCount ?? 1}
       </p>
-      <p className="text-xs text-zinc-500">Sets: {exercise.setCount ?? 1}</p>
-      <p className="text-xs text-zinc-500">Ziele: {formatMetricTargets(exercise)}</p>
-      {exercise.notes ? <p className="text-xs text-zinc-500">Notizen: {exercise.notes}</p> : null}
+      <p className="list-card__meta">Ziele: {formatMetricTargets(exercise)}</p>
+      {exercise.notes ? <p className="list-card__meta">{exercise.notes}</p> : null}
 
-      {href ? (
-        <Link
-          href={href}
-          className="mt-2 inline-flex rounded-lg border border-indigo-500 px-3 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-950"
-        >
-          Exercise starten
-        </Link>
-      ) : null}
-
-      {onEdit ? (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="mt-2 ml-2 inline-flex rounded-lg border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-950"
-        >
-          Bearbeiten
-        </button>
-      ) : null}
-
-      {onDelete ? (
-        <button
-          type="button"
-          onClick={onDelete}
-          className="mt-2 ml-2 inline-flex rounded-lg border border-rose-500 px-3 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-950"
-        >
-          Löschen
-        </button>
-      ) : null}
+      <div className="list-card__actions">
+        {href ? (
+          <Link href={href} className="btn btn-primary btn-xs">
+            Exercise starten
+          </Link>
+        ) : null}
+        {onEdit ? (
+          <button type="button" onClick={onEdit} className="btn btn-outline btn-xs">
+            Bearbeiten
+          </button>
+        ) : null}
+        {onDelete ? (
+          <button type="button" onClick={onDelete} className="btn btn-danger-outline btn-xs">
+            Löschen
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -1006,12 +1036,12 @@ function DrillCatalogFilterCard({
   onChange: (patch: Partial<DrillCatalogFilters>) => void;
 }) {
   return (
-    <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
-      <h2 className="text-lg font-semibold">3) Katalog-Filter</h2>
-      <p className="mt-1 text-xs text-zinc-500">Filtert die Listen „Exercises in Auswahl“ und „Alle Exercises suchen“.</p>
+    <section className="ui-card">
+      <h2 className="ui-card__title">Katalog-Filter</h2>
+      <p className="ui-card__subtitle">Filtert die Exercise-Listen nach Video, Dauer und Ort.</p>
 
       <div className="mt-3">
-        <p className="text-xs font-medium text-zinc-500">Video</p>
+        <p className="input-label">Video</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {(
             [
@@ -1024,9 +1054,7 @@ function DrillCatalogFilterCard({
               key={value}
               type="button"
               onClick={() => onChange({ video: value })}
-              className={`rounded-xl border px-3 py-1.5 text-sm ${
-                filters.video === value ? "border-indigo-500 bg-indigo-900/40 text-white" : "border-zinc-700 bg-zinc-950 text-zinc-400"
-              }`}
+              className={`filter-chip ${filters.video === value ? "filter-chip--active" : ""}`}
             >
               {label}
             </button>
@@ -1035,7 +1063,7 @@ function DrillCatalogFilterCard({
       </div>
 
       <div className="mt-3">
-        <p className="text-xs font-medium text-zinc-500">Dauer (planmäßig)</p>
+        <p className="input-label">Dauer (planmäßig)</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {(
             [
@@ -1048,9 +1076,7 @@ function DrillCatalogFilterCard({
               key={value}
               type="button"
               onClick={() => onChange({ duration: value })}
-              className={`rounded-xl border px-3 py-1.5 text-sm ${
-                filters.duration === value ? "border-indigo-500 bg-indigo-900/40 text-white" : "border-zinc-700 bg-zinc-950 text-zinc-400"
-              }`}
+              className={`filter-chip ${filters.duration === value ? "filter-chip--active" : ""}`}
             >
               {label}
             </button>
@@ -1059,7 +1085,7 @@ function DrillCatalogFilterCard({
       </div>
 
       <div className="mt-3">
-        <p className="text-xs font-medium text-zinc-500">Ort / Equipment</p>
+        <p className="input-label">Ort / Equipment</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {(
             [
@@ -1073,9 +1099,7 @@ function DrillCatalogFilterCard({
               key={value}
               type="button"
               onClick={() => onChange({ equipment: value })}
-              className={`rounded-xl border px-3 py-1.5 text-sm ${
-                filters.equipment === value ? "border-indigo-500 bg-indigo-900/40 text-white" : "border-zinc-700 bg-zinc-950 text-zinc-400"
-              }`}
+              className={`filter-chip ${filters.equipment === value ? "filter-chip--active" : ""}`}
             >
               {label}
             </button>
@@ -1127,44 +1151,32 @@ function FilterSection<T extends string>({
   };
 
   return (
-    <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4">
+    <section className="ui-card">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xl font-semibold">{title}</h2>
+        <h2 className="ui-card__title">{title}</h2>
         {canEdit ? (
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handleAdd}
-              className="rounded-lg border border-zinc-600 px-2 py-1 text-xs"
-            >
-              ✏️
+            <button type="button" onClick={handleAdd} className="btn btn-ghost btn-xs" aria-label="Unterkategorie hinzufügen">
+              +
             </button>
-            <button
-              type="button"
-              onClick={handleDelete}
-              className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300"
-            >
-              🗑
+            <button type="button" onClick={handleDelete} className="btn btn-danger-outline btn-xs" aria-label="Unterkategorie löschen">
+              Löschen
             </button>
           </div>
         ) : null}
       </div>
 
       {showAdd ? (
-        <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-950 p-3">
-          <p className="text-xs text-zinc-400">Neue Unterkategorie</p>
+        <div className="mt-3 app-card--flat">
+          <p className="input-label">Neue Unterkategorie</p>
           <div className="mt-2 flex gap-2">
             <input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              className="flex-1 rounded-lg border border-zinc-700 bg-black px-2 py-1 text-sm"
+              className="input flex-1"
               placeholder="Name"
             />
-            <button
-              type="button"
-              onClick={handleAdd}
-              className="rounded-lg border border-emerald-600 px-2 py-1 text-xs text-emerald-200"
-            >
+            <button type="button" onClick={handleAdd} className="btn btn-primary btn-xs">
               Speichern
             </button>
             <button
@@ -1173,7 +1185,7 @@ function FilterSection<T extends string>({
                 setShowAdd(false);
                 setDraft("");
               }}
-              className="rounded-lg border border-zinc-600 px-2 py-1 text-xs"
+              className="btn btn-ghost btn-xs"
             >
               Abbrechen
             </button>
@@ -1187,11 +1199,7 @@ function FilterSection<T extends string>({
             key={option}
             type="button"
             onClick={() => onSelect(option)}
-            className={`rounded-xl border px-3 py-2 text-base transition ${
-              selectedValue === option
-                ? "border-indigo-500 bg-indigo-900/40 text-white"
-                : "border-zinc-700 bg-zinc-950 text-zinc-300"
-            }`}
+            className={`filter-chip ${selectedValue === option ? "filter-chip--active" : ""}`}
           >
             {option}
           </button>
@@ -1208,23 +1216,18 @@ type TabSwitcherProps = {
 
 export function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
   return (
-    <section className="rounded-3xl border border-zinc-800 bg-zinc-900 p-2">
-      <div className="grid grid-cols-2 gap-2">
-        {(["Workouts", "Exercises"] as TrainingTab[]).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => onTabChange(tab)}
-            className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-              activeTab === tab
-                ? "border border-indigo-500 bg-indigo-900/40 text-white"
-                : "border border-zinc-700 bg-zinc-950 text-zinc-400"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-    </section>
+    <div className="segmented w-full max-w-md">
+      {(["Workouts", "Exercises"] as TrainingTab[]).map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => onTabChange(tab)}
+          className={`segmented__btn flex-1 ${activeTab === tab ? "segmented__btn--active" : ""}`}
+          aria-pressed={activeTab === tab}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
   );
 }

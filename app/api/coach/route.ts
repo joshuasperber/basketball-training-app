@@ -336,13 +336,125 @@ async function callLlm(
   coachWorkoutByDay?: Partial<Record<DayKey, string>>;
 }> {
   if (payload.intent === "weekly_plan") {
+    const sessions = payload.recentSessions ?? [];
+    const games = payload.recentGames ?? [];
+    const profile = payload.profile ?? {};
     const merged = mergeWeekConfigFromPayload(payload);
-    const plan = await runWeeklyPlanCombined(payload, config, merged);
+    const availabilityLine = payload.weekAvailability
+      ? Object.entries(payload.weekAvailability)
+          .map(([day, cfg]) => `${day}=${cfg.mode}(${cfg.minutes}m)`)
+          .join(", ")
+      : JSON.stringify(merged);
+
+    const training14Json = JSON.stringify(payload.recentTraining14d ?? []).slice(0, 3200);
+    const countsJson = JSON.stringify(payload.subcategoryCounts14d ?? {}).slice(0, 900);
+    const catalogJson = JSON.stringify(payload.workoutCatalog ?? []).slice(0, 5200);
+
+    const weeklyUser = `Erstelle einen vollständigen Wochen-Trainingsplan (Mo-So) als JSON.
+
+[Spieler]
+Position: ${payload.position ?? "unbekannt"} | Spielstil: ${payload.playStyle ?? "unbekannt"} | Level: ${payload.level ?? "?"} | Phase: ${payload.mesocyclePhase ?? "build"}
+Körper: ${profile.heightCm ?? "?"} cm · ${profile.weightKg ?? "?"} kg · KFA ${profile.bodyFatPct ?? "?"}%
+
+[Verfügbarkeit / Vorgabe]
+${availabilityLine}
+
+[Bereits trainiert – letzte 14 Tage]
+${training14Json}
+
+[Häufigkeit Unterkategorien (14 Tage)]
+${countsJson}
+
+[Workout-Katalog – nur diese IDs für coachWorkoutByDay]
+${catalogJson}
+
+[Letzte Sessions kompakt]
+${JSON.stringify(sessions).slice(0, 900)}
+
+[Letzte Spiele]
+${JSON.stringify(games).slice(0, 500)}
+
+[JSON-Schema]
+Antworte NUR mit JSON:
+{
+  "headline": string (max 6 Wörter),
+  "bullets": string[] (3-5 kurze Sätze: Begründung der Woche),
+  "weekConfig": {
+    "monday": {"mode":"gym"|"basketball_training"|"game_training"|"game_day"|"recovery"|"custom"|"unavailable"|"rest","minutes":number},
+    ... alle 7 englischen Tage ...
+  },
+  "coachWorkoutByDay": {
+    "monday": "workout-id-aus-katalog" | null,
+    ... alle 7 Tage ...
+  }
+}
+
+Regeln:
+- Nutze die Verfügbarkeit als harte Vorgabe: nur an Tagen mit Zeit schwere Einheiten; mindestens 1 recovery pro Woche wenn möglich.
+- Minuten realistisch (30-90 typisch), game_day eher kürzer.
+- PG/SG: mehr basketball_training; Bigs: mehr gym + finishing; hohe KFA: +1 conditioning/leichte Einheit.
+- coachWorkoutByDay: pro Tag höchstens eine ID aus dem Katalog; null bei rest/unavailable/recovery oder wenn kein passendes Workout.
+- gym-Tage nur Gym-Workouts; basketball_training / game_day / game_training NUR Basketball-Workouts aus dem Katalog — niemals eine Gym-ID an einem Basketball- oder Spieltag.
+- Variiere Unterkategorien, wenn die 14-Tage-Häufigkeit zeigt, dass du eine Schiene schon oft hattest.
+`;
+
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              'Du bist ein Basketball-S&C-Coach. Antworte AUSSCHLIESSLICH mit gültigem JSON {"headline":string,"bullets":string[],"weekConfig":object,"coachWorkoutByDay":object}. coachWorkoutByDay: je englischer Wochentag ein string (Workout-ID aus Katalog) oder null. Strikte Regel: An Tagen mit mode basketball_training, game_training oder game_day darf NUR eine Workout-ID mit category "Basketball" stehen; an gym-Tagen nur "Gym"; an recovery nur Regeneration/Home.',
+          },
+          { role: "user", content: weeklyUser },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.45,
+        max_tokens: 1200,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(`${config.providerLabel.toUpperCase()} HTTP ${response.status}${errorBody ? `: ${errorBody.slice(0, 200)}` : ""}`);
+    }
+    const json = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const content = json.choices?.[0]?.message?.content ?? "";
+    let parsed: {
+      headline?: string;
+      bullets?: string[];
+      weekConfig?: unknown;
+      coachWorkoutByDay?: unknown;
+    } = {};
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      const stripped = content.replace(/```json\s*|\s*```/g, "").trim();
+      try {
+        parsed = JSON.parse(stripped);
+      } catch {
+        parsed = {};
+      }
+    }
+    const aiWeek = applyLlmWeekPatch(merged, parsed.weekConfig);
+    const weekConfig = aiWeek;
+    const coachWorkoutByDay = sanitizeCoachWorkoutByDay(parsed.coachWorkoutByDay, weekConfig, payload.workoutCatalog);
     return {
-      headline: plan.headline,
-      bullets: plan.bullets,
-      weekConfig: plan.weekConfig,
-      coachWorkoutByDay: plan.coachWorkoutByDay,
+      headline: parsed.headline?.trim() || "Deine KI-Woche",
+      bullets:
+        Array.isArray(parsed.bullets) && parsed.bullets.length > 0
+          ? parsed.bullets.slice(0, 6)
+          : ["Plan erstellt — im Profil kannst du Tage feinjustieren."],
+      weekConfig,
+      coachWorkoutByDay,
       source: "llm",
       provider: config.providerLabel,
       model: config.model,
@@ -352,35 +464,83 @@ async function callLlm(
   const sessions = payload.recentSessions ?? [];
   const games = payload.recentGames ?? [];
   const profile = payload.profile ?? {};
-  const coachNoteLine = (payload.coachNote ?? "").trim().slice(0, 400);
-  const intakeSummaryLine = (payload.playerIntakeSummary ?? "").trim().slice(0, 900);
-  const training14Slice = JSON.stringify(payload.recentTraining14d ?? []).slice(0, 900);
+  const profileLine = [
+    profile.heightCm ? `${profile.heightCm} cm` : null,
+    profile.weightKg ? `${profile.weightKg} kg` : null,
+    profile.bodyFatPct ? `KFA ${profile.bodyFatPct}%` : null,
+    typeof profile.age === "number" && profile.age > 0 ? `Alter ${profile.age} J.` : null,
+    profile.wingspanCm ? `Spannweite ${profile.wingspanCm} cm` : null,
+    profile.standingReachCm ? `Standing Reach ${profile.standingReachCm} cm` : null,
+  ].filter(Boolean).join(" · ");
+
   const availabilityLine = payload.weekAvailability
     ? Object.entries(payload.weekAvailability)
         .map(([day, cfg]) => `${day}=${cfg.mode}(${cfg.minutes}m)`)
         .join(", ")
-    : "k.A.";
+    : "nicht angegeben";
 
-  const userPrompt = `Kurz-Tipps (Du-Form, 4-5 Bullets, konkret).
-Pos ${payload.position ?? "?"} | ${payload.playStyle ?? "?"} | L${payload.level ?? "?"} | ${payload.mesocyclePhase ?? "build"}
-Verfügbarkeit: ${availabilityLine}
-Ziele: ${payload.activeGoals?.slice(0, 4).join("; ") || "keine"}
-${coachNoteLine ? `Notiz: ${coachNoteLine}\n` : ""}${intakeSummaryLine ? `Intake: ${intakeSummaryLine}\n` : ""}
-Training14d: ${training14Slice}
-Sessions: ${JSON.stringify(sessions).slice(0, 700)}
-Spiele: ${JSON.stringify(games).slice(0, 350)}
-JSON: {"headline":string max 6 Wörter,"bullets":string[]}`;
+  const goalsLine = payload.activeGoals?.length
+    ? payload.activeGoals.slice(0, 6).join("; ")
+    : "keine aktiven Ziele";
+
+  const injuryLine = payload.injuryExerciseNames?.length
+    ? `Schon-Übungen: ${payload.injuryExerciseNames.slice(0, 6).join(", ")}`
+    : "";
+
+  const coachNoteLine = (payload.coachNote ?? "").trim().slice(0, 550);
+  const intakeSummaryLine = (payload.playerIntakeSummary ?? "").trim().slice(0, 2000);
+  const training14Slice = JSON.stringify(payload.recentTraining14d ?? []).slice(0, 1400);
+  const displayFirstName =
+    profile.fullName?.trim().split(/\s+/)[0]?.replace(/[^a-zA-ZäöüÄÖÜß'-]/g, "") || null;
+
+  const userPrompt = `Wir besprechen die **nächsten Trainingstage** — wie in einem kurzen 1:1 auf der Bank.${
+    displayFirstName ? ` Du sprichst mich mit „${displayFirstName}“ an, wenn es passt.` : ""
+  }
+
+[Voraussetzungen]
+Position: ${payload.position ?? "unbekannt"} | Spielstil: ${payload.playStyle ?? "unbekannt"} | Level: ${payload.level ?? "?"} | Phase: ${payload.mesocyclePhase ?? "build"}
+Körper: ${profileLine || "keine Angaben"}
+${injuryLine}
+
+[Verfügbarkeit pro Woche]
+${availabilityLine}
+
+[Aktive Ziele]
+${goalsLine}
+
+[Fokus aus der App]
+${payload.focus ?? "Allgemein – ganzheitlich (Skill, Kraft, Regeneration)"}
+
+${coachNoteLine ? `[Was ich dir mit auf den Weg gebe / wie es mir gerade geht]\n${coachNoteLine}\n` : ""}
+${intakeSummaryLine ? `[Kennenlernen – was ich über mich gesagt habe]\n${intakeSummaryLine}\n` : ""}
+
+[Letzte Workouts – Rohverlauf 14 Tage]
+${training14Slice}
+
+[Letzte ${sessions.length} Sessions – Kennzahlen]
+${JSON.stringify(sessions).slice(0, 1400)}
+
+[Letzte ${games.length} Spiele]
+${JSON.stringify(games).slice(0, 650)}
+
+**Deine Aufgabe**
+- **Du-Form**, respektvoll, wie ein echter Trainer — keine Motivations-Floskeln, keine Buzzwords.
+- **4–6** Bullets: jeder Bullet **ein** klar umsetzbarer Satz (was, wie oft, worauf achten).
+- Nutze **Zahlen** aus Sessions/RPE/Würfen/Spielen, wenn sie da sind; beziehe dich auf meine wöchentliche Notiz und auf den **Kennenlern-Block**, falls vorhanden.
+- Wenn Daten dünn sind: sag das ehrlich und schlag trotzdem 2–3 sinnvolle Defaults vor.
+
+Antworte NUR mit JSON: {"headline": string (max 7 Wörter), "bullets": string[] }`;
 
   const content = await fetchChatCompletionJson(
     config,
     [
       {
         role: "system",
-        content: `${COACH_PERSONA_CORE} Kurz-Tipps, kein Wochen-Gantt.${COACH_JSON_ONLY}`,
+        content: `${COACH_PERSONA_CORE} Du gibst **Kurz-Tipps für die nächsten Tage** (kein vollständiger Wochen-Gantt).${COACH_JSON_ONLY} Format: {"headline":string,"bullets":string[]}.`,
       },
       { role: "user", content: userPrompt },
     ],
-    { max_tokens: 380, temperature: 0.5 },
+    { max_tokens: 560, temperature: 0.55 },
   );
 
   const parsedObj = parseLlmJsonObject(content);

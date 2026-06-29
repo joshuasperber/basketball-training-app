@@ -17,6 +17,12 @@ export type GameStatEntry = {
   assists: number | null;
   rebounds: number | null;
   steals: number | null;
+  /** z. B. 5v5, 3v3 */
+  teamFormat?: string | null;
+  /** Anzahl Spiele (bei Batch-Eingabe mit Durchschnittswerten). */
+  gamesPlayed?: number | null;
+  /** true = gespeicherte Stats sind Ø pro Spiel (aus Summen/Ø-Eingabe berechnet). */
+  statsAreTotals?: boolean;
   notes?: string;
   /** Pfad zum Foto im Supabase Storage Bucket "game-photos". */
   photoPath?: string | null;
@@ -94,6 +100,10 @@ export function aggregateGameStatTotals(entries: GameStatEntry[]) {
     }),
     { count: 0, points: 0, assists: 0, rebounds: 0, steals: 0, minutes: 0 },
   );
+}
+
+export function findGameStatByDateAndContext(date: string, context: GameStatEntry["context"]) {
+  return loadGameStats().find((entry) => entry.date === date && entry.context === context);
 }
 
 export function upsertGameStat(entry: Omit<GameStatEntry, "id" | "createdAt"> & { id?: string }) {

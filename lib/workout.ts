@@ -265,13 +265,17 @@ export const getTodayWorkoutPlan = (): WorkoutPlan => {
 export const getWorkoutPlanForDay = (day: number): WorkoutPlan =>
   WEEKLY_WORKOUT_PLAN[day] ?? WEEKLY_WORKOUT_PLAN[1];
 
+/** Datum des Wochentags in derselben Kalenderwoche (Mo–So) wie `fromDate`. */
 export const getDateForWeekday = (dayIndex: number, fromDate = new Date()) => {
   const normalizedDay = ((dayIndex % 7) + 7) % 7;
-  const currentDay = fromDate.getDay();
-  const diff = (normalizedDay - currentDay + 7) % 7;
-  const result = new Date(fromDate);
-  result.setHours(0, 0, 0, 0);
-  result.setDate(fromDate.getDate() + diff);
+  const ref = new Date(fromDate);
+  ref.setHours(0, 0, 0, 0);
+  const daysFromMonday = (ref.getDay() + 6) % 7;
+  const weekMonday = new Date(ref);
+  weekMonday.setDate(ref.getDate() - daysFromMonday);
+  const offsetInWeek = normalizedDay === 0 ? 6 : normalizedDay - 1;
+  const result = new Date(weekMonday);
+  result.setDate(weekMonday.getDate() + offsetInWeek);
   return result;
 };
 

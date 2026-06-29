@@ -1,5 +1,6 @@
 import { type Category, type Exercise } from "@/lib/training-data";
 import { type DayKey } from "@/lib/planner";
+import { roundUpToNearestFive } from "@/lib/workout-duration";
 
 export type PlayerPosition = "pg" | "sg" | "sf" | "pf" | "c";
 
@@ -31,6 +32,10 @@ function getSeedIndex(seedSource: string, length: number) {
     hash = (hash * 31 + seedSource.charCodeAt(i)) >>> 0;
   }
   return hash % length;
+}
+
+function planDurationMinutes(rawMinutes: number, targetMinutes: number) {
+  return roundUpToNearestFive(Math.max(rawMinutes * 1.1, targetMinutes, 20));
 }
 
 function rotateArray<T>(items: T[], start: number) {
@@ -175,7 +180,7 @@ export function buildGeneratedWorkout(params: {
         subcategory: params.subcategory,
         exerciseIds: [],
         exerciseNames: ["Keine passende Exercise gefunden"],
-        durationMin: Math.max(20, params.targetMinutes),
+        durationMin: planDurationMinutes(0, params.targetMinutes),
         notes: "Keine Übungen in der Datenbank gefunden. Bitte Exercise-Pool erweitern.",
       };
     }
@@ -188,7 +193,7 @@ export function buildGeneratedWorkout(params: {
       subcategory: params.subcategory,
       exerciseIds: fullCategoryPool.map((exercise) => exercise.id),
       exerciseNames: fullCategoryPool.map((exercise) => exercise.name),
-      durationMin: Math.max(totalDuration, Math.max(20, params.targetMinutes)),
+      durationMin: planDurationMinutes(totalDuration, params.targetMinutes),
       notes: "Komplett gewählt: enthält alle Exercises der Kategorie.",
     };
   }
@@ -236,7 +241,7 @@ export function buildGeneratedWorkout(params: {
       subcategory: params.subcategory,
       exerciseIds: [],
       exerciseNames: ["Keine passende Exercise gefunden"],
-      durationMin: Math.max(20, params.targetMinutes),
+      durationMin: planDurationMinutes(0, params.targetMinutes),
       notes: "Keine Übungen in der Datenbank gefunden. Bitte Exercise-Pool erweitern.",
     };
   }
@@ -248,7 +253,7 @@ export function buildGeneratedWorkout(params: {
     subcategory: params.subcategory,
     exerciseIds: picked.map((exercise) => exercise.id),
     exerciseNames: picked.map((exercise) => exercise.name),
-    durationMin: Math.max(totalDuration, Math.max(20, params.targetMinutes)),
+    durationMin: planDurationMinutes(totalDuration, params.targetMinutes),
     notes: "Automatisch generiert aus vorhandenem Exercise-Pool.",
   };
 }

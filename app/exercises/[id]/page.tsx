@@ -259,7 +259,7 @@ export default function ExerciseExecutionPage() {
           <h2 className="section-title mt-1">Sets erfassen</h2>
           <div className="mt-3 space-y-2">
             {sets.map((set, index) => (
-              <div key={set.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <div key={set.id} className="list-card">
                 <p className="text-sm font-semibold text-strong">Satz {index + 1}</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {exercise.metricKeys.map((metric) => (

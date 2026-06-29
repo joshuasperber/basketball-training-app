@@ -34,16 +34,6 @@ type ScoutingRow = {
   updated_at: string;
 };
 
-type ProgressRow = {
-  user_id?: string | null;
-  email?: string | null;
-  sessions?: unknown;
-  workout_history?: string | null;
-  game_stats?: string | null;
-  profile_cache?: string | null;
-  profile_username?: string | null;
-};
-
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ teamId: string }> },

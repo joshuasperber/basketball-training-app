@@ -26,10 +26,22 @@ import {
 } from "@/lib/activity-calendar";
 import { pullProgressFromCloud } from "@/lib/progress-sync";
 import { loadPerformanceTips } from "@/lib/performance-tips";
-import { getCompletedWorkoutIdsForDate } from "@/lib/workout-completion";
+import { getCompletedWorkoutIdsForDate, isWorkoutIdCompletedOnDate } from "@/lib/workout-completion";
 import { loadGameStats } from "@/lib/game-stats";
 import { loadWorkouts } from "@/lib/training-storage";
+import { gamePlanId } from "@/lib/game-plan-ids";
+import { readWeeklySuggestionsCache } from "@/lib/weekly-suggestions-cache";
 import { getWarmupWorkouts } from "@/lib/warmup-workouts";
+
+const dayByIndex: Record<number, import("@/lib/planner").DayKey> = {
+  0: "sunday",
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+  6: "saturday",
+};
 
 const ALLOWED_SPORTS: SportType[] = ["Gym", "Basketball", "Home", "Regeneration", "Rest"];
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
@@ -112,16 +124,6 @@ const PLAYER_QUOTES = [
 ];
 const DASHBOARD_LAST_LEVEL_KEY = "bt.dashboard.last-level.v1";
 
-// #region agent log
-function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
-  fetch("http://127.0.0.1:7908/ingest/88ac75e7-3e4c-4c76-9620-de72da587f9b", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e86b79" },
-    body: JSON.stringify({ sessionId: "e86b79", runId: "app-audit-1", hypothesisId, location: "app/dashboard/DashboardClient.tsx", message, data, timestamp: Date.now() }),
-  }).catch(() => {});
-}
-// #endregion
-
 const SPORT_COLOR: Record<SportType, string> = {
   Basketball: "rgba(255, 122, 24, 0.8)",
   Gym: "rgba(168, 85, 247, 0.85)",
@@ -185,7 +187,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       const nextCompletedIds = getCompletedWorkoutIdsForDate(dateKey);
       loadGameStats()
         .filter((entry) => entry.date === dateKey)
-        .forEach((entry) => nextCompletedIds.add(entry.context === "game_training" ? `game_training-${dateKey}` : `game-${dateKey}`));
+        .forEach((entry) => nextCompletedIds.add(gamePlanId(dateKey, entry.context === "game_training" ? "game_training" : "game")));
       setCompletedTodayIds(nextCompletedIds);
       setProgress(parsed);
       try {
@@ -196,6 +198,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         const rawManual = window.localStorage.getItem(MANUAL_DAY_WORKOUTS_KEY);
         const dailyPlans = readDailyPlanMap();
         const tags = dailyPlans[dateKey]?.length ? dailyPlans[dateKey] : getTodayTagsFromProfileFallback(todayDayIndex);
+        const cachedEntry = readWeeklySuggestionsCache()[dayByIndex[todayDayIndex]];
+        const cachedSuggestion = cachedEntry?.suggested ?? cachedEntry?.autoSuggested ?? null;
         const workoutFromWeekly = getWorkoutFromTodayTags(tags);
         const hasGameToday = tags.includes("Spieltag") || tags.includes("Spieltraining");
         let todayManuals: Array<{ id?: string; title: string; sport?: string; subcategory?: string }> = [];
@@ -208,20 +212,45 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         }
         const hiddenAutoForToday = new Set(readHiddenAutoWorkoutsMap()[dateKey] ?? []);
         const autoHidden = hiddenAutoForToday.has(HIDE_ALL_AUTO_WORKOUTS_ID);
-        const shouldShowWeeklySummaryCard = Boolean(workoutFromWeekly && (hasGameToday || todayManuals.length === 0));
-        if (workoutFromWeekly && shouldShowWeeklySummaryCard) {
-          const workoutId = workoutFromWeekly.kind ? `${workoutFromWeekly.kind}-${dateKey}` : todayWorkout.id;
-          nextCards.push({
-            id: workoutId,
-            title: workoutFromWeekly.title,
-            sport: workoutFromWeekly.sport,
-            subcategory: workoutFromWeekly.subcategory,
-            href: workoutFromWeekly.kind
-              ? `/game-track?date=${dateKey}&context=${workoutFromWeekly.kind === "game_training" ? "game_training" : "game"}`
-              : `/workouts?day=${todayDayIndex}`,
-            kind: workoutFromWeekly.kind,
-          });
-          plannedIds.add(workoutId);
+        const shouldShowWeeklySummaryCard = Boolean(
+          (workoutFromWeekly || cachedSuggestion) && (hasGameToday || todayManuals.length === 0),
+        );
+        if (shouldShowWeeklySummaryCard) {
+          if (workoutFromWeekly?.kind === "game" || workoutFromWeekly?.kind === "game_training") {
+            const workoutId = gamePlanId(dateKey, workoutFromWeekly.kind);
+            nextCards.push({
+              id: workoutId,
+              title: workoutFromWeekly.title,
+              sport: workoutFromWeekly.sport,
+              subcategory: workoutFromWeekly.subcategory,
+              href: `/game-track?date=${dateKey}&context=${workoutFromWeekly.kind === "game_training" ? "game_training" : "game"}`,
+              kind: workoutFromWeekly.kind,
+            });
+            plannedIds.add(workoutId);
+          } else if (cachedSuggestion && cachedSuggestion.sport !== "-" && (cachedSuggestion.durationMin ?? 0) > 0) {
+            const workoutId = cachedSuggestion.workoutId ?? `auto-weekly-${todayDayIndex}`;
+            const sport = isSportType(cachedSuggestion.sport) ? cachedSuggestion.sport : "Basketball";
+            nextCards.push({
+              id: workoutId,
+              title: cachedSuggestion.title,
+              sport,
+              subcategory: cachedSuggestion.subcategory,
+              href: cachedSuggestion.workoutId
+                ? `/workouts?day=${todayDayIndex}&workoutId=${encodeURIComponent(cachedSuggestion.workoutId)}`
+                : `/workouts?day=${todayDayIndex}&autoWorkout=${todayDayIndex}`,
+              kind: "training",
+            });
+            plannedIds.add(workoutId);
+          } else if (workoutFromWeekly) {
+            nextCards.push({
+              id: todayWorkout.id,
+              title: workoutFromWeekly.title,
+              sport: workoutFromWeekly.sport,
+              subcategory: workoutFromWeekly.subcategory,
+              href: `/workouts?day=${todayDayIndex}`,
+            });
+            plannedIds.add(todayWorkout.id);
+          }
         }
         if (hasGameToday) {
           const workout = getWarmupWorkouts(loadWorkouts())[0];
@@ -270,7 +299,17 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         }
         setTodayWorkoutIds(Array.from(plannedIds));
         setPlannedTags(tags);
-        if (workoutFromWeekly) {
+        const headlineSuggestion = cachedSuggestion ?? (workoutFromWeekly ? {
+          title: workoutFromWeekly.title,
+          sport: workoutFromWeekly.sport,
+          subcategory: workoutFromWeekly.subcategory,
+        } : null);
+        if (headlineSuggestion && headlineSuggestion.title) {
+          setHasWorkoutPlanned(true);
+          setTodayLabel(headlineSuggestion.title);
+          if (headlineSuggestion.sport && isSportType(headlineSuggestion.sport)) setTodaySport(headlineSuggestion.sport);
+          if (headlineSuggestion.subcategory) setTodaySubcategory(headlineSuggestion.subcategory);
+        } else if (workoutFromWeekly) {
           setHasWorkoutPlanned(true);
           setTodayLabel(workoutFromWeekly.title);
           setTodaySport(workoutFromWeekly.sport);
@@ -280,17 +319,6 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           setTodayLabel(null);
         }
         setTodayWorkoutCards(nextCards);
-        // #region agent log
-        agentDebugLog("H3", "dashboard today cards derived", {
-          dateKey,
-          tags,
-          manualCount: todayManuals.length,
-          cards: nextCards.map((card) => ({ id: card.id, title: card.title, kind: card.kind, subcategory: card.subcategory })),
-          plannedIds: Array.from(plannedIds),
-          completedIds: Array.from(nextCompletedIds),
-          autoHidden,
-        });
-        // #endregion
         if (nextCards.length > 0) {
           setHasWorkoutPlanned(true);
           setTodayLabel(nextCards[0].title);
@@ -309,6 +337,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     window.addEventListener("focus", refreshTodayData);
     window.addEventListener("storage", refreshTodayData);
     window.addEventListener("bt:plan-updated", refreshTodayData);
+    window.addEventListener("bt:weekly-suggestions-updated", refreshTodayData);
     window.addEventListener("bt:sessions-updated", refreshTodayData);
     window.addEventListener("bt:workout-progress-updated", refreshTodayData);
     return () => {
@@ -317,6 +346,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       window.removeEventListener("focus", refreshTodayData);
       window.removeEventListener("storage", refreshTodayData);
       window.removeEventListener("bt:plan-updated", refreshTodayData);
+      window.removeEventListener("bt:weekly-suggestions-updated", refreshTodayData);
       window.removeEventListener("bt:sessions-updated", refreshTodayData);
       window.removeEventListener("bt:workout-progress-updated", refreshTodayData);
     };
@@ -393,8 +423,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   }, [weeklyCompleted, weeklyPlannedCount]);
 
   const isCompleted = useMemo(
-    () => todayWorkoutIds.length > 0 && todayWorkoutIds.every((id) => completedTodayIds.has(id)),
-    [completedTodayIds, todayWorkoutIds],
+    () => todayWorkoutIds.length > 0 && todayWorkoutIds.every((id) => isWorkoutIdCompletedOnDate(dateKey, id)),
+    [completedTodayIds, dateKey, todayWorkoutIds],
   );
   const isInProgress =
     !isCompleted && progress.status === "in_progress" && progress.date === dateKey;
@@ -455,8 +485,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                 aria-hidden
                 className="hidden h-12 w-12 shrink-0 rounded-2xl sm:block"
                 style={{
-                  background: `linear-gradient(135deg, ${SPORT_COLOR[todaySport]}, rgba(255,255,255,0.05))`,
-                  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.1)",
+                  background: `linear-gradient(135deg, ${SPORT_COLOR[todaySport]}, rgba(255,255,255,0.85))`,
+                  boxShadow: "inset 0 0 0 1px rgba(15,23,42,0.08)",
                 }}
               />
             </div>
@@ -471,11 +501,11 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
 
             <div className="mt-5 space-y-2">
               {todayWorkoutCards.map((card, index) => {
-                const cardDone = completedTodayIds.has(card.id);
+                const cardDone = isWorkoutIdCompletedOnDate(dateKey, card.id);
                 return (
                   <div
                     key={`${card.id}-${index}`}
-                    className="rounded-2xl border border-white/10 bg-black/15 p-3"
+                    className="list-card"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
@@ -529,6 +559,30 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
         )}
       </section>
 
+      {/* Quick navigation */}
+      <section className="mt-6 ui-card">
+        <h3 className="ui-card__title">Schnellzugriff</h3>
+        <p className="ui-card__subtitle">Häufige Aktionen und Bereiche.</p>
+        <div className="quick-link-grid mt-4">
+          <Link href="/Weekly-Workout" className="quick-link">
+            <span className="quick-link__label">Weekly</span>
+            <span className="quick-link__hint">Wochenplan</span>
+          </Link>
+          <Link href="/training" className="quick-link">
+            <span className="quick-link__label">Training</span>
+            <span className="quick-link__hint">Bibliothek</span>
+          </Link>
+          <Link href="/workouts" className="quick-link">
+            <span className="quick-link__label">Workout</span>
+            <span className="quick-link__hint">Jetzt starten</span>
+          </Link>
+          <Link href="/stats" className="quick-link">
+            <span className="quick-link__label">Stats</span>
+            <span className="quick-link__hint">Fortschritt</span>
+          </Link>
+        </div>
+      </section>
+
       {/* Tips */}
       <section className="mt-4 app-card--accent-cyan">
         <div className="flex items-center justify-between">
@@ -541,7 +595,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           <ul className="mt-3 space-y-1.5 text-sm text-strong">
             {dashboardTips.map((tip, index) => (
               <li key={`db-tip-${index}`} className="flex gap-2">
-                <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
+                <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--brand-500)]" />
                 <span>{tip}</span>
               </li>
             ))}
@@ -612,7 +666,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                       key={badge.id}
                       type="button"
                       onClick={() => setSelectedBadge(badge)}
-                      className="chip hover:bg-white/10"
+                      className="chip chip-interactive"
                     >
                       <span className="text-base">{badge.emoji}</span>
                       <span>{badge.name}</span>
@@ -642,8 +696,8 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       <SportsNewsSection />
 
       {selectedBadge ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md app-card">
+        <div className="modal-overlay">
+          <div className="modal-panel w-full max-w-md">
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-lg font-bold">
                 <span className="mr-1 text-xl">{selectedBadge.emoji}</span>

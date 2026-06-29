@@ -96,7 +96,7 @@ export default function TeamPage() {
         );
       } else if (localCount > 0 && me.cloud.workouts14d === 0) {
         setMessage(
-          `Lokal ${localCount} Workout(s), in der Cloud 0 — Account-Mix im Browser? Nutze zwei getrennte Browser-Fenster (siehe Hinweis oben).`,
+          `Lokal ${localCount} Workout(s), in der Cloud 0 — bitte Sync ausführen oder erneut einloggen.`,
         );
       } else if (json.syncMeta && !json.syncMeta.progressFound) {
         setMessage("Fortschritt in Supabase nicht gefunden — nach Workout Profil öffnen, dann Team erneut.");
@@ -289,22 +289,6 @@ export default function TeamPage() {
       />
 
       {message ? <p className="mt-3 text-sm text-amber-200">{message}</p> : null}
-
-      <section className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-muted">
-        <p className="font-semibold text-strong">Sync-Check (localhost ist ok)</p>
-        {authMe ? (
-          <p className="mt-1">
-            Eingeloggt als <span className="text-strong">{authMe.email}</span> · lokal {localSessionCount} Workout(s) · Cloud{" "}
-            {authMe.cloudWorkouts14d} (14 T.)
-          </p>
-        ) : (
-          <p className="mt-1">Nicht eingeloggt (kein Session-Cookie).</p>
-        )}
-        <p className="mt-2 text-amber-200/90">
-          Zwei Accounts: nicht zwei Tabs im gleichen Inkognito-Fenster — die teilen Cookies. Nutze zwei normale Fenster (Chrome +
-          Safari) oder zwei Profile. Sonst siehst du Account 1 in der UI, die API ist aber Account 2.
-        </p>
-      </section>
 
       <section className="mt-4 app-card">
         <p className="section-eyebrow">Team verwalten</p>

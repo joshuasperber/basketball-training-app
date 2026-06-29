@@ -1,4 +1,5 @@
 import { defaultExercises, defaultWorkouts, type Exercise, type MetricKey, type Workout } from "@/lib/training-data";
+import { normalizeExerciseShootingMetrics } from "@/lib/workout-metrics";
 
 const EXERCISES_STORAGE_KEY = "training-exercises-v1";
 const WORKOUTS_STORAGE_KEY = "training-workouts-v1";
@@ -16,12 +17,12 @@ function sanitizeExercise(exercise: Exercise): Exercise {
     return Object.keys(next).length ? next : undefined;
   };
   const setTargets = exercise.setTargetsByMetric?.map((row) => filterTargets(row) ?? {});
-  return {
+  return normalizeExerciseShootingMetrics({
     ...exercise,
     metricKeys: metricKeys.length > 0 ? metricKeys : ["reps"],
     targetByMetric: filterTargets(exercise.targetByMetric),
     setTargetsByMetric: setTargets,
-  };
+  });
 }
 
 function safeParse<T>(raw: string | null, fallback: T): T {

@@ -23,7 +23,11 @@ export type PlannedWorkoutTag =
   | "Spieltraining"
   | "Gym"
   | "Home-Workout"
-  | "Regeneration";
+  | "Regeneration"
+  | `Basketball:${string}`
+  | `Gym:${string}`
+  | `Home:${string}`
+  | `Recovery:${string}`;
 
 export type DailyPlanMap = Record<string, PlannedWorkoutTag[]>;
 
@@ -41,6 +45,29 @@ export function readDailyPlanMap(): DailyPlanMap {
 export function writeDailyPlanMap(value: DailyPlanMap) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(DAILY_PLAN_KEY, JSON.stringify(value));
+}
+
+/** Session-Typ für die Workout-Auswahl aus Kalender-Tags. */
+export function sessionTypeFromPlannedTags(tags: PlannedWorkoutTag[]): string | null {
+  if (tags.length === 0) return "none";
+  if (tags.includes("Spieltag")) return "game";
+  if (tags.includes("Spieltraining")) return "game-training";
+  if (tags.includes("Trainingstag")) return "basketball";
+  if (tags.includes("Gym")) return "gym";
+  if (tags.includes("Home-Workout")) return "custom";
+  if (tags.includes("Regeneration")) return "recovery";
+  return null;
+}
+
+/** Kein Training laut Activity Calendar (leeres Tag-Array) oder Profil-Fallback. */
+export function calendarBlocksTrainingForDate(
+  dateKey: string,
+  fallback?: { sessionType?: string; minutes?: number },
+): boolean {
+  const tags = readDailyPlanMap()[dateKey];
+  if (tags !== undefined) return tags.length === 0;
+  if (fallback?.sessionType === "none") return true;
+  return (fallback?.minutes ?? 0) <= 0;
 }
 
 export function readManualWorkoutsByDate() {
@@ -204,8 +231,11 @@ function modeToTagsAndDuration(config: DayConfigLike | undefined): { tags: Plann
   const rawMin = config.minutes;
   const safeMin = typeof rawMin === "number" && Number.isFinite(rawMin) ? Math.max(0, rawMin) : null;
   switch (config.mode) {
+    case "unavailable":
+    case "rest":
+      return { tags: [], minutes: 0 };
     case "basketball_training":
-      return { tags: ["Trainingstag"], minutes: safeMin ?? 45 };
+      return { tags: ["Trainingstag", "Basketball:Shooting"], minutes: safeMin ?? 45 };
     case "game_training":
       return { tags: ["Spieltraining"], minutes: safeMin ?? 30 };
     case "game_day":

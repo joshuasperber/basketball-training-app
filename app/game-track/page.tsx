@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadGameStats } from "@/lib/game-stats";
+import { normalizeGameStatBatch } from "@/lib/game-stat-batch";
 import { saveGameStatAndSync } from "@/lib/services/game-stats-sync";
 import { deleteGamePhoto, getGamePhotoUrl, uploadGamePhoto } from "@/lib/game-photo-storage";
 import { loadPerformanceTips } from "@/lib/performance-tips";
@@ -31,6 +32,10 @@ export default function GameTrackPage() {
   const [resolvedDate, setResolvedDate] = useState(paramDate);
   const [resolvedContext, setResolvedContext] = useState<"game" | "game_training">(paramContext);
   const [opponentLabel, setOpponentLabel] = useState("");
+  const [teamFormat, setTeamFormat] = useState("5v5");
+  const [customTeamFormat, setCustomTeamFormat] = useState("");
+  const [gamesPlayed, setGamesPlayed] = useState("1");
+  const [statsAreTotals, setStatsAreTotals] = useState(true);
   const [opponentStyles, setOpponentStyles] = useState<OpponentStyleTag[]>([]);
   const [minutes, setMinutes] = useState("");
   const [intensity, setIntensity] = useState("");
@@ -56,6 +61,16 @@ export default function GameTrackPage() {
           setResolvedDate(entry.date);
           setResolvedContext(entry.context);
           setOpponentLabel(entry.opponentLabel ?? "");
+          const savedFormat = entry.teamFormat ?? "5v5";
+          if (["1v1", "2v2", "3v3", "4v4", "5v5"].includes(savedFormat)) {
+            setTeamFormat(savedFormat);
+            setCustomTeamFormat("");
+          } else {
+            setTeamFormat("custom");
+            setCustomTeamFormat(savedFormat);
+          }
+          setGamesPlayed(String(entry.gamesPlayed ?? 1));
+          setStatsAreTotals(entry.statsAreTotals ?? true);
           setOpponentStyles(entry.opponentStyles ?? []);
           setMinutes(entry.minutes != null ? String(entry.minutes) : "");
           setIntensity(entry.intensity != null ? String(entry.intensity) : "");
@@ -72,6 +87,10 @@ export default function GameTrackPage() {
       setResolvedDate(paramDate);
       setResolvedContext(paramContext);
       setOpponentLabel("");
+      setTeamFormat("5v5");
+      setCustomTeamFormat("");
+      setGamesPlayed("1");
+      setStatsAreTotals(true);
       setOpponentStyles([]);
       setMinutes("");
       setIntensity("");
@@ -207,7 +226,7 @@ export default function GameTrackPage() {
 
         <section className="mt-4 app-card--accent-violet">
           <p className="section-eyebrow">Gegner</p>
-          <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          <div className="mb-4 app-card--flat">
             <p className="text-sm font-semibold text-strong">Vorbereitung</p>
             {warmupWorkouts.length > 0 ? (
               <div className="mt-2 space-y-1">
@@ -219,7 +238,7 @@ export default function GameTrackPage() {
                 ))}
               </div>
             ) : (
-              <p className="mt-2 text-xs text-amber-200">
+              <p className="mt-2 text-xs hint-warning">
                 Noch kein Warm-Up-Workout vorhanden. Erstelle unter Training ein Basketball-Workout mit Unterkategorie Warm-Up.
               </p>
             )}
@@ -242,6 +261,47 @@ export default function GameTrackPage() {
           />
           <p className="mt-1 text-xs text-muted">So erkennst du später in der Suche, gegen wen du gespielt hast.</p>
 
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="input-label">Format</label>
+              <select value={teamFormat} onChange={(e) => setTeamFormat(e.target.value)} className="select">
+                <option value="1v1">1v1</option>
+                <option value="2v2">2v2</option>
+                <option value="3v3">3v3</option>
+                <option value="4v4">4v4</option>
+                <option value="5v5">5v5</option>
+                <option value="custom">Andere</option>
+              </select>
+            </div>
+            <div>
+              <label className="input-label">Anzahl Spiele</label>
+              <input
+                value={gamesPlayed}
+                onChange={(e) => setGamesPlayed(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                inputMode="numeric"
+                className="input tabular-nums"
+                placeholder="1"
+              />
+            </div>
+          </div>
+          {teamFormat === "custom" ? (
+            <input
+              value={customTeamFormat}
+              onChange={(e) => setCustomTeamFormat(e.target.value)}
+              className="input mt-2"
+              placeholder="z. B. 4v4 + 1 Neutral"
+            />
+          ) : null}
+          <label className="mt-3 flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={statsAreTotals}
+              onChange={(e) => setStatsAreTotals(e.target.checked)}
+              className="h-4 w-4 rounded border-[var(--surface-border-strong)]"
+            />
+            Werte sind Summe/Ø über alle Spiele — beim Speichern wird ein Durchschnitt pro Spiel berechnet.
+          </label>
+
           <p className="input-label mt-4">Gegner-Stil (Matchup)</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {OPPONENT_STYLE_TAGS.map((tag) => {
@@ -262,7 +322,7 @@ export default function GameTrackPage() {
           <p className="mt-1 text-xs text-muted">Mehrfachauswahl möglich — fließt in Matchup-Tipps und später ins Team-Scouting ein.</p>
 
           <p className="section-eyebrow mt-5">Box Score</p>
-          <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          <div className="mt-3 app-card--flat">
             <label className="input-label">Intensität: {intensity || "5"}/10</label>
             <input
               type="range"
@@ -319,12 +379,12 @@ export default function GameTrackPage() {
               className="hidden"
             />
             {photoUrl ? (
-              <div className="mt-2 overflow-hidden rounded-2xl border border-white/10">
+              <div className="mt-2 overflow-hidden rounded-2xl border border-[var(--surface-border)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photoUrl} alt="Game Score" className="block max-h-72 w-full object-cover" />
               </div>
             ) : (
-              <div className="mt-2 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-4 text-center text-xs text-faint">
+              <div className="mt-2 rounded-2xl border border-dashed border-[var(--surface-border-strong)] bg-[var(--surface-strong)] p-4 text-center text-xs text-faint">
                 Noch kein Foto hochgeladen.
               </div>
             )}
@@ -343,7 +403,7 @@ export default function GameTrackPage() {
                 </button>
               ) : null}
             </div>
-            {photoError ? <p className="mt-1 text-xs text-rose-300">{photoError}</p> : null}
+            {photoError ? <p className="mt-1 text-xs text-rose-600">{photoError}</p> : null}
             <p className="mt-1 text-[11px] text-faint">Bild wird komprimiert (max. 1600 px) und verschlüsselt in deinem Konto gespeichert.</p>
           </div>
 
@@ -353,18 +413,24 @@ export default function GameTrackPage() {
             className="btn btn-violet btn-block mt-5"
             onClick={() => {
               setSaving(true);
-              void saveGameStatAndSync({
-                id: editId ?? undefined,
-                date: resolvedDate,
-                context: resolvedContext,
-                opponentLabel: opponentLabel.trim() || null,
-                opponentStyles,
+              const batch = normalizeGameStatBatch({
                 minutes: toNullableNumber(minutes),
                 intensity: toNullableNumber(intensity),
                 points: toNullableNumber(points),
                 assists: toNullableNumber(assists),
                 rebounds: toNullableNumber(rebounds),
                 steals: toNullableNumber(steals),
+                gamesPlayed: Math.max(1, Number(gamesPlayed) || 1),
+                statsAreTotals,
+              });
+              void saveGameStatAndSync({
+                id: editId ?? undefined,
+                date: resolvedDate,
+                context: resolvedContext,
+                opponentLabel: opponentLabel.trim() || null,
+                opponentStyles,
+                teamFormat: (teamFormat === "custom" ? customTeamFormat : teamFormat).trim() || null,
+                ...batch,
                 notes: notes.trim() || undefined,
                 photoPath: photoPath ?? null,
               }).finally(() => {
