@@ -45,3 +45,9 @@ lighthouse-report.html
 
 # legacy local dev data (may contain PII)
 /data/*.json
+
+# local backups & debug (never commit)
+.restore-backup-jun27/
+.restore-backup-latest/
+.restore-manifest*.txt
+.cursor/
