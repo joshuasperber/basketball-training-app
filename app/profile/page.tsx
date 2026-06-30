@@ -729,7 +729,7 @@ const refreshProfileAndWeekly = () => {
         title="Profil & Wochenplanung"
         subtitle="Pflege deine Daten und plane die Woche – die Engine baut deinen Plan automatisch."
         actions={
-          <IconButton variant="ghost" label="Einstellungen" onClick={() => setSettingsOpen(true)}>
+          <IconButton variant="ghost" label="Einstellungen" className="settings-gear-btn" onClick={() => setSettingsOpen(true)}>
             <GearIcon />
           </IconButton>
         }

@@ -1,4 +1,4 @@
-/** YouTube-Highlight-Suche: „June 03 2026“ statt ISO „2026-06-03“. */
+/** YouTube-Highlight-Suche: „June 13 2026“ statt ISO „2026-06-13“. */
 export function formatHighlightsSearchDate(dateDay: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateDay.trim());
   if (!match) return dateDay;
@@ -8,7 +8,11 @@ export function formatHighlightsSearchDate(dateDay: string): string {
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return dateDay;
   const date = new Date(Date.UTC(year, month - 1, day));
   const monthName = date.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
-  return `${monthName} ${String(day).padStart(2, "0")} ${year}`;
+  return `${monthName} ${day} ${year}`;
+}
+
+export function buildHighlightsSearchQuery(awayFull: string, homeFull: string, dateDay: string): string {
+  return `${awayFull} ${homeFull} NBA Highlights - ${formatHighlightsSearchDate(dateDay)}`;
 }
 
 export function buildYoutubeTheGameTimeHighlightsSearchUrl(
@@ -16,6 +20,6 @@ export function buildYoutubeTheGameTimeHighlightsSearchUrl(
   homeFull: string,
   dateDay: string,
 ): string {
-  const q = `${awayFull} ${homeFull} NBA Highlights ${formatHighlightsSearchDate(dateDay)}`;
+  const q = buildHighlightsSearchQuery(awayFull, homeFull, dateDay);
   return `https://www.youtube.com/@TheGametimeHighlights/search?query=${encodeURIComponent(q)}`;
 }

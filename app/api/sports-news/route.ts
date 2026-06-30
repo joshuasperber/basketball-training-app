@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildYoutubeTheGameTimeHighlightsSearchUrl } from "@/lib/sports-news-highlights-date";
 
 type SportsType = "basketball" | "football";
 
@@ -152,11 +153,6 @@ function buildNbaBoxScoreUrl(game: BallDontLieGame, dateDay: string): string {
     return `https://www.nba.com/game/${va}-vs-${ha}-${gid}/box-score`;
   }
   return `https://www.nba.com/games?date=${encodeURIComponent(dateDay)}`;
-}
-
-function buildYoutubeTheGameTimeHighlightsSearchUrl(awayFull: string, homeFull: string, dateDay: string): string {
-  const q = `${awayFull} ${homeFull} NBA Highlights ${dateDay}`;
-  return `https://www.youtube.com/@TheGametimeHighlights/search?query=${encodeURIComponent(q)}`;
 }
 
 function mapGameToItem(game: BallDontLieGame): SportsNewsItem {

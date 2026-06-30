@@ -1263,24 +1263,23 @@ export default function WeeklyWorkoutPage() {
         eyebrow={mesocycleLabel ? `Mesozyklus · ${mesocycleLabel}` : "Wochenplan"}
         title="Weekly Workout"
         subtitle="Alle Tage sind direkt bearbeitbar – inklusive heute."
-        actions={
-          <>
-            <Link
-              href={`/workouts?day=${todayIndex}&manual=1`}
-              className="icon-btn icon-btn--primary"
-              aria-label="Workout hinzufügen"
-              title="Workout hinzufügen"
-            >
-              <PlusIcon />
-            </Link>
-            <Link href="/tips" className="btn btn-ghost btn-sm">Tipps</Link>
-            <Link href="/stats" className="btn btn-ghost btn-sm">Stats</Link>
-          </>
-        }
       />
 
-      <div className="mt-3">
+      <div className="weekly-subnav-row">
         <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]} />
+        <div className="weekly-subnav-row__actions">
+          <Link
+            href={`/workouts?day=${todayIndex}&manual=1`}
+            className="icon-btn icon-btn--primary"
+            aria-label="Workout hinzufügen"
+            title="Workout hinzufügen"
+          >
+            <PlusIcon />
+          </Link>
+          <Link href="/tips" className="btn btn-ghost btn-sm">
+            Tipps
+          </Link>
+        </div>
       </div>
 
       <PausedWorkoutsBanner className="mt-4" />

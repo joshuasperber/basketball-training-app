@@ -121,7 +121,14 @@ body {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.page-eyebrow--brand {
   color: var(--brand-500);
+}
+
+.page-eyebrow--violet {
+  color: #7c3aed;
 }
 
 .page-title {
@@ -424,6 +431,16 @@ body {
 
 .icon-btn--ghost:hover {
   background: var(--bg-muted);
+}
+
+.settings-gear-btn {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.settings-gear-btn svg {
+  width: 1.35rem;
+  height: 1.35rem;
 }
 
 a.icon-btn {
@@ -892,13 +909,49 @@ a.icon-btn {
   box-shadow: var(--shadow-soft);
 }
 
+.top-tabs--team-liga .top-tabs__btn--active.top-tabs__btn--team {
+  background: rgba(124, 58, 237, 0.12);
+  color: #6d28d9;
+  box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.28);
+}
+
+.top-tabs--team-liga .top-tabs__btn--active.top-tabs__btn--liga {
+  background: var(--brand-soft);
+  color: var(--brand-600, #c2410c);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 0, 0.28);
+}
+
+.weekly-subnav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.weekly-subnav-row .top-tabs-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.weekly-subnav-row .top-tabs {
+  margin-top: 0;
+}
+
+.weekly-subnav-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Sheet / Dialog                                                      */
 /* ------------------------------------------------------------------ */
 .sheet-root {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 200;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -1365,6 +1418,27 @@ a.icon-btn {
   margin-left: auto;
   padding-left: 0.35rem;
   border-left: 1px solid var(--surface-border);
+  justify-content: flex-end;
+}
+
+@media (max-width: 480px) {
+  .weekly-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .weekly-action-bar__main,
+  .weekly-action-bar__game {
+    width: 100%;
+  }
+
+  .weekly-action-bar__game {
+    margin-left: 0;
+    padding-left: 0;
+    padding-top: 0.35rem;
+    border-left: none;
+    border-top: 1px solid var(--surface-border);
+  }
 }
 
 .weekly-action-bar--empty .weekly-action-bar__game {

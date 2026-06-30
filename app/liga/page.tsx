@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import TopSubTabs from "@/components/TopSubTabs";
 import PageHeader from "@/components/PageHeader";
 import GradientFadeList from "@/components/GradientFadeList";
 import { useAppDialog } from "@/components/ui/AppDialogProvider";
@@ -202,13 +203,19 @@ export default function LigaPage() {
     <main className="app-container animate-in">
       <PageHeader
         eyebrow="Saisonplanung"
+        eyebrowTone="brand"
         title="Liga"
-        actions={
-          <Link href="/team" className="btn btn-ghost btn-sm">
-            Team
-          </Link>
-        }
       />
+
+      <div className="mt-3">
+        <TopSubTabs
+          variant="team-liga"
+          items={[
+            { label: "Team", href: "/team" },
+            { label: "Liga", href: "/liga" },
+          ]}
+        />
+      </div>
 
       {message ? (
         <div className="mt-3 app-card--accent-cyan flex items-center justify-between gap-2">

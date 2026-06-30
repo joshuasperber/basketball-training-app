@@ -6,6 +6,8 @@ import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 
 type TopSubTabsProps = {
   items: Array<{ label: string; href: string }>;
+  variant?: "default" | "team-liga";
+  className?: string;
 };
 
 function normalizeTabPath(path: string) {
@@ -20,20 +22,29 @@ function isTabActive(pathname: string, href: string) {
   return normalizeTabPath(pathname) === normalizeTabPath(href);
 }
 
-export default function TopSubTabs({ items }: TopSubTabsProps) {
+function tabAccentClass(label: string, variant: TopSubTabsProps["variant"]) {
+  if (variant !== "team-liga") return "";
+  const normalized = label.trim().toLowerCase();
+  if (normalized === "team") return "top-tabs__btn--team";
+  if (normalized === "liga") return "top-tabs__btn--liga";
+  return "";
+}
+
+export default function TopSubTabs({ items, variant = "default", className = "" }: TopSubTabsProps) {
   const pathname = usePathname();
 
   return (
-    <div className="top-tabs-wrap">
-      <div className="top-tabs">
+    <div className={`top-tabs-wrap ${className}`.trim()}>
+      <div className={`top-tabs ${variant === "team-liga" ? "top-tabs--team-liga" : ""}`.trim()}>
         {items.map((item) => {
           const isActive = isTabActive(pathname, item.href);
           const href = item.label === "Weekly" ? WEEKLY_WORKOUT_PATH : item.href;
+          const accent = tabAccentClass(item.label, variant);
           return (
             <Link
               key={item.label}
               href={href}
-              className={`top-tabs__btn ${isActive ? "top-tabs__btn--active" : ""}`}
+              className={`top-tabs__btn ${isActive ? `top-tabs__btn--active ${accent}`.trim() : ""}`}
               aria-current={isActive ? "page" : undefined}
             >
               {item.label}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
 import {
   OPPONENT_STYLE_LABELS,
@@ -286,14 +287,20 @@ export default function TeamPage() {
     <main className="app-container animate-in">
       <PageHeader
         eyebrow="Team"
+        eyebrowTone="violet"
         title="Team-Modus"
         subtitle="Form-Ranking, Scouting und Start-Empfehlungen für dein Team."
-        actions={
-          <Link href="/liga" className="btn btn-violet btn-sm">
-            Liga
-          </Link>
-        }
       />
+
+      <div className="mt-3">
+        <TopSubTabs
+          variant="team-liga"
+          items={[
+            { label: "Team", href: "/team" },
+            { label: "Liga", href: "/liga" },
+          ]}
+        />
+      </div>
 
       {message ? <p className="mt-3 text-sm text-amber-200">{message}</p> : null}
 
