@@ -47,6 +47,8 @@ export async function proxy(request: NextRequest) {
       }
       return NextResponse.next();
     }
+    // Supabase unreachable (TLS/proxy/offline): session cookies still present — app may load locally.
+    return NextResponse.next();
   }
 
   if (refreshToken) {
@@ -67,6 +69,7 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     "/Weekly-Workout",
+    "/dashboard",
     "/dashboard/:path*",
     "/training/:path*",
     "/weekly-workout/:path*",

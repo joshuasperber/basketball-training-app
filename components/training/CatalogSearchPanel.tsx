@@ -44,7 +44,7 @@ export default function CatalogSearchPanel({
       <div className="catalog-search-panel__header">
         <div>
           <p className="section-eyebrow">Suche</p>
-          <h2 className="ui-card__title">Ergebnisse für „{trimmed}"</h2>
+          <h2 className="ui-card__title">Ergebnisse für &quot;{trimmed}&quot;</h2>
         </div>
         <button type="button" className="btn btn-ghost btn-xs" onClick={onClose}>
           Schließen

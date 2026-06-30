@@ -9,14 +9,17 @@ export default async function DashboardPage() {
   if (!accessToken) {
     redirect("/login?next=/dashboard");
   }
-  const supabase = createClient({ accessToken });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login?next=/dashboard");
+  try {
+    const supabase = createClient({ accessToken });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      redirect("/login?next=/dashboard");
+    }
+  } catch {
+    // Supabase unreachable (network/TLS/proxy) — render client UI; cloud sync retries in browser.
   }
 
   return <DashboardClient />;

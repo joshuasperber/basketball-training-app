@@ -47,44 +47,52 @@ export function clearSessionCookies(response: NextResponse, request?: NextReques
 async function fetchAuthUser(accessToken: string): Promise<{ id: string; email: string } | null> {
   if (!supabaseUrl || !supabaseAnonKey) return null;
 
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    });
 
-  if (!response.ok) return null;
-  const user = (await response.json()) as { id?: string; email?: string };
-  const id = user.id?.trim();
-  const email = user.email?.trim().toLowerCase();
-  if (!id || !email) return null;
-  return { id, email };
+    if (!response.ok) return null;
+    const user = (await response.json()) as { id?: string; email?: string };
+    const id = user.id?.trim();
+    const email = user.email?.trim().toLowerCase();
+    if (!id || !email) return null;
+    return { id, email };
+  } catch {
+    return null;
+  }
 }
 
 async function refreshSupabaseSession(refreshToken: string): Promise<SupabaseSession | null> {
   if (!supabaseUrl || !supabaseAnonKey) return null;
 
-  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-    method: "POST",
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${supabaseAnonKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
 
-  if (!response.ok) return null;
-  const session = (await response.json()) as SupabaseSession;
-  if (!session.access_token || !session.refresh_token) return null;
-  return {
-    access_token: session.access_token,
-    refresh_token: session.refresh_token,
-    expires_in: session.expires_in ?? 3600,
-  };
+    if (!response.ok) return null;
+    const session = (await response.json()) as SupabaseSession;
+    if (!session.access_token || !session.refresh_token) return null;
+    return {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_in: session.expires_in ?? 3600,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Validates access token; falls back to refresh_token exchange when expired. */
