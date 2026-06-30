@@ -34,6 +34,13 @@ export type OpponentScoutingEntry = {
   updatedAt: string;
 };
 
+export type TeamMemberWeekPlan = {
+  memberId: string;
+  userId: string;
+  displayName: string;
+  days: Array<{ day: import("@/lib/planner").DayKey; mode: string; minutes: number; label: string }>;
+};
+
 export type TeamDetail = {
   team: {
     id: string;
@@ -44,6 +51,7 @@ export type TeamDetail = {
   members: TeamMemberView[];
   scouting: OpponentScoutingEntry[];
   inviteToken?: string | null;
+  memberWeekPlans?: TeamMemberWeekPlan[];
   syncMeta?: {
     progressFound: boolean;
     workouts14d: number;

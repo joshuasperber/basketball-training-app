@@ -1624,7 +1624,10 @@ function WorkoutsPageContent() {
         subtitle="Hier planst und startest du dein Training."
         actions={<Link href="/tips" className="btn btn-ghost btn-sm">Tipps &amp; Notizen</Link>}
       />
-      <p className="-mt-2 text-xs hint-success">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
+      <p className="-mt-2 text-xs text-faint">
+        Trainingshinweis: Kein Ersatz für medizinische Beratung. Bei Schmerzen oder Verletzungen vorher ärztlich abklären.
+      </p>
+      <p className="mt-1 text-xs hint-success">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
       {activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball" ? (
         <section className="app-card--accent-cyan mt-3">
           <p className="section-eyebrow">Aktive Fokus-Tipps</p>

@@ -12,7 +12,7 @@ import {
   type OpponentStyleTag,
 } from "@/lib/opponent-styles";
 import { buildStartLineupRecommendation, buildTeamMatchupHints } from "@/lib/matchup-hints";
-import type { TeamCoachResponse, TeamDetail, TeamSummary } from "@/lib/team-types";
+import type { TeamCoachResponse, TeamDetail, TeamShareLevel, TeamSummary } from "@/lib/team-types";
 import { fetchAuthMe } from "@/lib/auth-session-align";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
@@ -40,8 +40,14 @@ export default function TeamPage() {
   const [scoutingStyles, setScoutingStyles] = useState<OpponentStyleTag[]>([]);
   const [scoutingNotes, setScoutingNotes] = useState("");
   const [adviceOpponent, setAdviceOpponent] = useState("");
-  const [authMe, setAuthMe] = useState<{ email: string; cloudWorkouts14d: number; cloudSessionCount: number } | null>(null);
+  const [authMe, setAuthMe] = useState<{ id: string; email: string; cloudWorkouts14d: number; cloudSessionCount: number } | null>(null);
   const [localSessionCount, setLocalSessionCount] = useState(0);
+  const [shareLevelSaving, setShareLevelSaving] = useState(false);
+
+  const viewerMember = useMemo(
+    () => detail?.members.find((member) => member.userId === authMe?.id) ?? null,
+    [detail?.members, authMe?.id],
+  );
 
   const loadTeams = useCallback(async () => {
     setLoading(true);
@@ -68,6 +74,7 @@ export default function TeamPage() {
     setLocalSessionCount(getWorkoutSessions().length);
     if (me) {
       setAuthMe({
+        id: me.id,
         email: me.email,
         cloudWorkouts14d: me.cloud.workouts14d,
         cloudSessionCount: me.cloud.sessionCount,
@@ -248,6 +255,7 @@ export default function TeamPage() {
       const response = await fetch("/api/team/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           teamId: selectedTeamId,
           opponentName: adviceOpponent || undefined,
@@ -260,6 +268,26 @@ export default function TeamPage() {
       setMessage(error instanceof Error ? error.message : "Coach-Fehler.");
     } finally {
       setCoachLoading(false);
+    }
+  };
+
+  const updateShareLevel = async (shareLevel: TeamShareLevel) => {
+    if (!selectedTeamId) return;
+    setShareLevelSaving(true);
+    try {
+      const response = await fetch("/api/team/member", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ teamId: selectedTeamId, shareLevel }),
+      });
+      if (!response.ok) throw new Error("Freigabe konnte nicht gespeichert werden.");
+      await loadDetail(selectedTeamId);
+      setMessage(shareLevel === "full" ? "Volles Teilen aktiviert." : "Nur Zusammenfassung wird geteilt.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Freigabe konnte nicht gespeichert werden.");
+    } finally {
+      setShareLevelSaving(false);
     }
   };
 
@@ -391,6 +419,39 @@ export default function TeamPage() {
                 </div>
               ) : null}
 
+              {viewerMember ? (
+                <section className="mt-4 app-card">
+                  <p className="section-eyebrow">Datenschutz im Team</p>
+                  <h2 className="section-title mt-1">Was Teammitglieder sehen</h2>
+                  <p className="mt-2 text-xs text-muted">
+                    Steuere, wie viele Trainings-Details andere im Kader sehen. Du siehst deine eigenen Daten immer vollständig.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={shareLevelSaving}
+                      className={`chip ${viewerMember.shareLevel === "summary" ? "chip-active" : ""}`}
+                      onClick={() => void updateShareLevel("summary")}
+                    >
+                      Nur Zusammenfassung
+                    </button>
+                    <button
+                      type="button"
+                      disabled={shareLevelSaving}
+                      className={`chip ${viewerMember.shareLevel === "full" ? "chip-success" : ""}`}
+                      onClick={() => void updateShareLevel("full")}
+                    >
+                      Volles Teilen
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-muted">
+                    {viewerMember.shareLevel === "full"
+                      ? "Andere sehen Form-Score, Spielstil und Trainings-Hinweise."
+                      : "Andere sehen nur Form-Score und Aktivitätszahlen — keine Detail-Hinweise."}
+                  </p>
+                </section>
+              ) : null}
+
               {tab === "overview" ? (
                 <section className="mt-4 app-card">
                   <p className="section-eyebrow">{detail.team.clubName ?? "Team"}</p>
@@ -413,6 +474,29 @@ export default function TeamPage() {
                       </div>
                     )}
                   />
+                </section>
+              ) : null}
+
+              {tab === "overview" && detail.memberWeekPlans && detail.memberWeekPlans.length > 0 ? (
+                <section className="mt-4 app-card">
+                  <p className="section-eyebrow">Trainer-Ansicht</p>
+                  <h2 className="section-title mt-1">Geteilte Wochenpläne</h2>
+                  <p className="mt-1 text-xs text-muted">Read-only — nur von Spielern mit „Volles Teilen“.</p>
+                  <div className="mt-3 space-y-3">
+                    {detail.memberWeekPlans.map((plan) => (
+                      <div key={plan.memberId} className="list-card">
+                        <p className="text-sm font-semibold text-strong">{plan.displayName}</p>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {plan.days.map((day) => (
+                            <span key={`${plan.memberId}-${day.day}`} className="chip chip-sm text-xs">
+                              {({ monday: "Mo", tuesday: "Di", wednesday: "Mi", thursday: "Do", friday: "Fr", saturday: "Sa", sunday: "So" } as Record<string, string>)[day.day] ?? day.day}{" "}
+                              {day.label} {day.minutes > 0 ? `${day.minutes}m` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </section>
               ) : null}
 

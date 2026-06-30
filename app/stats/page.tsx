@@ -19,6 +19,7 @@ import MatchupHintsCard from "@/components/MatchupHintsCard";
 import GymGoalsManager from "@/components/GymGoalsManager";
 import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
+import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
@@ -793,6 +794,7 @@ useEffect(() => {
     const totals = mergeShootingZoneTotals(workoutTotals, gameTotals);
     return {
       rows: shootingZoneRows(totals),
+      totals,
       fieldGoalPct: computeFieldGoalPercentage(totals),
       threePointPct: computeThreePointPercentage(totals),
     };
@@ -1065,6 +1067,7 @@ useEffect(() => {
                   ) : null}
                 </div>
               ) : null}
+              <ShootingZoneHeatmap totals={shootingZoneStats.totals} className="mt-4" />
               <GradientFadeList
                 className="mt-4"
                 items={shootingZoneStats.rows}

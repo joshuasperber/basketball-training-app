@@ -40,6 +40,7 @@ import { weeklyRecoverySuggestionSlotVisible } from "@/lib/weekly-regeneration";
 import WeeklyBasketballCoach from "@/components/WeeklyBasketballCoach";
 import PausedWorkoutsBanner from "@/components/PausedWorkoutsBanner";
 import TopSubTabs from "@/components/TopSubTabs";
+import WeeklyPlanAiButton from "@/components/WeeklyPlanAiButton";
 import PageHeader from "@/components/PageHeader";
 import { buildBasketballCoachingPriorities } from "@/lib/basketball-coaching";
 import { getProgressionState } from "@/lib/level-system";
@@ -1283,6 +1284,8 @@ export default function WeeklyWorkoutPage() {
       </div>
 
       <PausedWorkoutsBanner className="mt-4" />
+
+      <WeeklyPlanAiButton className="mt-4" onSynced={() => setProfileVersion((v) => v + 1)} />
 
       <p className="mt-3 text-xs text-faint">Tipp: Wenn noch alles leer ist, im Profil zuerst Trainings-Tage und Schwerpunkte setzen.</p>
 

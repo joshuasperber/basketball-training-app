@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, supabaseRest } from "@/lib/server/supabase-admin";
 import { buildMemberViewFromProgress } from "@/lib/server/team-progress";
+import { applyShareLevelToMemberView } from "@/lib/server/team-member-view";
 import { fetchProgressByUserIds } from "@/lib/server/user-progress-team";
 import { buildTeamCoachHeuristic } from "@/lib/team-coach-heuristic";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
@@ -102,9 +103,10 @@ export async function POST(request: NextRequest) {
   );
   const progressByUser = await fetchProgressByUserIds(userIds, emailByUserId);
 
-  const members: TeamMemberView[] = memberRows.map((row) =>
-    buildMemberViewFromProgress(row, progressByUser.get(row.user_id) ?? null),
-  );
+  const members: TeamMemberView[] = memberRows.map((row) => {
+    const view = buildMemberViewFromProgress(row, progressByUser.get(row.user_id) ?? null);
+    return applyShareLevelToMemberView(view, row.user_id, row.share_level, user.id);
+  });
 
   let opponentStyles = normalizeOpponentStyles(body?.opponentStyles ?? []);
   const opponentName = body?.opponentName?.trim();

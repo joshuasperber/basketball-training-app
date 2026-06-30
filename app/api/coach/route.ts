@@ -1,10 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import type { CoachSession14dItem, CoachWorkoutCatalogItem } from "@/lib/coach-training-context";
 import { buildCoachHeuristicResponse } from "@/lib/coach-heuristic";
 import { readLlmCache, stableCoachPayloadHash, writeLlmCache } from "@/lib/coach-llm-cache";
 import { sanitizeCoachWorkoutByDay } from "@/lib/coach-workout-by-day";
 import { buildTeamCoachHeuristic } from "@/lib/team-coach-heuristic";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
+import { checkRateLimit, rateLimitHeaders } from "@/lib/server/rate-limit";
+import { getRequestUser } from "@/lib/server/supabase-admin";
 import type { TeamMemberView } from "@/lib/team-types";
 import { type DayKey, type DayMode, type WeekConfig, getDefaultWeekConfig } from "@/lib/planner";
 
@@ -557,7 +559,22 @@ Antworte NUR mit JSON: {"headline": string (max 7 Wörter), "bullets": string[] 
   };
 }
 
-export async function POST(request: Request) {
+const COACH_RATE_LIMIT = { max: 20, windowMs: 60 * 60 * 1000 };
+
+export async function POST(request: NextRequest) {
+  const user = await getRequestUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit(`coach:${user.id}`, COACH_RATE_LIMIT);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "rate_limit", message: "Zu viele Coach-Anfragen. Bitte später erneut versuchen." },
+      { status: 429, headers: rateLimitHeaders(rateLimit, COACH_RATE_LIMIT) },
+    );
+  }
+
   let payload: CoachPayload;
   try {
     payload = (await request.json()) as CoachPayload;

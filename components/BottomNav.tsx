@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { fetchAuthMe } from "@/lib/auth-session-align";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 
 type NavItem = {
@@ -78,8 +79,23 @@ function isItemActive(itemHref: string, matches: string[] | undefined, pathname:
   return matches.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolean }) {
+export default function BottomNav({ isAuthenticated: initialAuthenticated }: { isAuthenticated: boolean }) {
   const pathname = usePathname() ?? "";
+  const [isAuthenticated, setIsAuthenticated] = useState(initialAuthenticated);
+
+  useEffect(() => {
+    setIsAuthenticated(initialAuthenticated);
+  }, [initialAuthenticated]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAuthMe().then((me) => {
+      if (!cancelled) setIsAuthenticated(Boolean(me));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   if (pathname.startsWith("/login")) return null;
 
@@ -97,7 +113,7 @@ export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolea
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={isLocked ? "/login?next=" + encodeURIComponent(item.href) : item.href}
               title={item.label}
               aria-label={item.label}
               aria-disabled={isLocked}
@@ -105,10 +121,6 @@ export default function BottomNav({ isAuthenticated }: { isAuthenticated: boolea
               className={`bottom-nav__item flex min-w-0 w-full flex-col items-center justify-center gap-0.5 px-0.5 py-1.5 ${isActive ? "bottom-nav__item--active" : ""} ${
                 isLocked ? "bottom-nav__item--locked" : ""
               }`}
-              onClick={(event) => {
-                if (!isLocked) return;
-                event.preventDefault();
-              }}
             >
               {item.icon}
               <span className="bottom-nav__label block w-full truncate text-center text-[0.56rem] font-semibold leading-tight sm:text-[0.62rem]">

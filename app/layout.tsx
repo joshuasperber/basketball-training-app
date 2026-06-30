@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
+import AppFooter from "@/components/AppFooter";
 import ClientShell from "@/components/ClientShell";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
@@ -38,6 +39,7 @@ export default async function RootLayout({
         <ClientShell>
           <ServiceWorkerRegister />
           <div className="app-shell">{children}</div>
+          <AppFooter />
           <PwaInstallBanner />
           <BottomNav isAuthenticated={isAuthenticated} />
         </ClientShell>

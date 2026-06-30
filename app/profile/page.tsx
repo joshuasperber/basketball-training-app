@@ -27,11 +27,14 @@ import {
   writeManualPlanOverrides,
 } from "@/lib/activity-calendar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { downloadFullUserExport, deleteAccountAndLocalData } from "@/lib/account-data";
 import PageHeader from "@/components/PageHeader";
 import ProfileSettingsSheet from "@/components/ProfileSettingsSheet";
+import ProfileLegalFooter from "@/components/ProfileLegalFooter";
 import ViewportToast from "@/components/ViewportToast";
 import IconButton, { GearIcon } from "@/components/ui/IconButton";
 
@@ -344,6 +347,7 @@ export default function ProfilePage() {
   );
 
   const loadProfile = useCallback(async (usernameOverride?: string) => {
+    try {
     await pullProgressFromCloud();
     const localCache = loadLocalCache();
     const latestDailyPlan = readDailyPlanMap();
@@ -437,7 +441,9 @@ export default function ProfilePage() {
     setDailyPlanMap(latestDailyPlan);
     savePersistedWeekConfig(resolvedWeekConfig);
     void pushProgressToCloud();
+    } finally {
     setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -685,7 +691,6 @@ const refreshProfileAndWeekly = () => {
     }
 
     const payload = {
-      id: authUser?.id,
       username,
       full_name: fullName,
       favorite_position: profile.favorite_position,
@@ -693,24 +698,36 @@ const refreshProfileAndWeekly = () => {
       weight_kg: profile.weight_kg,
     };
 
-    const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "id" });
-    if (error) {
-      const isRlsError = error.message.toLowerCase().includes("row-level security") || error.message.toLowerCase().includes("rls");
+    const profileResponse = await fetch("/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
+
+    if (!profileResponse.ok) {
+      const profileJson = (await profileResponse.json().catch(() => null)) as { detail?: string; error?: string } | null;
+      const errorMessage = profileJson?.detail ?? profileJson?.error ?? `HTTP ${profileResponse.status}`;
       const isDuplicateUsername =
-        error.message.toLowerCase().includes("profiles_username_key") ||
-        error.message.toLowerCase().includes("duplicate key value");
-      if (isRlsError) {
+        errorMessage.toLowerCase().includes("profiles_username_key") ||
+        errorMessage.toLowerCase().includes("duplicate key value");
+      if (profileResponse.status === 401 || profileResponse.status === 502) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
         void pushProgressToCloud();
-        showProfileFeedback("Supabase-RLS aktiv: Profil lokal gespeichert.", "info");
+        showProfileFeedback(
+          profileResponse.status === 401
+            ? "Nur lokal gespeichert (kein Supabase-Login)."
+            : "Profil lokal gespeichert (Cloud-Profil derzeit nicht erreichbar).",
+          "info",
+        );
         return true;
       }
       if (isDuplicateUsername) {
         showProfileFeedback("Username bereits vergeben. Bitte wähle einen anderen Username.", "error");
         return false;
       }
-      showProfileFeedback(`Speichern fehlgeschlagen: ${error.message}`, "error");
+      showProfileFeedback(`Speichern fehlgeschlagen: ${errorMessage}`, "error");
       return false;
     }
 
@@ -1198,6 +1215,43 @@ const refreshProfileAndWeekly = () => {
         Profil aktualisieren
       </button>
 
+      <section className="mt-6 app-card">
+        <p className="section-eyebrow">Datenschutz</p>
+        <h2 className="section-title mt-1">Deine Daten</h2>
+        <p className="mt-2 text-xs text-muted">
+          Export (Art. 20 DSGVO) oder Löschung von Cloud-Konto und lokalen Browser-Daten. Details in der
+          Datenschutzerklärung ganz unten auf dieser Seite.
+        </p>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => void downloadFullUserExport()}
+          >
+            Alle Daten exportieren (JSON)
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm text-rose-300"
+            onClick={async () => {
+              const confirmed = window.confirm(
+                "Konto und alle Cloud-Daten unwiderruflich löschen? Lokale Browser-Daten werden ebenfalls geleert.",
+              );
+              if (!confirmed) return;
+              const typed = window.prompt('Zur Bestätigung "DELETE" eingeben:');
+              if (typed !== "DELETE") {
+                showProfileFeedback("Löschung abgebrochen.", "info");
+                return;
+              }
+              const result = await deleteAccountAndLocalData();
+              showProfileFeedback(result.message, result.ok ? "success" : "error");
+            }}
+          >
+            Konto &amp; Cloud-Daten löschen
+          </button>
+        </div>
+      </section>
+
       <ProfileSettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -1230,6 +1284,8 @@ const refreshProfileAndWeekly = () => {
           })}
         </ul>
       </section>
+
+      <ProfileLegalFooter />
 
       <ViewportToast
         message={feedback?.text ?? null}

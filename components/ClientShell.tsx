@@ -21,6 +21,7 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
 }
 
 import CoachIntakeLauncher from "@/components/CoachIntakeLauncher";
+import SyncConflictBanner from "@/components/SyncConflictBanner";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 
 // #region agent log
@@ -95,6 +96,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
     <ErrorBoundary fallback={({ resetError }) => <CoachFallback resetError={resetError} />}>
       <AppDialogProvider>
         <CloudSyncBridge />
+        <SyncConflictBanner />
         <CoachIntakeLauncher />
         {children}
       </AppDialogProvider>

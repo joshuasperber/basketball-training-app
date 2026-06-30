@@ -9,7 +9,7 @@ import {
 } from "@/lib/coach-intake";
 import { ensureInitialCloudSync } from "@/lib/progress-sync";
 
-const HIDDEN_PREFIXES = ["/login", "/auth/"];
+const HIDDEN_PREFIXES = ["/login", "/auth/", "/profile"];
 
 export default function CoachIntakeLauncher() {
   const pathname = usePathname() ?? "";

@@ -43,5 +43,5 @@ next-env.d.ts
 # lighthouse (npm run lighthouse)
 lighthouse-report.html
 
-# lighthouse (npm run lighthouse)
-lighthouse-report.html
+# legacy local dev data (may contain PII)
+/data/*.json

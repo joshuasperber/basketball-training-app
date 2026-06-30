@@ -77,8 +77,7 @@ create policy team_members_select_member on public.team_members
     )
   );
 
-create policy team_members_insert_self on public.team_members
-  for insert with check (user_id = auth.uid());
+-- Inserts only via service-role API (/api/team/join) after invite validation.
 
 create policy team_members_update_self on public.team_members
   for update using (user_id = auth.uid());

@@ -408,7 +408,7 @@ export default function GameTrackPage() {
               ) : null}
             </div>
             {photoError ? <p className="mt-1 text-xs text-rose-600">{photoError}</p> : null}
-            <p className="mt-1 text-[11px] text-faint">Bild wird komprimiert (max. 1600 px) und verschlüsselt in deinem Konto gespeichert.</p>
+            <p className="mt-1 text-[11px] text-faint">Bild wird komprimiert (max. 1600 px) und in deinem privaten Cloud-Speicher abgelegt.</p>
           </div>
 
           <button

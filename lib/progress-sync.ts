@@ -8,6 +8,7 @@ import {
 } from "@/lib/activity-calendar";
 import { PLAYER_INTAKE_STORAGE_KEY, PLAYER_INTAKE_UPDATED_EVENT } from "@/lib/coach-intake";
 import { GAME_STATS_KEY } from "@/lib/game-stats";
+import { LEAGUE_STORAGE_KEY } from "@/lib/league";
 import { checkAuthSession } from "@/lib/auth-session-align";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
@@ -48,6 +49,7 @@ type RemoteProgress = {
   hiddenAutoWorkoutsMap: Record<string, string[]>;
   performanceTips: string | null;
   gameStats: string | null;
+  leagueData: string | null;
   trainingGoals: string | null;
   customSubcategories: string | null;
   workoutHistory: string | null;
@@ -57,7 +59,12 @@ type RemoteProgress = {
   trainingWorkouts: string | null;
   workoutOverrides: Record<string, string>;
   remoteExists?: boolean;
+  remoteUpdatedAt?: string | null;
 };
+
+export type RemoteProgressPayload = RemoteProgress;
+
+const CLOUD_UPDATED_AT_KEY = "bt.cloud-updated-at.v1";
 
 function readLocalDailyPlanMap(): DailyPlanMap {
   if (typeof window === "undefined") return {};
@@ -128,6 +135,7 @@ export function buildLocalProgressSnapshot(): RemoteProgress {
     hiddenAutoWorkoutsMap: readLocalJsonMap<Record<string, string[]>>(HIDDEN_AUTO_WORKOUTS_KEY, {}),
     performanceTips: readRawString(PERFORMANCE_TIPS_KEY),
     gameStats: readRawString(GAME_STATS_KEY),
+    leagueData: readRawString(LEAGUE_STORAGE_KEY),
     trainingGoals: readRawString(TRAINING_GOALS_STORAGE_KEY),
     customSubcategories: readRawString(CUSTOM_SUBCATEGORY_KEY),
     workoutHistory: readRawString(WORKOUT_HISTORY_KEY) ?? readRawString(LEGACY_WORKOUT_HISTORY_KEY),
@@ -157,6 +165,7 @@ function hasLocalUserData(snapshot: RemoteProgress) {
     Boolean(snapshot.xpProgression) ||
     Boolean(snapshot.performanceTips) ||
     Boolean(snapshot.gameStats) ||
+    Boolean(snapshot.leagueData) ||
     Boolean(snapshot.trainingGoals) ||
     Boolean(snapshot.customSubcategories) ||
     Boolean(snapshot.workoutHistory) ||
@@ -253,6 +262,7 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   writeRawStringIfPresent(XP_PROGRESSION_KEY, remote.xpProgression);
   writeRawStringIfPresent(PERFORMANCE_TIPS_KEY, remote.performanceTips);
   writeRawStringIfPresent(GAME_STATS_KEY, remote.gameStats);
+  writeRawStringIfPresent(LEAGUE_STORAGE_KEY, remote.leagueData);
   writeRawStringIfPresent(TRAINING_GOALS_STORAGE_KEY, remote.trainingGoals);
   writeRawStringIfPresent(CUSTOM_SUBCATEGORY_KEY, remote.customSubcategories);
   writeRawStringIfPresent(WORKOUT_HISTORY_KEY, remote.workoutHistory);
@@ -292,6 +302,9 @@ export async function pullProgressFromCloud() {
   // #endregion
   if (!response.ok) return null;
   const remote = (await response.json()) as RemoteProgress;
+  if (remote.remoteUpdatedAt) {
+    window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
+  }
   if (remote.remoteExists === false) {
     const local = buildLocalProgressSnapshot();
     if (hasLocalUserData(local)) {
@@ -311,12 +324,30 @@ export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): 
   }
 
   const snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
+  const clientKnownRemoteUpdatedAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
   const response = await fetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
-    body: JSON.stringify(snapshot),
+    body: JSON.stringify({
+      ...snapshot,
+      clientKnownRemoteUpdatedAt,
+    }),
   });
+  if (response.status === 409) {
+    const conflict = (await response.json()) as { remote?: RemoteProgress; remoteUpdatedAt?: string };
+    if (conflict.remote && conflict.remoteUpdatedAt) {
+      const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
+      dispatchSyncConflict({ remote: conflict.remote, remoteUpdatedAt: conflict.remoteUpdatedAt });
+    }
+    return false;
+  }
+  if (response.ok) {
+    const json = (await response.json()) as { remoteUpdatedAt?: string };
+    if (json.remoteUpdatedAt) {
+      window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, json.remoteUpdatedAt);
+    }
+  }
   // #region agent log
   agentDebugLog("H1,H2", "push progress response", {
     ok: response.ok,

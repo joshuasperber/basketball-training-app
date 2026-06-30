@@ -5,6 +5,7 @@ import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 import { clearPlayerIntake } from "@/lib/coach-intake";
 import { pushProgressToCloud } from "@/lib/progress-sync";
 import type { WeekConfig } from "@/lib/planner";
+import { useRouter } from "next/navigation";
 
 type ProfileSettingsSheetProps = {
   open: boolean;
@@ -14,6 +15,8 @@ type ProfileSettingsSheetProps = {
 };
 
 export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeedback }: ProfileSettingsSheetProps) {
+  const router = useRouter();
+
   return (
     <Sheet
       open={open}
@@ -43,6 +46,25 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
       <div className="mt-4">
         <WorkoutReminderSettings weekConfig={weekConfig} />
       </div>
+
+      <section className="app-card mt-4">
+        <p className="section-eyebrow">Session</p>
+        <h2 className="section-title mt-1">Abmelden</h2>
+        <p className="mt-1 text-sm text-muted">
+          Beendet die Anmeldung auf diesem Gerät. Lokale Browser-Daten bleiben erhalten.
+        </p>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm mt-3"
+          onClick={async () => {
+            await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+            onClose();
+            router.replace("/login");
+          }}
+        >
+          Abmelden
+        </button>
+      </section>
     </Sheet>
   );
 }

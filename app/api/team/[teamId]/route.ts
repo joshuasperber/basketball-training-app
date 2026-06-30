@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, supabaseRest } from "@/lib/server/supabase-admin";
 import { getOrCreateTeamInviteToken } from "@/lib/server/team-invite";
 import { buildMemberViewFromProgress } from "@/lib/server/team-progress";
+import { applyShareLevelToMemberView } from "@/lib/server/team-member-view";
+import { buildMemberWeekPlanView } from "@/lib/server/team-week-plan";
 import { parseWorkoutSessionsFromProgress } from "@/lib/server/parse-user-progress";
 import { fetchProgressByUserIds } from "@/lib/server/user-progress-team";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
@@ -63,8 +65,22 @@ export async function GET(
   const progressByUser = await fetchProgressByUserIds(userIds, emailByUserId);
 
   const members: TeamMemberView[] = memberRows
-    .map((row) => buildMemberViewFromProgress(row, progressByUser.get(row.user_id) ?? null))
+    .map((row) => {
+      const view = buildMemberViewFromProgress(row, progressByUser.get(row.user_id) ?? null);
+      return applyShareLevelToMemberView(view, row.user_id, row.share_level, user.id);
+    })
     .sort((a, b) => b.form.score - a.form.score);
+
+  const memberWeekPlans = memberRows
+    .filter((row) => row.share_level === "full")
+    .map((row) =>
+      buildMemberWeekPlanView(
+        row,
+        progressByUser.get(row.user_id) ?? null,
+        progressByUser.get(row.user_id)?.profile_username ?? "Spieler",
+      ),
+    )
+    .filter((plan): plan is NonNullable<typeof plan> => plan != null);
 
   const scoutingRes = await supabaseRest<ScoutingRow[]>(
     `opponent_scouting?team_id=eq.${teamId}&select=*&order=updated_at.desc`,
@@ -101,6 +117,7 @@ export async function GET(
     members,
     scouting,
     inviteToken,
+    memberWeekPlans,
     syncMeta: {
       progressFound: Boolean(viewerProgress),
       workouts14d: viewerWorkouts14d,

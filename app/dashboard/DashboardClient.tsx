@@ -117,13 +117,37 @@ function getInitials(name: string) {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
+function getTimeGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 5) return "Gute Nacht";
+  if (hour < 11) return "Guten Morgen";
+  if (hour < 18) return "Hi";
+  return "Guten Abend";
+}
+
 export default function DashboardPage({ forceProfileSetup = false }: { forceProfileSetup?: boolean }) {
-  const dateKey = useMemo(() => getTodayDateKey(), []);
-  const todayDayIndex = useMemo(() => new Date(`${dateKey}T12:00:00`).getDay(), [dateKey]);
+  const [dateKey, setDateKey] = useState("");
+  const [headerGreeting, setHeaderGreeting] = useState("Hi");
+
+  useEffect(() => {
+    setDateKey(getTodayDateKey());
+    setHeaderGreeting(getTimeGreeting());
+  }, []);
+
+  const todayDayIndex = useMemo(
+    () => (dateKey ? new Date(`${dateKey}T12:00:00`).getDay() : 0),
+    [dateKey],
+  );
   const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
-  const weekdayLabel = useMemo(() => getWeekdayName(new Date(`${dateKey}T00:00:00.000Z`)), [dateKey]);
+  const weekdayLabel = useMemo(
+    () => (dateKey ? getWeekdayName(new Date(`${dateKey}T12:00:00`)) : ""),
+    [dateKey],
+  );
   const fallbackProgress = useMemo(
-    () => getDefaultWorkoutProgress(dateKey, todayWorkout),
+    () =>
+      dateKey
+        ? getDefaultWorkoutProgress(dateKey, todayWorkout)
+        : getDefaultWorkoutProgress("1970-01-01", todayWorkout),
     [dateKey, todayWorkout],
   );
 
@@ -303,14 +327,26 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     };
   }, [visibleBadges]);
 
-  const greetingHour = new Date().getHours();
-  const greeting =
-    greetingHour < 5 ? "Gute Nacht" : greetingHour < 11 ? "Guten Morgen" : greetingHour < 18 ? "Hi" : "Guten Abend";
+  const greeting = headerGreeting;
+
+  if (!dateKey) {
+    return (
+      <main className="app-container animate-in">
+        <PageHeader
+          eyebrow="Hi"
+          title={`Hi, ${username}`}
+          subtitle="Dein heutiger Trainingsplan auf einen Blick."
+          actions={<div className="avatar-bubble">{getInitials(username)}</div>}
+        />
+        <p className="mt-6 text-sm text-muted">Dashboard wird geladen …</p>
+      </main>
+    );
+  }
 
   return (
     <main className="app-container animate-in">
       <PageHeader
-        eyebrow={`${greeting} • ${weekdayLabel}`}
+        eyebrow={weekdayLabel ? `${greeting} • ${weekdayLabel}` : greeting}
         title={`${greeting}, ${username}`}
         subtitle="Dein heutiger Trainingsplan auf einen Blick."
         actions={<div className="avatar-bubble">{getInitials(username)}</div>}

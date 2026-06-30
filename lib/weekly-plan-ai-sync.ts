@@ -11,6 +11,13 @@ export type WeeklyPlanAiSyncResult = {
   message: string;
 };
 
+export type WeeklyPlanAiPreview = {
+  headline: string;
+  bullets: string[];
+  weekConfig: WeekConfig;
+  coachWorkoutByDay: Partial<Record<DayKey, string>> | null;
+};
+
 export function persistWeekFromAi(week: WeekConfig, coachWorkoutByDay?: Partial<Record<DayKey, string>> | null) {
   const key = "profile_cache_v4";
   let parsed: Record<string, unknown> = {};
@@ -36,17 +43,27 @@ export function persistWeekFromAi(week: WeekConfig, coachWorkoutByDay?: Partial<
   window.dispatchEvent(new Event("storage"));
 }
 
-export async function syncWeeklyPlanFromAi(skipCache = false): Promise<WeeklyPlanAiSyncResult> {
+export async function fetchWeeklyPlanAiPreview(skipCache = false): Promise<{
+  ok: boolean;
+  message: string;
+  preview?: WeeklyPlanAiPreview;
+}> {
   try {
     const payload = buildCoachRequestPayload();
     const response = await fetch("/api/coach", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ ...payload, intent: "weekly_plan", skipCache }),
     });
+    if (response.status === 401) {
+      return { ok: false, message: "Bitte einloggen für den KI-Wochenplan." };
+    }
     const json = (await response.json()) as {
       weekConfig?: WeekConfig;
       coachWorkoutByDay?: Partial<Record<DayKey, string>>;
+      headline?: string;
+      bullets?: string[];
       error?: string;
     };
     if (!json.weekConfig) {
@@ -68,9 +85,29 @@ export async function syncWeeklyPlanFromAi(skipCache = false): Promise<WeeklyPla
       existingWeek = undefined;
     }
     const mergedWeek = mergeAiWeekConfigPreservingUserMinutes(json.weekConfig, existingWeek);
-    persistWeekFromAi(mergedWeek, safeAssignments ?? null);
-    return { ok: true, message: "Wochenplan wurde per KI abgestimmt und ins Weekly übernommen." };
+    return {
+      ok: true,
+      message: "Vorschlag bereit.",
+      preview: {
+        headline: json.headline ?? "KI-Wochenplan",
+        bullets: json.bullets ?? [],
+        weekConfig: mergedWeek,
+        coachWorkoutByDay: safeAssignments ?? null,
+      },
+    };
   } catch {
-    return { ok: false, message: "Wochen-Sync fehlgeschlagen — Weekly zeigt weiter deine gespeicherte Woche." };
+    return { ok: false, message: "Wochen-Sync fehlgeschlagen." };
   }
+}
+
+export function applyWeeklyPlanAiPreview(preview: WeeklyPlanAiPreview): WeeklyPlanAiSyncResult {
+  persistWeekFromAi(preview.weekConfig, preview.coachWorkoutByDay);
+  return { ok: true, message: "Wochenplan wurde übernommen und ins Weekly synchronisiert." };
+}
+
+/** @deprecated Nutze fetchWeeklyPlanAiPreview + applyWeeklyPlanAiPreview */
+export async function syncWeeklyPlanFromAi(skipCache = false): Promise<WeeklyPlanAiSyncResult> {
+  const fetched = await fetchWeeklyPlanAiPreview(skipCache);
+  if (!fetched.ok || !fetched.preview) return { ok: false, message: fetched.message };
+  return applyWeeklyPlanAiPreview(fetched.preview);
 }

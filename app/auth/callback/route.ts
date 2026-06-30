@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
+import { applySessionCookies, validateSessionTokens } from "@/lib/server/session-cookies";
 
 const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -11,28 +12,12 @@ type SupabaseSession = {
 };
 
 function buildRedirectPath(rawNext: string | null) {
-  if (!rawNext || !rawNext.startsWith("/")) return "/dashboard";
+  if (!rawNext || !rawNext.startsWith("/") || rawNext.startsWith("//")) return "/dashboard";
   return rawNext;
 }
 
 function withError(request: NextRequest, code: string) {
   return NextResponse.redirect(new URL(`/login?error=access_denied&error_code=${encodeURIComponent(code)}`, request.url));
-}
-
-function setSessionCookies(response: NextResponse, session: SupabaseSession) {
-  response.cookies.set("sb-access-token", session.access_token, {
-    path: "/",
-    maxAge: session.expires_in,
-    sameSite: "lax",
-    httpOnly: false,
-  });
-
-  response.cookies.set("sb-refresh-token", session.refresh_token, {
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-    sameSite: "lax",
-    httpOnly: false,
-  });
 }
 
 async function verifyTokenHash(tokenHash: string, type: string): Promise<SupabaseSession | null> {
@@ -108,7 +93,20 @@ export async function GET(request: NextRequest) {
     return withError(request, "missing_or_invalid_token");
   }
 
+  const validated = await validateSessionTokens(session.access_token, session.refresh_token);
+  if (!validated) {
+    return withError(request, "invalid_session");
+  }
+
   const response = NextResponse.redirect(new URL(nextPath, request.url));
-  setSessionCookies(response, session);
+  applySessionCookies(
+    response,
+    {
+      access_token: validated.access_token,
+      refresh_token: validated.refresh_token,
+      expires_in: session.expires_in ?? validated.expires_in,
+    },
+    request,
+  );
   return response;
 }

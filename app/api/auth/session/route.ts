@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applySessionCookies, validateSessionTokens } from "@/lib/server/session-cookies";
 
 type SessionPayload = {
   access_token?: string;
@@ -13,21 +14,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
   }
 
-  const response = NextResponse.json({ ok: true });
+  const validated = await validateSessionTokens(payload.access_token, payload.refresh_token);
+  if (!validated) {
+    return NextResponse.json({ error: "invalid_session" }, { status: 401 });
+  }
 
-  response.cookies.set("sb-access-token", payload.access_token, {
-    path: "/",
-    maxAge: payload.expires_in ?? 60 * 60,
-    sameSite: "lax",
-    httpOnly: false,
-  });
-
-  response.cookies.set("sb-refresh-token", payload.refresh_token, {
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-    sameSite: "lax",
-    httpOnly: false,
-  });
+  const response = NextResponse.json({ ok: true, user: { id: validated.user.id, email: validated.user.email } });
+  applySessionCookies(
+    response,
+    {
+      access_token: validated.access_token,
+      refresh_token: validated.refresh_token,
+      expires_in: payload.expires_in ?? validated.expires_in,
+    },
+    request,
+  );
 
   return response;
 }

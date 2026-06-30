@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { syncWeeklyPlanFromAi } from "@/lib/weekly-plan-ai-sync";
+import type { DayKey } from "@/lib/planner";
+import {
+  fetchWeeklyPlanAiPreview,
+  applyWeeklyPlanAiPreview,
+  type WeeklyPlanAiPreview,
+} from "@/lib/weekly-plan-ai-sync";
 
 type Props = {
   className?: string;
@@ -10,28 +15,91 @@ type Props = {
 
 export default function WeeklyPlanAiButton({ className = "", onSynced }: Props) {
   const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [preview, setPreview] = useState<WeeklyPlanAiPreview | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const handleClick = async () => {
+  const handleLoadPreview = async () => {
     if (loading) return;
     setLoading(true);
     setFeedback(null);
-    const result = await syncWeeklyPlanFromAi(true);
-    setFeedback(result.message);
+    const result = await fetchWeeklyPlanAiPreview(true);
     setLoading(false);
-    if (result.ok) onSynced?.();
+    if (!result.ok || !result.preview) {
+      setPreview(null);
+      setFeedback(result.message);
+      return;
+    }
+    setPreview(result.preview);
+    setFeedback(null);
+  };
+
+  const handleApply = async () => {
+    if (!preview || applying) return;
+    setApplying(true);
+    const result = applyWeeklyPlanAiPreview(preview);
+    setApplying(false);
+    setFeedback(result.message);
+    if (result.ok) {
+      setPreview(null);
+      onSynced?.();
+    }
+  };
+
+  const dayLabels: Record<DayKey, string> = {
+    monday: "Mo",
+    tuesday: "Di",
+    wednesday: "Mi",
+    thursday: "Do",
+    friday: "Fr",
+    saturday: "Sa",
+    sunday: "So",
   };
 
   return (
     <div className={className}>
-      <button
-        type="button"
-        onClick={() => void handleClick()}
-        disabled={loading}
-        className="btn btn-primary btn-sm whitespace-nowrap"
-      >
-        {loading ? "Plan wird erstellt…" : "KI-Wochenplan"}
-      </button>
+      {!preview ? (
+        <button
+          type="button"
+          onClick={() => void handleLoadPreview()}
+          disabled={loading}
+          className="btn btn-primary btn-sm whitespace-nowrap"
+        >
+          {loading ? "Vorschlag wird erstellt…" : "KI-Wochenplan vorschlagen"}
+        </button>
+      ) : (
+        <div className="app-card mt-2 text-left">
+          <p className="text-sm font-semibold text-strong">{preview.headline}</p>
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted">
+            {preview.bullets.slice(0, 5).map((bullet) => (
+              <li key={bullet}>{bullet}</li>
+            ))}
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-1">
+            {(Object.keys(preview.weekConfig) as DayKey[]).map((day) => {
+              const entry = preview.weekConfig[day];
+              return (
+                <span key={day} className="chip chip-sm text-xs">
+                  {dayLabels[day]} {entry.mode} {entry.minutes > 0 ? `${entry.minutes}m` : ""}
+                </span>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={applying}
+              onClick={() => void handleApply()}
+            >
+              {applying ? "Wird übernommen…" : "Plan übernehmen"}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPreview(null)}>
+              Verwerfen
+            </button>
+          </div>
+        </div>
+      )}
       {feedback ? <p className="mt-2 text-xs text-muted">{feedback}</p> : null}
     </div>
   );

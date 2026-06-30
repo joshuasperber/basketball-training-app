@@ -71,12 +71,12 @@ type Props = {
  * z-index per Inline-Style wegen möglicher Vorfahren-Stacking-Kontexte (ErrorBoundary etc.).
  */
 const INTAKE_OVERLAY_STYLE: CSSProperties = {
-  zIndex: 2147483646,
+  zIndex: 40,
   isolation: "isolate",
 };
 
 const INTAKE_SCROLL_ROOT_CLASS =
-  "pointer-events-auto fixed inset-0 overflow-y-auto overscroll-y-auto bg-[#07070b]";
+  "pointer-events-auto fixed inset-x-0 top-0 bottom-[var(--bottom-nav-height,4.25rem)] overflow-y-auto overscroll-y-auto bg-[#07070b]";
 
 /** Mind. Viewport-Höhe + unten andocken (`mt-auto` auf der Karte), kein vertikales Zentrieren (schneidet sonst ab). */
 const INTAKE_SHEET_COLUMN_CLASS =
@@ -111,6 +111,7 @@ export default function CoachIntakeChat({ onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [draft, setDraft] = useState("");
   const [answers, setAnswers] = useState<Partial<Record<Exclude<StepDef["id"], "welcome">, string>>>({});
+  const [aiConsent, setAiConsent] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -291,10 +292,21 @@ export default function CoachIntakeChat({ onClose }: Props) {
     <IntakeModalRoot ariaLabelledBy="intake-chat-title">
       <div className="relative mt-auto flex min-h-0 w-full max-h-[min(88dvh,calc(100svh-1.5rem))] flex-col overflow-hidden rounded-2xl border border-emerald-500/60 bg-zinc-950 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
         <header className="shrink-0 border-b border-zinc-700/80 bg-zinc-950 px-4 py-3">
-          <p id="intake-chat-title" className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
-            Kennenlern-Chat
-          </p>
-          <p className="mt-0.5 text-sm text-zinc-400">Einmalig · dauert ca. 2 Minuten</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p id="intake-chat-title" className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
+                Kennenlern-Chat
+              </p>
+              <p className="mt-0.5 text-sm text-zinc-400">Einmalig · dauert ca. 2 Minuten</p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm shrink-0 text-zinc-400"
+              onClick={handleSkip}
+            >
+              Später
+            </button>
+          </div>
         </header>
 
         <div
@@ -323,13 +335,36 @@ export default function CoachIntakeChat({ onClose }: Props) {
 
         <footer className="shrink-0 border-t border-zinc-700/80 bg-zinc-950 px-4 py-3">
           {isWelcome ?
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => setStepIndex(1)}>
-                Los geht&apos;s
-              </button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={handleSkip}>
-                Überspringen
-              </button>
+            <div className="space-y-3">
+              <label className="flex items-start gap-2 text-xs text-zinc-400">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={aiConsent}
+                  onChange={(e) => setAiConsent(e.target.checked)}
+                />
+                <span>
+                  Ich willige ein, dass meine Angaben für KI-Coach-Empfehlungen verarbeitet werden (ggf. über Drittanbieter
+                  wie Groq/OpenAI). Details in der{" "}
+                  <a href="/datenschutz" className="text-indigo-300 underline" target="_blank" rel="noreferrer">
+                    Datenschutzerklärung
+                  </a>
+                  .
+                </span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm disabled:opacity-50"
+                  disabled={!aiConsent}
+                  onClick={() => setStepIndex(1)}
+                >
+                  Los geht&apos;s
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={handleSkip}>
+                  Überspringen
+                </button>
+              </div>
             </div>
           : stepIndex < STEPS.length ?
             <>

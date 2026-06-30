@@ -24,6 +24,7 @@ type ProgressRecord = {
   hiddenAutoWorkoutsMap: Record<string, string[]>;
   performanceTips: string | null;
   gameStats: string | null;
+  leagueData: string | null;
   trainingGoals: string | null;
   customSubcategories: string | null;
   workoutHistory: string | null;
@@ -53,6 +54,7 @@ type ProgressRow = {
   xp_progression: string | null;
   performance_tips: string | null;
   game_stats: string | null;
+  league_data: string | null;
   training_goals: string | null;
   custom_subcategories: string | null;
   workout_history: string | null;
@@ -89,6 +91,7 @@ function getDefaultProgress(): ProgressRecord {
     hiddenAutoWorkoutsMap: {},
     performanceTips: null,
     gameStats: null,
+    leagueData: null,
     trainingGoals: null,
     customSubcategories: null,
     workoutHistory: null,
@@ -140,6 +143,7 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
     hiddenAutoWorkoutsMap: row.hidden_auto_workouts_map ?? {},
     performanceTips: row.performance_tips ?? null,
     gameStats: row.game_stats ?? null,
+    leagueData: row.league_data ?? null,
     trainingGoals: row.training_goals ?? null,
     customSubcategories: row.custom_subcategories ?? null,
     workoutHistory: row.workout_history ?? null,
@@ -152,7 +156,7 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
   };
 }
 
-async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecord | null> {
+async function readProgressRow(user: AuthedUser): Promise<{ progress: ProgressRecord; updatedAt: string | null } | null> {
   if (!isSupabaseConfigured()) return null;
 
   const tryFetch = async (column: "user_id" | "email", value: string): Promise<ProgressRow[] | null> => {
@@ -179,7 +183,13 @@ async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecor
     rows = await tryFetch("email", user.email);
   }
   const row = rows?.[0] ?? null;
-  return row ? mapRowToProgressRecord(row) : null;
+  if (!row) return null;
+  return { progress: mapRowToProgressRecord(row), updatedAt: row.updated_at ?? null };
+}
+
+async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecord | null> {
+  const row = await readProgressRow(user);
+  return row?.progress ?? null;
 }
 
 /** Leerer String = Feld bewusst löschen; null = nicht überschreiben (Cloud-Wert behalten). */
@@ -202,6 +212,7 @@ function mergeProgressWithExisting(existing: ProgressRecord | null, incoming: Pr
     xpProgression: mergeCloudTextField(incoming.xpProgression, existing.xpProgression),
     performanceTips: mergeCloudTextField(incoming.performanceTips, existing.performanceTips),
     gameStats: mergeCloudTextField(incoming.gameStats, existing.gameStats),
+    leagueData: mergeCloudTextField(incoming.leagueData, existing.leagueData),
     trainingGoals: mergeCloudTextField(incoming.trainingGoals, existing.trainingGoals),
     customSubcategories: mergeCloudTextField(incoming.customSubcategories, existing.customSubcategories),
     workoutHistory: mergeCloudTextField(incoming.workoutHistory, existing.workoutHistory),
@@ -240,6 +251,7 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
     xp_progression: merged.xpProgression ?? null,
     performance_tips: merged.performanceTips ?? null,
     game_stats: merged.gameStats ?? null,
+    league_data: merged.leagueData ?? null,
     training_goals: merged.trainingGoals ?? null,
     custom_subcategories: merged.customSubcategories ?? null,
     workout_history: merged.workoutHistory ?? null,
@@ -314,8 +326,17 @@ export async function GET(request: NextRequest) {
   }
 
   const progress = await readProgressFromSupabase(user);
-  return NextResponse.json(progress ?? getDefaultProgress());
+  const row = await readProgressRow(user);
+  return NextResponse.json({
+    ...(progress ?? getDefaultProgress()),
+    remoteUpdatedAt: row?.updatedAt ?? null,
+  });
 }
+
+type ProgressWritePayload = ProgressRecord & {
+  clientKnownRemoteUpdatedAt?: string | null;
+  forceOverwrite?: boolean;
+};
 
 export async function POST(request: NextRequest) {
   if (!isSupabaseConfigured()) {
@@ -327,9 +348,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const payload = (await request.json().catch(() => null)) as ProgressRecord | null;
+  const payload = (await request.json().catch(() => null)) as ProgressWritePayload | null;
   if (!payload?.sessions || !payload?.dailyPlanMap) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
+  }
+
+  const existingRow = await readProgressRow(user);
+  const clientKnown = payload.clientKnownRemoteUpdatedAt?.trim();
+  const remoteUpdatedAt = existingRow?.updatedAt ?? null;
+
+  if (
+    !payload.forceOverwrite &&
+    clientKnown &&
+    remoteUpdatedAt &&
+    new Date(remoteUpdatedAt).getTime() > new Date(clientKnown).getTime() &&
+    existingRow?.progress.remoteExists
+  ) {
+    return NextResponse.json(
+      {
+        error: "sync_conflict",
+        remote: existingRow.progress,
+        remoteUpdatedAt,
+      },
+      { status: 409 },
+    );
   }
 
   const ok = await writeProgressToSupabase(user, payload);
@@ -337,5 +379,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "write_failed" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  const afterWrite = await readProgressRow(user);
+  return NextResponse.json({ ok: true, remoteUpdatedAt: afterWrite?.updatedAt ?? new Date().toISOString() });
 }

@@ -7,11 +7,13 @@ const eslintConfig = defineConfig([
   ...nextTs,
   // Override default ignores of eslint-config-next.
   globalIgnores([
-    // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
+    ".restore-backup-jun27/**",
+    ".restore-backup-latest/**",
+    ".cursor/**",
   ]),
 ]);
 

@@ -15,6 +15,7 @@ create table if not exists public.user_progress (
   xp_progression text,
   performance_tips text,
   game_stats text,
+  league_data text,
   training_goals text,
   custom_subcategories text,
   workout_history text,
@@ -92,6 +93,15 @@ create policy user_progress_update_own
     or (user_id is null and email = lower((auth.jwt() ->> 'email')))
   )
   with check (
+    user_id = auth.uid()
+    or (user_id is null and email = lower((auth.jwt() ->> 'email')))
+  );
+
+drop policy if exists user_progress_delete_own on public.user_progress;
+create policy user_progress_delete_own
+  on public.user_progress
+  for delete
+  using (
     user_id = auth.uid()
     or (user_id is null and email = lower((auth.jwt() ->> 'email')))
   );

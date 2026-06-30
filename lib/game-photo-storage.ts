@@ -1,20 +1,5 @@
 import { supabase } from "@/lib/supabase";
 
-const BUCKET = "game-photos";
-
-type AuthClient = {
-  auth?: {
-    getUser?: () => Promise<{ data?: { user?: { id?: string } | null } }>;
-  };
-};
-
-async function getCurrentUserId(): Promise<string | null> {
-  const authApi = (supabase as unknown as AuthClient).auth;
-  if (!authApi?.getUser) return null;
-  const result = await authApi.getUser();
-  return result?.data?.user?.id ?? null;
-}
-
 /** Komprimiert ein Bild client-seitig auf max. ~1600 px lange Kante & JPEG q=0.8. */
 async function compressImage(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -60,31 +45,44 @@ async function compressImage(file: File): Promise<Blob> {
 }
 
 export async function uploadGamePhoto(gameId: string, file: File): Promise<string> {
-  const userId = await getCurrentUserId();
-  if (!userId) throw new Error("Nicht angemeldet – Upload nicht möglich.");
-
   const compressed = await compressImage(file);
-  const ext = "jpg";
-  const path = `${userId}/${gameId}-${Date.now()}.${ext}`;
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, compressed, {
-      contentType: "image/jpeg",
-      upsert: true,
-      cacheControl: "3600",
-    });
-  if (error) throw error;
-  return path;
+  const formData = new FormData();
+  formData.append("file", compressed, "game-photo.jpg");
+  formData.append("gameId", gameId);
+
+  const response = await fetch("/api/game-photo", {
+    method: "POST",
+    body: formData,
+    credentials: "same-origin",
+  });
+
+  if (response.status === 401) throw new Error("Nicht angemeldet – Upload nicht möglich.");
+  if (!response.ok) {
+    const json = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(json?.error ?? "Upload fehlgeschlagen.");
+  }
+
+  const json = (await response.json()) as { path?: string };
+  if (!json.path) throw new Error("Upload-Pfad fehlt.");
+  return json.path;
 }
 
 export async function getGamePhotoUrl(path: string): Promise<string | null> {
   if (!path) return null;
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60);
-  if (error) return null;
-  return data?.signedUrl ?? null;
+  const response = await fetch(`/api/game-photo?path=${encodeURIComponent(path)}`, {
+    credentials: "same-origin",
+  });
+  if (!response.ok) return null;
+  const json = (await response.json()) as { signedUrl?: string };
+  return json.signedUrl ?? null;
 }
 
 export async function deleteGamePhoto(path: string): Promise<void> {
   if (!path) return;
-  await supabase.storage.from(BUCKET).remove([path]);
+  await fetch("/api/game-photo", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ path }),
+  });
 }
