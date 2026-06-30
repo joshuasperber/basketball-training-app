@@ -9,7 +9,8 @@ import {
 import { PLAYER_INTAKE_STORAGE_KEY, PLAYER_INTAKE_UPDATED_EVENT } from "@/lib/coach-intake";
 import { GAME_STATS_KEY } from "@/lib/game-stats";
 import { LEAGUE_STORAGE_KEY } from "@/lib/league";
-import { checkAuthSession } from "@/lib/auth-session-align";
+import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
+import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
@@ -189,6 +190,21 @@ function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
     window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
     return;
   }
+
+  let localOnboardingComplete = false;
+  try {
+    const local = JSON.parse(localRaw) as { onboardingComplete?: boolean };
+    localOnboardingComplete = Boolean(local.onboardingComplete);
+  } catch {
+    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
+    return;
+  }
+
+  if (!localOnboardingComplete) {
+    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
+    return;
+  }
+
   try {
     const local = JSON.parse(localRaw) as {
       profile?: {
@@ -202,6 +218,7 @@ function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
       playStyle?: string;
       weekConfig?: unknown;
       weeklyGoalSessions?: number;
+      onboardingComplete?: boolean;
       bodyMetrics?: {
         wingspan_cm?: number | null;
         standing_reach_cm?: number | null;
@@ -212,6 +229,7 @@ function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
     const merged = {
       ...remote,
       ...local,
+      onboardingComplete: local.onboardingComplete ?? remote.onboardingComplete ?? false,
       profile: {
         ...remote.profile,
         ...local.profile,
@@ -294,8 +312,13 @@ export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
 }
 
 export async function pullProgressFromCloud() {
-  const { me } = await checkAuthSession();
+  const { me, accountSwitched } = await checkAuthSession();
   if (!me) return null;
+
+  if (accountSwitched) {
+    clearLocalUserProgress();
+  }
+
   const response = await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
   // #region agent log
   agentDebugLog("H1,H2", "pull progress response", { ok: response.ok, status: response.status });
@@ -305,14 +328,31 @@ export async function pullProgressFromCloud() {
   if (remote.remoteUpdatedAt) {
     window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
   }
-  if (remote.remoteExists === false) {
-    const local = buildLocalProgressSnapshot();
-    if (hasLocalUserData(local)) {
-      await pushProgressToCloud();
-      return local;
+
+  const syncUserId = window.localStorage.getItem(SYNC_USER_ID_KEY);
+  if (syncUserId && syncUserId !== me.id) {
+    const activeEmail = window.localStorage.getItem(ACTIVE_AUTH_EMAIL_KEY)?.trim().toLowerCase();
+    const currentEmail = me.email.trim().toLowerCase();
+    if (!activeEmail || activeEmail !== currentEmail) {
+      clearLocalUserProgress();
     }
   }
+
+  if (remote.remoteExists === false) {
+    const local = buildLocalProgressSnapshot();
+    const canMigrateLocal =
+      !accountSwitched && (syncUserId === me.id || (syncUserId == null && hasLocalUserData(local)));
+    if (canMigrateLocal && hasLocalUserData(local)) {
+      await pushProgressToCloud();
+      window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
+      return local;
+    }
+    window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
+    return remote;
+  }
+
   applyRemoteProgressToLocal(remote);
+  window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
   return remote;
 }
 
@@ -320,6 +360,7 @@ export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): 
   const { me, accountSwitched } = await checkAuthSession();
   if (!me) return false;
   if (accountSwitched) {
+    clearLocalUserProgress();
     await pullProgressFromCloud();
   }
 
@@ -361,9 +402,15 @@ export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): 
 }
 
 /** Sync mit kurzem Retry — hilft direkt nach Workout-Abschluss. */
-export async function pushProgressToCloudWithRetry(attempts = 3): Promise<boolean> {
+export async function pushProgressToCloudWithRetry(
+  overridesOrAttempts?: Partial<RemoteProgress> | number,
+  attemptsArg = 3,
+): Promise<boolean> {
+  const overrides = typeof overridesOrAttempts === "number" ? undefined : overridesOrAttempts;
+  const attempts = typeof overridesOrAttempts === "number" ? overridesOrAttempts : attemptsArg;
+
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (await pushProgressToCloud()) return true;
+    if (await pushProgressToCloud(overrides)) return true;
     if (attempt < attempts - 1) {
       await new Promise((resolve) => setTimeout(resolve, 400));
     }

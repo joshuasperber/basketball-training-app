@@ -20,7 +20,7 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
   );
 }
 
-import CoachIntakeLauncher from "@/components/CoachIntakeLauncher";
+import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
 import SyncConflictBanner from "@/components/SyncConflictBanner";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 
@@ -97,7 +97,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
       <AppDialogProvider>
         <CloudSyncBridge />
         <SyncConflictBanner />
-        <CoachIntakeLauncher />
+        <OnboardingGateLauncher />
         {children}
       </AppDialogProvider>
     </ErrorBoundary>

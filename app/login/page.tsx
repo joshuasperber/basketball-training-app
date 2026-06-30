@@ -2,7 +2,9 @@
 
 import { SyntheticEvent, useEffect, useMemo, useState } from "react";
 import { friendlyAuthErrorMessage } from "@/lib/auth-messages";
-import { ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
+import { alignLocalAuthAfterServerSession, finalizeClientAuthSession } from "@/lib/auth-finalize-client";
+import { buildPasswordResetConfirmUrl } from "@/lib/auth-redirect";
+import { redirectToRecoveryPageIfHashPresent } from "@/lib/auth-recovery-client";
 import { createClient } from "@/lib/supabase";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
@@ -14,34 +16,24 @@ function normalizeCodeInput(value: string) {
   return value.replace(/\D/g, "").slice(0, 8);
 }
 
-async function persistSessionAndRedirect(
-  session: { access_token: string; refresh_token: string; expires_in: number },
-  email: string,
-  nextPath: string | null,
-) {
-  const sessionRes = await fetch("/api/auth/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_in: session.expires_in,
-    }),
+async function completeServerAuth(options: {
+  response: Response;
+  email: string;
+  nextPath: string | null;
+  freshAccount?: boolean;
+}) {
+  if (!options.response.ok) {
+    const payload = (await options.response.json().catch(() => null)) as { message?: string; error?: string } | null;
+    return friendlyAuthErrorMessage(payload?.message ?? payload?.error, "signin");
+  }
+
+  const payload = (await options.response.json()) as { user?: { id?: string; email?: string } };
+  return alignLocalAuthAfterServerSession({
+    nextPath: options.nextPath,
+    freshAccount: options.freshAccount,
+    emailHint: payload.user?.email ?? options.email,
+    userId: payload.user?.id,
   });
-
-  if (!sessionRes.ok) {
-    return "Session konnte nicht gespeichert werden. Bitte versuche es erneut.";
-  }
-
-  if (typeof window !== "undefined") {
-    const normalized = email.trim().toLowerCase();
-    window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, normalized);
-    window.localStorage.setItem(ACTIVE_AUTH_EMAIL_KEY, normalized);
-  }
-
-  const destination = nextPath ?? "/dashboard";
-  window.location.replace(destination);
-  return null;
 }
 
 export default function LoginPage() {
@@ -55,13 +47,24 @@ export default function LoginPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [nextPath, setNextPath] = useState<string | null>(null);
-  const [awaitingEmailConfirm, setAwaitingEmailConfirm] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (redirectToRecoveryPageIfHashPresent()) return;
+
     const params = new URLSearchParams(window.location.search);
     const timer = window.setTimeout(() => {
       setErrorCode(params.get("error_code"));
+      const reason = params.get("reason");
+      if (params.get("message") === "password_updated") {
+        setMessage("Passwort wurde geändert — du kannst dich jetzt anmelden.");
+      } else if (reason === "missing_session") {
+        setMessage("Bitte melde dich an, um fortzufahren.");
+      } else if (reason === "session_invalid") {
+        setMessage("Deine Sitzung ist abgelaufen — bitte erneut anmelden.");
+      } else if (params.get("next") && !params.get("error_code")) {
+        setMessage("Melde dich an, um zur gewünschten Seite zu gelangen.");
+      }
       const next = params.get("next");
       setNextPath(next && next.startsWith("/") ? next : null);
       const savedEmail = window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY);
@@ -101,19 +104,30 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error || !data.session) {
-      setMessage(
-        friendlyAuthErrorMessage(error?.message, "signin") ??
-          "Anmeldung fehlgeschlagen. Prüfe E-Mail/Passwort oder bestätige zuerst deine E-Mail.",
-      );
-      setLoading(false);
-      return;
-    }
+    const trimmedEmail = email.trim();
+    try {
+      window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmedEmail);
+      const response = await fetch("/api/auth/sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: trimmedEmail, password }),
+      });
 
-    const redirectError = await persistSessionAndRedirect(data.session, email, nextPath);
-    if (redirectError) {
-      setMessage(redirectError);
+      const redirectError = await completeServerAuth({
+        response,
+        email: trimmedEmail,
+        nextPath,
+      });
+      if (redirectError) {
+        setMessage(redirectError);
+        return;
+      }
+
+      setMessage("Anmeldung erfolgreich — weiterleiten …");
+    } catch {
+      setMessage("Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
       setLoading(false);
     }
   };
@@ -122,45 +136,65 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
 
+    const trimmedEmail = email.trim();
     if (password.length < 6) {
       setMessage("Passwort mindestens 6 Zeichen.");
       setLoading(false);
       return;
     }
 
-    const { data, error } = await supabase.auth.signUpWithPassword({ email, password });
-    if (error) {
-      setMessage(friendlyAuthErrorMessage(error.message, "signup"));
-      setLoading(false);
-      return;
-    }
+    try {
+      window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmedEmail);
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: trimmedEmail, password }),
+      });
 
-    if (data.needsEmailConfirmation || !data.session) {
-      setAwaitingEmailConfirm(true);
-      setMessage(
-        "Konto angelegt. Du hast „Confirm email“ aktiv — öffne den Bestätigungslink in deiner Mail (auch Spam), danach „Anmelden“. Oder in Supabase Confirm email ausschalten für sofortigen Login.",
-      );
-      setLoading(false);
-      return;
-    }
+      const redirectError = await completeServerAuth({
+        response,
+        email: trimmedEmail,
+        nextPath,
+        freshAccount: true,
+      });
+      if (redirectError) {
+        setMessage(friendlyAuthErrorMessage(redirectError, "signup"));
+        return;
+      }
 
-    setAwaitingEmailConfirm(false);
-
-    const redirectError = await persistSessionAndRedirect(data.session, email, nextPath);
-    if (redirectError) {
-      setMessage(redirectError);
+      setMessage("Konto erstellt — weiterleiten …");
+    } catch {
+      setMessage("Registrierung fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
       setLoading(false);
     }
   };
 
-  const resendConfirmation = async () => {
+  const requestPasswordReset = async () => {
     setLoading(true);
     setMessage(null);
-    const { error } = await supabase.auth.resendSignupConfirmation({ email });
+
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setMessage("Bitte zuerst deine E-Mail-Adresse eingeben.");
+      setLoading(false);
+      return;
+    }
+
+    window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmed);
+
+    const { error } = await supabase.auth.resetPasswordForEmail({
+      email: trimmed,
+      redirectTo: buildPasswordResetConfirmUrl(trimmed),
+    });
+
     if (error) {
-      setMessage(friendlyAuthErrorMessage(error.message, "signup"));
+      setMessage(friendlyAuthErrorMessage(error.message, "signin"));
     } else {
-      setMessage("Bestätigungs-Mail erneut gesendet — prüfe Posteingang und Spam.");
+      setMessage(
+        "Falls ein Konto mit dieser E-Mail existiert, wurde ein Reset-Link gesendet — prüfe Posteingang und Spam (max. ca. 2–4 Mails/Stunde).",
+      );
     }
     setLoading(false);
   };
@@ -205,7 +239,7 @@ export default function LoginPage() {
       return;
     }
 
-    const redirectError = await persistSessionAndRedirect(data.session, email, nextPath);
+    const redirectError = await finalizeClientAuthSession(data.session, { nextPath, emailHint: email.trim() });
     if (redirectError) {
       setMessage(redirectError);
       setLoading(false);
@@ -251,8 +285,8 @@ export default function LoginPage() {
 
         <p className="mt-3 text-sm text-muted">
           {mode === "password"
-            ? "Melde dich mit E-Mail und Passwort an — bleibt auch nach Ausloggen nutzbar."
-            : "Alternativ: 8-stelliger Code per E-Mail."}
+            ? "E-Mail + Passwort — danach direkt in die App. Neu hier? „Konto anlegen“."
+            : "Alternativ: 8-stelliger Code per E-Mail (ohne Passwort)."}
         </p>
 
         {configError ? (
@@ -285,9 +319,19 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="input-label" htmlFor="login-password">
-                Passwort
-              </label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="input-label" htmlFor="login-password">
+                  Passwort
+                </label>
+                <button
+                  type="button"
+                  disabled={loading || Boolean(configError) || !email.trim()}
+                  onClick={() => void requestPasswordReset()}
+                  className="text-xs text-[var(--brand-400)] hover:underline disabled:opacity-50"
+                >
+                  Passwort vergessen?
+                </button>
+              </div>
               <input
                 id="login-password"
                 type="password"
@@ -310,16 +354,6 @@ export default function LoginPage() {
             >
               {loading ? "…" : "Konto anlegen (Passwort)"}
             </button>
-            {awaitingEmailConfirm ? (
-              <button
-                type="button"
-                disabled={loading || !email}
-                onClick={() => void resendConfirmation()}
-                className="btn btn-ghost btn-block text-xs"
-              >
-                Bestätigungs-Mail erneut senden
-              </button>
-            ) : null}
           </form>
         ) : !codeSent ? (
           <form onSubmit={sendCode} className="mt-5 space-y-3">

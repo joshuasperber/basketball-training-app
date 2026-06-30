@@ -4,8 +4,10 @@ import GradientFadeList from "@/components/GradientFadeList";
 import { supabase } from "@/lib/supabase";
 import {
   buildWeeklyPlan,
+  formatPlannedDayDuration,
   getDaysStartingToday,
   getDefaultWeekConfig,
+  getEmptyWeekConfig,
   getNextDateForDay,
   type DayKey,
   type DayMode,
@@ -32,6 +34,8 @@ import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { downloadFullUserExport, deleteAccountAndLocalData } from "@/lib/account-data";
+import { isInitialSetupComplete } from "@/lib/onboarding-gate";
+import NumericInput from "@/components/ui/NumericInput";
 import PageHeader from "@/components/PageHeader";
 import ProfileSettingsSheet from "@/components/ProfileSettingsSheet";
 import ProfileLegalFooter from "@/components/ProfileLegalFooter";
@@ -84,6 +88,7 @@ type ProfileLocalCache = {
   playStyle: string;
   weekConfig: WeekConfig;
   weeklyGoalSessions: number;
+  onboardingComplete?: boolean;
   bodyMetrics?: {
     wingspan_cm: number | null;
     standing_reach_cm: number | null;
@@ -299,7 +304,7 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState<ProfileRow>({ username: "", full_name: "", favorite_position: "sg", height_cm: null, weight_kg: null, email: null });
   const [playStyle, setPlayStyle] = useState<string>("Shooter");
-  const [weekConfig, setWeekConfig] = useState<WeekConfig>(getDefaultWeekConfig());
+  const [weekConfig, setWeekConfig] = useState<WeekConfig>(getEmptyWeekConfig());
   const [weeklyGoalSessions] = useState<number>(4);
   const [bodyMetrics, setBodyMetrics] = useState({
     wingspan_cm: null as number | null,
@@ -357,14 +362,21 @@ export default function ProfilePage() {
       localCache?.weekConfig && weekConfigMatchesDailyPlan(localCache.weekConfig, latestDailyPlan)
         ? localCache.weekConfig
         : null;
+    const setupComplete = isInitialSetupComplete();
+
+    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
+    const authData = authApi?.getUser ? await authApi.getUser() : null;
+    const authUserId = authData?.data?.user?.id ?? null;
+    const cachedLoginEmail = typeof window !== "undefined" ? window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY) : null;
+    const authEmail = authData?.data?.user?.email ?? cachedLoginEmail ?? null;
+
     const resolvedWeekConfig =
       storedWeekConfig ??
       cachedWeekConfig ??
       dailyPlanWeekConfig ??
-      localCache?.weekConfig ??
-      getDefaultWeekConfig();
+      (setupComplete ? localCache?.weekConfig ?? getDefaultWeekConfig() : getEmptyWeekConfig());
 
-    if (localCache) {
+    if (localCache && setupComplete) {
       setProfile(localCache.profile);
       setPlayStyle(localCache.playStyle);
       setWeekConfig(resolvedWeekConfig);
@@ -374,17 +386,18 @@ export default function ProfilePage() {
       }
     } else {
       setWeekConfig(resolvedWeekConfig);
+      setProfile((current) => ({
+        ...current,
+        email: authEmail ?? current.email,
+        username: "",
+        full_name: "",
+      }));
     }
 
-    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
-    const authData = authApi?.getUser ? await authApi.getUser() : null;
-    const authUserId = authData?.data?.user?.id ?? null;
-    const cachedLoginEmail = typeof window !== "undefined" ? window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY) : null;
-    const authEmail = authData?.data?.user?.email ?? cachedLoginEmail ?? null;
-    const username = usernameOverride ?? localCache?.profile.username ?? (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) ?? "";
+    const username = usernameOverride ?? (setupComplete ? localCache?.profile.username ?? (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) : null) ?? "";
 
     let data: ProfileRow | null = null;
-    if (authUserId) {
+    if (authUserId && setupComplete) {
       const byId = await supabase
         .from("profiles")
         .select("username, full_name, favorite_position, height_cm, weight_kg")
@@ -401,17 +414,9 @@ export default function ProfilePage() {
           .maybeSingle<ProfileRow>();
         data = byUsername.data ?? null;
       }
-    } else if (username) {
-      const byUsername = await supabase
-        .from("profiles")
-        .select("username, full_name, favorite_position, height_cm, weight_kg")
-        .eq("username", username)
-        .limit(1)
-        .maybeSingle<ProfileRow>();
-      data = byUsername.data ?? null;
     }
 
-    if (data) {
+    if (data && setupComplete) {
       const mergedProfile: ProfileRow = {
         username: localCache?.profile.username ?? data.username ?? username,
         full_name: localCache?.profile.full_name ?? data.full_name ?? "",
@@ -428,8 +433,9 @@ export default function ProfilePage() {
         weekConfig: resolvedWeekConfig,
         weeklyGoalSessions: localCache?.weeklyGoalSessions ?? 4,
         bodyMetrics: localCache?.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null },
+        onboardingComplete: true,
       });
-    } else {
+    } else if (setupComplete) {
       setProfile((current: ProfileRow) => ({ ...current, email: authEmail ?? localCache?.profile.email ?? null }));
     }
 
@@ -454,7 +460,7 @@ export default function ProfilePage() {
   }, [loadProfile]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !isInitialSetupComplete()) return;
     const timer = window.setTimeout(() => {
       persistCurrentCache();
       void pushProgressToCloud();
@@ -834,52 +840,57 @@ const refreshProfileAndWeekly = () => {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label className="input-label">Größe (cm)</label>
-            <input
-              type="number"
-              value={profile.height_cm ?? ""}
-              onChange={(e) => setProfile((p) => ({ ...p, height_cm: e.target.value ? Number(e.target.value) : null }))}
+            <NumericInput
+              value={profile.height_cm}
+              onValueChange={(height_cm) => setProfile((p) => ({ ...p, height_cm }))}
               className="input"
               placeholder="185"
+              min={100}
+              max={250}
             />
           </div>
           <div>
             <label className="input-label">Gewicht (kg)</label>
-            <input
-              type="number"
-              value={profile.weight_kg ?? ""}
-              onChange={(e) => setProfile((p) => ({ ...p, weight_kg: e.target.value ? Number(e.target.value) : null }))}
+            <NumericInput
+              value={profile.weight_kg}
+              onValueChange={(weight_kg) => setProfile((p) => ({ ...p, weight_kg }))}
               className="input"
               placeholder="78"
+              min={30}
+              max={200}
             />
           </div>
           <div>
             <label className="input-label">Spannweite (cm)</label>
-            <input
-              type="number"
-              value={bodyMetrics.wingspan_cm ?? ""}
-              onChange={(e) => setBodyMetrics((prev) => ({ ...prev, wingspan_cm: e.target.value ? Number(e.target.value) : null }))}
+            <NumericInput
+              value={bodyMetrics.wingspan_cm}
+              onValueChange={(wingspan_cm) => setBodyMetrics((prev) => ({ ...prev, wingspan_cm }))}
               className="input"
               placeholder="195"
+              min={100}
+              max={280}
             />
           </div>
           <div>
             <label className="input-label">Standing Reach (cm)</label>
-            <input
-              type="number"
-              value={bodyMetrics.standing_reach_cm ?? ""}
-              onChange={(e) => setBodyMetrics((prev) => ({ ...prev, standing_reach_cm: e.target.value ? Number(e.target.value) : null }))}
+            <NumericInput
+              value={bodyMetrics.standing_reach_cm}
+              onValueChange={(standing_reach_cm) => setBodyMetrics((prev) => ({ ...prev, standing_reach_cm }))}
               className="input"
               placeholder="240"
+              min={150}
+              max={320}
             />
           </div>
           <div>
             <label className="input-label">KFA (%)</label>
-            <input
-              type="number"
-              value={bodyMetrics.body_fat_pct ?? ""}
-              onChange={(e) => setBodyMetrics((prev) => ({ ...prev, body_fat_pct: e.target.value ? Number(e.target.value) : null }))}
+            <NumericInput
+              value={bodyMetrics.body_fat_pct}
+              onValueChange={(body_fat_pct) => setBodyMetrics((prev) => ({ ...prev, body_fat_pct }))}
               className="input"
               placeholder="14"
+              min={3}
+              max={60}
             />
           </div>
         </div>
@@ -911,7 +922,12 @@ const refreshProfileAndWeekly = () => {
             const isAvailable = dayConfig.mode !== "unavailable" && dayConfig.mode !== "rest";
             return (
               <span key={`summary-${dayKey}`} className={`chip ${isAvailable ? "chip-active" : ""}`}>
-                {DAY_LABELS[dayKey].slice(0, 2)} {isAvailable ? `${dayConfig.minutes}m` : "frei"}
+                {DAY_LABELS[dayKey].slice(0, 2)}{" "}
+                {isAvailable
+                  ? dayConfig.mode === "game_day"
+                    ? "Spiel"
+                    : `${dayConfig.minutes}m`
+                  : "frei"}
               </span>
             );
           })}
@@ -962,16 +978,18 @@ const refreshProfileAndWeekly = () => {
                             unavailable: 0,
                             rest: 0,
                             recovery: 25,
-                            game_day: 60,
+                            game_day: 0,
                             game_training: 45,
                             basketball_training: 45,
                             gym: 60,
                             custom: 30,
                           };
                           const nextMinutes =
-                            typeof current.minutes === "number" && Number.isFinite(current.minutes) && current.minutes > 0
-                              ? current.minutes
-                              : defaultMinutes[nextMode];
+                            nextMode === "game_day"
+                              ? 0
+                              : typeof current.minutes === "number" && Number.isFinite(current.minutes) && current.minutes > 0
+                                ? current.minutes
+                                : defaultMinutes[nextMode];
                           return {
                             ...prev,
                             [dayKey]: {
@@ -991,25 +1009,28 @@ const refreshProfileAndWeekly = () => {
                       <option value="recovery">Regeneration</option>
                     </select>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        max={240}
-                        step={5}
-                        value={dayConfig.minutes}
-                        onChange={(event) => {
-                          const minutes = Number(event.target.value) || 0;
-                          updateWeekConfigAndCalendar((prev) => {
-                            const current = prev[dayKey] ?? { mode: "unavailable" as DayMode, minutes: 0 };
-                            return {
-                              ...prev,
-                              [dayKey]: { ...current, minutes },
-                            };
-                          });
-                        }}
-                        className="input w-20"
-                      />
-                      <span className="text-xs text-faint">Min</span>
+                      {dayConfig.mode === "game_day" ? (
+                        <span className="text-xs text-muted">Spieltag (feste Einheit)</span>
+                      ) : (
+                        <>
+                          <NumericInput
+                            min={0}
+                            max={240}
+                            value={dayConfig.minutes}
+                            onValueChange={(minutes) => {
+                              updateWeekConfigAndCalendar((prev) => {
+                                const current = prev[dayKey] ?? { mode: "unavailable" as DayMode, minutes: 0 };
+                                return {
+                                  ...prev,
+                                  [dayKey]: { ...current, minutes: minutes ?? 0 },
+                                };
+                              });
+                            }}
+                            className="input w-20"
+                          />
+                          <span className="text-xs text-faint">Min</span>
+                        </>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -1277,7 +1298,7 @@ const refreshProfileAndWeekly = () => {
                 </span>
                 <span className="text-right text-xs text-muted">
                   <span className="font-medium text-strong">{entry.sessionType}</span>
-                  {" · "}{entry.intensity} · {entry.minutes} Min
+                  {" · "}{entry.intensity} · {formatPlannedDayDuration(entry)}
                 </span>
               </li>
             );

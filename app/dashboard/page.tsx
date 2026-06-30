@@ -1,26 +1,15 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import DashboardClient from "./DashboardClient";
-import { createClient } from "@/lib/supabase";
 
 export default async function DashboardPage() {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get("sb-access-token")?.value;
-  if (!accessToken) {
-    redirect("/login?next=/dashboard");
+  const refreshToken = cookieStore.get("sb-refresh-token")?.value;
+  if (!accessToken && !refreshToken) {
+    redirect("/login?next=/dashboard&reason=missing_session");
   }
 
-  try {
-    const supabase = createClient({ accessToken });
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      redirect("/login?next=/dashboard");
-    }
-  } catch {
-    // Supabase unreachable (network/TLS/proxy) — render client UI; cloud sync retries in browser.
-  }
-
+  // Cookies sind gesetzt (Proxy hat durchgelassen) — Client prüft /api/auth/me und refresht bei Bedarf.
   return <DashboardClient />;
 }

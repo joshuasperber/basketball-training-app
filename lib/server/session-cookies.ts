@@ -14,6 +14,9 @@ export type ValidatedSession = SupabaseSession & {
   user: { id: string; email: string };
 };
 
+/** Browser cookie lifetime — JWT refresh happens server-side via refresh_token. */
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
 function sessionCookieOptions(request: NextRequest | undefined, maxAge: number) {
   const isSecure = request?.nextUrl.protocol === "https:" || process.env.NODE_ENV === "production";
   return {
@@ -30,11 +33,11 @@ export function applySessionCookies(
   session: SupabaseSession,
   request?: NextRequest,
 ) {
-  response.cookies.set("sb-access-token", session.access_token, sessionCookieOptions(request, session.expires_in));
+  response.cookies.set("sb-access-token", session.access_token, sessionCookieOptions(request, SESSION_COOKIE_MAX_AGE));
   response.cookies.set(
     "sb-refresh-token",
     session.refresh_token,
-    sessionCookieOptions(request, 60 * 60 * 24 * 30),
+    sessionCookieOptions(request, SESSION_COOKIE_MAX_AGE),
   );
 }
 

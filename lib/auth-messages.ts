@@ -5,7 +5,7 @@ export function friendlyAuthErrorMessage(raw: string | undefined, context: "sign
 
   if (msg.includes("invalid login credentials")) {
     return context === "signin"
-      ? "Anmeldung fehlgeschlagen: Passwort falsch oder E-Mail noch nicht bestätigt. Bei „Confirm email“ in Supabase zuerst den Bestätigungslink in der Mail öffnen — oder Confirm email für lokale Tests ausschalten."
+      ? "Anmeldung fehlgeschlagen: E-Mail oder Passwort falsch."
       : raw ?? "Anmeldung fehlgeschlagen.";
   }
 
@@ -14,7 +14,7 @@ export function friendlyAuthErrorMessage(raw: string | undefined, context: "sign
   }
 
   if (msg.includes("user already registered") || msg.includes("already been registered")) {
-    return "Diese E-Mail ist schon registriert — nutze „Anmelden“ oder „Passwort vergessen“ in Supabase.";
+    return "Diese E-Mail ist schon registriert — nutze „Anmelden“ oder „Passwort vergessen?“.";
   }
 
   if (msg.includes("rate limit")) {

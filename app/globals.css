@@ -74,6 +74,18 @@ body {
   min-height: 100vh;
 }
 
+body[data-onboarding-active="true"] .bottom-nav {
+  display: none;
+}
+
+body[data-onboarding-active="true"] .app-shell {
+  pointer-events: none;
+}
+
+body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
+  pointer-events: auto;
+}
+
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;

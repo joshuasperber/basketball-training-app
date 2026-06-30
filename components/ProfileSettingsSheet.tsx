@@ -3,9 +3,8 @@
 import Sheet from "@/components/ui/Sheet";
 import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 import { clearPlayerIntake } from "@/lib/coach-intake";
-import { pushProgressToCloud } from "@/lib/progress-sync";
+import { pushProgressToCloud, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
 import type { WeekConfig } from "@/lib/planner";
-import { useRouter } from "next/navigation";
 
 type ProfileSettingsSheetProps = {
   open: boolean;
@@ -15,8 +14,6 @@ type ProfileSettingsSheetProps = {
 };
 
 export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeedback }: ProfileSettingsSheetProps) {
-  const router = useRouter();
-
   return (
     <Sheet
       open={open}
@@ -51,15 +48,16 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
         <p className="section-eyebrow">Session</p>
         <h2 className="section-title mt-1">Abmelden</h2>
         <p className="mt-1 text-sm text-muted">
-          Beendet die Anmeldung auf diesem Gerät. Lokale Browser-Daten bleiben erhalten.
+          Speichert deine Daten in der Cloud und beendet die Anmeldung auf diesem Gerät.
         </p>
         <button
           type="button"
           className="btn btn-outline btn-sm mt-3"
           onClick={async () => {
+            await pushProgressToCloudWithRetry();
             await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
             onClose();
-            router.replace("/login");
+            window.location.assign("/login");
           }}
         >
           Abmelden

@@ -2,10 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import {
-  type PlayerIntakeV1,
-  savePlayerIntake,
-} from "@/lib/coach-intake";
+import NumericInput from "@/components/ui/NumericInput";
+import { type PlayerIntakeV1, savePlayerIntake } from "@/lib/coach-intake";
 
 type StepId = "welcome" | "strengths" | "weaknesses" | "focus" | "age" | "role" | "extra" | "done";
 
@@ -16,47 +14,47 @@ type StepDef =
 const STEPS: StepDef[] = [
   {
     id: "welcome",
-    bot: "Hey — schön, dass du da bist. Ich bin der Coach-Assistent deiner App. Bevor wir mit Training und Wochenplan loslegen, lernen wir uns kurz kennen. Es geht um dich, nicht um Leistungsdruck: Ehrliche Antworten helfen mir später, bessere Tipps für dich zu formulieren.",
+    bot: "Hey — schön, dass du da bist. Ich bin der Coach-Assistent deiner App. Bevor wir mit Training und Wochenplan loslegen, lernen wir uns kurz kennen. Ehrliche Antworten helfen mir später, bessere Tipps für dich zu formulieren.",
     input: "none",
   },
   {
     id: "strengths",
-    bot: "**Was sind deine Stärken** auf dem Platz? (z. B. Tempo, Wurf, Defense-Lesung, Kommunikation …)",
-    placeholder: "Kurz in eigenen Worten …",
+    bot: "**Was sind deine Stärken** auf dem Platz?",
+    placeholder: "z. B. Tempo, Wurf, Defense …",
     multiline: true,
     input: "text",
   },
   {
     id: "weaknesses",
-    bot: "**Wo siehst du deine Schwächen** — ganz ehrlich, ohne dass du dich rechtfertigen musst.",
-    placeholder: "z. B. linke Hand, Kondition, Nervosität vor Spielen …",
+    bot: "**Wo siehst du deine Schwächen** — ganz ehrlich?",
+    placeholder: "z. B. linke Hand, Kondition …",
     multiline: true,
     input: "text",
   },
   {
     id: "focus",
-    bot: "**Worauf möchtest du besonders achten** in den nächsten Wochen? (Technik, Körper, Ernährung, Schlaf, Mental …)",
-    placeholder: "Was ist dir am wichtigsten?",
+    bot: "**Worauf möchtest du besonders achten** in den nächsten Wochen?",
+    placeholder: "Technik, Körper, Mental …",
     multiline: true,
     input: "text",
   },
   {
     id: "age",
-    bot: "**Wie alt bist du?** (Zahl in Jahren — hilft bei realistischer Belastung.)",
+    bot: "**Wie alt bist du?** (Jahre)",
     placeholder: "z. B. 16",
     input: "age",
   },
   {
     id: "role",
-    bot: "**Wo siehst du deine Aufgabe im Team?** (Position, Rolle, was der Coach von dir erwartet …)",
-    placeholder: "z. B. PG, Spielmacher, Rebounder von der Bank …",
+    bot: "**Wo siehst du deine Aufgabe im Team?**",
+    placeholder: "z. B. PG, Spielmacher …",
     multiline: true,
     input: "text",
   },
   {
     id: "extra",
-    bot: "**Gibt es noch etwas**, das ich wissen sollte? (Verletzungen, Ziele, nächstes Turnier … — optional, kannst du leer lassen.)",
-    placeholder: "Optional …",
+    bot: "**Gibt es noch etwas**, das ich wissen sollte? (optional)",
+    placeholder: "Verletzungen, Ziele …",
     multiline: true,
     input: "text",
   },
@@ -64,68 +62,59 @@ const STEPS: StepDef[] = [
 
 type Props = {
   onClose: () => void;
+  mandatory?: boolean;
+  embedded?: boolean;
+  variant?: "light" | "dark";
 };
 
-/**
- * Scrollbare Vollfläche: bei hohem Inhalt oder Tastatur kann man nachscrollen.
- * z-index per Inline-Style wegen möglicher Vorfahren-Stacking-Kontexte (ErrorBoundary etc.).
- */
-const INTAKE_OVERLAY_STYLE: CSSProperties = {
-  zIndex: 40,
-  isolation: "isolate",
-};
-
-const INTAKE_SCROLL_ROOT_CLASS =
-  "pointer-events-auto fixed inset-x-0 top-0 bottom-[var(--bottom-nav-height,4.25rem)] overflow-y-auto overscroll-y-auto bg-[#07070b]";
-
-/** Mind. Viewport-Höhe + unten andocken (`mt-auto` auf der Karte), kein vertikales Zentrieren (schneidet sonst ab). */
-const INTAKE_SHEET_COLUMN_CLASS =
-  "mx-auto flex min-h-[100dvh] w-full max-w-lg flex-col px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]";
-
-function IntakeModalRoot({
+function IntakeShell({
   children,
+  embedded,
+  variant,
   ariaLabelledBy,
 }: {
   children: ReactNode;
+  embedded?: boolean;
+  variant: "light" | "dark";
   ariaLabelledBy: string;
 }) {
+  const isLight = variant === "light";
+  const overlayStyle: CSSProperties = embedded ? {} : { zIndex: 55, isolation: "isolate" };
+
+  const rootClass = embedded
+    ? "w-full"
+    : `pointer-events-auto fixed inset-x-0 top-0 bottom-0 overflow-y-auto overscroll-y-contain ${
+        isLight ? "bg-[var(--bg-base)]" : "bg-[#07070b]"
+      }`;
+
   return (
-    <div
-      className={INTAKE_SCROLL_ROOT_CLASS}
-      style={INTAKE_OVERLAY_STYLE}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={ariaLabelledBy}
-    >
-      <div className={INTAKE_SHEET_COLUMN_CLASS}>{children}</div>
+    <div className={rootClass} style={overlayStyle} role="dialog" aria-modal="true" aria-labelledby={ariaLabelledBy}>
+      <div className={embedded ? "" : "mx-auto flex min-h-[100dvh] w-full max-w-lg flex-col px-3 pb-6 pt-3"}>{children}</div>
     </div>
   );
 }
 
-function intakePortal(node: ReactNode) {
-  if (typeof document === "undefined") return null;
-  return createPortal(node, document.body);
-}
-
-export default function CoachIntakeChat({ onClose }: Props) {
+export default function CoachIntakeChat({
+  onClose,
+  mandatory = false,
+  embedded = false,
+  variant = "dark",
+}: Props) {
+  const isLight = variant === "light";
   const [stepIndex, setStepIndex] = useState(0);
   const [draft, setDraft] = useState("");
+  const [ageDraft, setAgeDraft] = useState<number | null>(null);
   const [answers, setAnswers] = useState<Partial<Record<Exclude<StepDef["id"], "welcome">, string>>>({});
   const [aiConsent, setAiConsent] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const prevBodyOverflow = body.style.overflow;
-    const prevHtmlOverflow = html.style.overflow;
-    body.style.overflow = "hidden";
-    html.style.overflow = "hidden";
+    if (embedded) return;
+    document.body.style.overflow = "hidden";
     return () => {
-      body.style.overflow = prevBodyOverflow;
-      html.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = "";
     };
-  }, []);
+  }, [embedded]);
 
   const current = STEPS[stepIndex];
   const isWelcome = current?.id === "welcome";
@@ -140,9 +129,7 @@ export default function CoachIntakeChat({ onClose }: Props) {
         lines.push({ role: "user", text: answers[s.id]! });
       }
     }
-    if (current) {
-      lines.push({ role: "bot", text: current.bot });
-    }
+    if (current) lines.push({ role: "bot", text: current.bot });
     return lines;
   }, [stepIndex, current, answers]);
 
@@ -197,14 +184,15 @@ export default function CoachIntakeChat({ onClose }: Props) {
     }
 
     if (current.input === "age") {
-      const n = Number.parseInt(draft.trim(), 10);
-      if (!Number.isFinite(n) || n < 6 || n > 99) {
+      const n = ageDraft;
+      if (n == null || n < 6 || n > 99) {
         window.alert("Bitte gib dein Alter als Zahl zwischen 6 und 99 ein.");
         return;
       }
       setAnswers((a) => ({ ...a, age: String(n) }));
       setStepIndex((i) => i + 1);
       setDraft("");
+      setAgeDraft(null);
       return;
     }
 
@@ -217,7 +205,7 @@ export default function CoachIntakeChat({ onClose }: Props) {
 
     const text = draft.trim();
     if (!text) {
-      window.alert("Bitte kurz antworten — oder nutze „Überspringen“ unten.");
+      window.alert("Bitte kurz antworten — oder nutze „Überspringen“.");
       return;
     }
     setAnswers((a) => ({ ...a, [current.id]: text }));
@@ -239,178 +227,147 @@ export default function CoachIntakeChat({ onClose }: Props) {
     });
   };
 
-  if (stepIndex >= STEPS.length) {
-    const ageStr = answers.age;
-    const ageYears = ageStr ? Number.parseInt(ageStr, 10) : null;
-    return intakePortal(
-      <IntakeModalRoot ariaLabelledBy="intake-done-title">
-        <div className="mt-auto w-full max-h-[min(92dvh,calc(100svh-1.5rem))] overflow-y-auto rounded-2xl border border-zinc-600 bg-zinc-950 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
-          <h2 id="intake-done-title" className="text-lg font-bold text-white">
-            Zusammenfassung
-          </h2>
-          <p className="mt-2 text-sm text-zinc-400">So gebe ich es an deinen Coach weiter (du kannst das später im Profil ändern):</p>
-          <ul className="mt-3 space-y-2 text-sm text-zinc-200">
-            <li>
-              <span className="text-zinc-500">Stärken:</span> {answers.strengths || "—"}
-            </li>
-            <li>
-              <span className="text-zinc-500">Schwächen:</span> {answers.weaknesses || "—"}
-            </li>
-            <li>
-              <span className="text-zinc-500">Fokus:</span> {answers.focus || "—"}
-            </li>
-            <li>
-              <span className="text-zinc-500">Alter:</span> {ageYears != null && ageYears > 0 ? `${ageYears} Jahre` : "—"}
-            </li>
-            <li>
-              <span className="text-zinc-500">Teamrolle:</span> {answers.role || "—"}
-            </li>
-            <li>
-              <span className="text-zinc-500">Sonstiges:</span> {answers.extra || "—"}
-            </li>
-          </ul>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button type="button" className="btn btn-primary btn-sm" onClick={handleFinish}>
-              Speichern & loslegen
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                setStepIndex(STEPS.length - 1);
-              }}
-            >
-              Zurück
-            </button>
+  const cardClass = isLight
+    ? "app-card flex min-h-[420px] max-h-[min(78dvh,640px)] flex-col overflow-hidden p-0"
+    : "relative mt-auto flex min-h-0 w-full max-h-[min(88dvh,calc(100svh-1.5rem))] flex-col overflow-hidden rounded-2xl border border-emerald-500/60 bg-zinc-950 shadow-[0_24px_80px_rgba(0,0,0,0.85)]";
+
+  const botBubble = isLight
+    ? "border border-[var(--surface-border)] bg-[var(--bg-elevated-2)] text-[var(--fg-default)]"
+    : "border border-zinc-600/80 bg-zinc-800 text-zinc-100";
+  const userBubble = isLight ? "bg-[var(--brand-500)] text-white" : "bg-emerald-600 text-white";
+
+  const renderContent = () => {
+    if (stepIndex >= STEPS.length) {
+      const ageStr = answers.age;
+      const ageYears = ageStr ? Number.parseInt(ageStr, 10) : null;
+      return (
+        <IntakeShell embedded={embedded} variant={variant} ariaLabelledBy="intake-done-title">
+          <div className={isLight ? "app-card p-4" : "mt-auto w-full rounded-2xl border border-zinc-600 bg-zinc-950 p-4"}>
+            <h2 id="intake-done-title" className={`text-lg font-bold ${isLight ? "text-strong" : "text-white"}`}>
+              Zusammenfassung
+            </h2>
+            <ul className={`mt-3 space-y-2 text-sm ${isLight ? "text-muted" : "text-zinc-200"}`}>
+              <li>Stärken: {answers.strengths || "—"}</li>
+              <li>Schwächen: {answers.weaknesses || "—"}</li>
+              <li>Fokus: {answers.focus || "—"}</li>
+              <li>Alter: {ageYears != null && ageYears > 0 ? `${ageYears} Jahre` : "—"}</li>
+              <li>Teamrolle: {answers.role || "—"}</li>
+              <li>Sonstiges: {answers.extra || "—"}</li>
+            </ul>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button type="button" className="btn btn-primary btn-sm" onClick={handleFinish}>
+                Speichern & App starten
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setStepIndex(STEPS.length - 1)}>
+                Zurück
+              </button>
+            </div>
           </div>
-        </div>
-      </IntakeModalRoot>,
-    );
-  }
+        </IntakeShell>
+      );
+    }
 
-  return intakePortal(
-    <IntakeModalRoot ariaLabelledBy="intake-chat-title">
-      <div className="relative mt-auto flex min-h-0 w-full max-h-[min(88dvh,calc(100svh-1.5rem))] flex-col overflow-hidden rounded-2xl border border-emerald-500/60 bg-zinc-950 shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
-        <header className="shrink-0 border-b border-zinc-700/80 bg-zinc-950 px-4 py-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p id="intake-chat-title" className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
-                Kennenlern-Chat
-              </p>
-              <p className="mt-0.5 text-sm text-zinc-400">Einmalig · dauert ca. 2 Minuten</p>
+    return (
+      <IntakeShell embedded={embedded} variant={variant} ariaLabelledBy="intake-chat-title">
+        <div className={cardClass}>
+          <header className={`shrink-0 border-b px-4 py-3 ${isLight ? "border-[var(--surface-border)]" : "border-zinc-700/80 bg-zinc-950"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p id="intake-chat-title" className={`text-xs font-semibold uppercase tracking-wide ${isLight ? "text-[var(--accent-emerald)]" : "text-emerald-400"}`}>
+                  Kennenlern-Chat
+                </p>
+                <p className={`mt-0.5 text-sm ${isLight ? "text-muted" : "text-zinc-400"}`}>Einmalig · ca. 2 Minuten</p>
+              </div>
+              {!mandatory ? (
+                <button type="button" className="btn btn-ghost btn-sm shrink-0" onClick={handleSkip}>
+                  Später
+                </button>
+              ) : null}
             </div>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm shrink-0 text-zinc-400"
-              onClick={handleSkip}
-            >
-              Später
-            </button>
+          </header>
+
+          <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+            {transcript.map((line, idx) => (
+              <div key={`${idx}-${line.role}`} className={`flex ${line.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${line.role === "bot" ? botBubble : userBubble}`}>
+                  {line.role === "bot"
+                    ? line.text.split("**").map((chunk, i) => (i % 2 === 1 ? <strong key={i}>{chunk}</strong> : chunk))
+                    : line.text}
+                </div>
+              </div>
+            ))}
           </div>
-        </header>
 
-        <div
-          ref={listRef}
-          className="min-h-0 flex-1 touch-pan-y space-y-3 overflow-y-auto overscroll-y-contain px-4 py-3"
-        >
-          {transcript.map((line, idx) => (
-            <div
-              key={`${idx}-${line.role}`}
-              className={`flex ${line.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-                  line.role === "bot"
-                    ? "border border-zinc-600/80 bg-zinc-800 text-zinc-100"
-                    : "bg-emerald-600 text-white"
-                }`}
-              >
-                {line.role === "bot" ?
-                  line.text.split("**").map((chunk, i) => (i % 2 === 1 ? <strong key={i}>{chunk}</strong> : chunk))
-                : line.text}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <footer className="shrink-0 border-t border-zinc-700/80 bg-zinc-950 px-4 py-3">
-          {isWelcome ?
-            <div className="space-y-3">
-              <label className="flex items-start gap-2 text-xs text-zinc-400">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={aiConsent}
-                  onChange={(e) => setAiConsent(e.target.checked)}
-                />
-                <span>
-                  Ich willige ein, dass meine Angaben für KI-Coach-Empfehlungen verarbeitet werden (ggf. über Drittanbieter
-                  wie Groq/OpenAI). Details in der{" "}
-                  <a href="/datenschutz" className="text-indigo-300 underline" target="_blank" rel="noreferrer">
-                    Datenschutzerklärung
-                  </a>
-                  .
-                </span>
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm disabled:opacity-50"
-                  disabled={!aiConsent}
-                  onClick={() => setStepIndex(1)}
-                >
-                  Los geht&apos;s
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={handleSkip}>
-                  Überspringen
-                </button>
-              </div>
-            </div>
-          : stepIndex < STEPS.length ?
-            <>
-              {current.input === "age" ?
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={6}
-                  max={99}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={current.placeholder}
-                  className="mb-2 w-full rounded-lg border border-zinc-600 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500"
-                />
-              : <textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={current.placeholder}
-                  rows={3}
-                  className="mb-2 w-full resize-none rounded-lg border border-zinc-600 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500"
-                />
-              }
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn btn-primary btn-sm" onClick={commitCurrentAndAdvance}>
-                  {isLastQuestion ? "Weiter zur Zusammenfassung" : "Antwort senden"}
-                </button>
-                {stepIndex > 1 ?
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => {
-                      setStepIndex((i) => Math.max(1, i - 1));
-                      setDraft("");
-                    }}
-                  >
-                    Zurück
+          <footer className={`shrink-0 border-t px-4 py-3 ${isLight ? "border-[var(--surface-border)]" : "border-zinc-700/80 bg-zinc-950"}`}>
+            {isWelcome ? (
+              <div className="space-y-3">
+                <label className={`flex items-start gap-2 text-xs ${isLight ? "text-muted" : "text-zinc-400"}`}>
+                  <input type="checkbox" className="mt-0.5" checked={aiConsent} onChange={(e) => setAiConsent(e.target.checked)} />
+                  <span>
+                    Ich willige ein, dass meine Angaben für KI-Coach-Empfehlungen verarbeitet werden.{" "}
+                    <a href="/datenschutz" className="text-[var(--accent-indigo)] underline" target="_blank" rel="noreferrer">
+                      Datenschutz
+                    </a>
+                  </span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-primary btn-sm disabled:opacity-50" disabled={!aiConsent} onClick={() => setStepIndex(1)}>
+                    Los geht&apos;s
                   </button>
-                : null}
-                <button type="button" className="btn btn-ghost btn-sm ml-auto" onClick={handleSkip}>
-                  Überspringen
-                </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={handleSkip}>
+                    Überspringen
+                  </button>
+                </div>
               </div>
-            </>
-          : null}
-        </footer>
-      </div>
-    </IntakeModalRoot>,
-  );
+            ) : stepIndex < STEPS.length ? (
+              <>
+                {current.input === "age" ? (
+                  <NumericInput
+                    className="input mb-2"
+                    value={ageDraft}
+                    onValueChange={setAgeDraft}
+                    min={6}
+                    max={99}
+                    placeholder={current.placeholder}
+                  />
+                ) : (
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder={current.placeholder}
+                    rows={3}
+                    className="input mb-2 min-h-[80px] resize-none"
+                  />
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-primary btn-sm" onClick={commitCurrentAndAdvance}>
+                    {isLastQuestion ? "Weiter zur Zusammenfassung" : "Antwort senden"}
+                  </button>
+                  {stepIndex > 1 ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setStepIndex((i) => Math.max(1, i - 1));
+                        setDraft("");
+                      }}
+                    >
+                      Zurück
+                    </button>
+                  ) : null}
+                  <button type="button" className="btn btn-ghost btn-sm ml-auto" onClick={handleSkip}>
+                    Überspringen
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </footer>
+        </div>
+      </IntakeShell>
+    );
+  };
+
+  const content = renderContent();
+  if (embedded || typeof document === "undefined") return content;
+  return createPortal(content, document.body);
 }

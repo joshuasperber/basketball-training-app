@@ -26,7 +26,7 @@ import { downloadTrainingCsv } from "@/lib/export-training-csv";
 import { downloadWorkoutSessionsTcx } from "@/lib/export-workout-tcx";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
-import { countTrackedSetsInLogs, logCountsAsTrackedSet } from "@/lib/workout-session-metrics";
+import { countStrictTrackedSetsInLogs, countTrackedSetsInLogs, logCountsAsTrackedSet, sessionHasCompletedWork } from "@/lib/workout-session-metrics";
 import { repCountFromSessionLog } from "@/lib/workout-metrics";
 import {
   aggregateShootingByZone,
@@ -130,7 +130,8 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
 
   const sessionHistory = trackedSessions.flatMap((session) => {
     if (session.workoutId === "single-exercise-session") return [];
-    const totalSets = countTrackedSetsInLogs(session.logs);
+    if (!sessionHasCompletedWork(session)) return [];
+    const totalSets = countStrictTrackedSetsInLogs(session.logs);
     const totalReps = session.logs.reduce((sum, log) => sum + repCountFromSessionLog(log, exerciseLookup.get(log.exerciseId)), 0);
     const totalVolumeKg = session.logs.reduce(
       (sum, log) => sum + repCountFromSessionLog(log, exerciseLookup.get(log.exerciseId)) * Math.max(0, log.weightKg ?? 0),
@@ -207,7 +208,7 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
 }
 
 function getTrackedWorkoutSessions() {
-  return getWorkoutSessions();
+  return getWorkoutSessions().filter(sessionHasCompletedWork);
 }
 
 function countUniqueExercisesInSession(session: WorkoutSessionEntry) {
@@ -538,7 +539,11 @@ useEffect(() => {
   const filteredSessions = useMemo(() => filterSessionsByRange(sessionDetails, range), [range, sessionDetails]);
   const totalWorkoutCount = filteredSessions.length > 0
     ? filteredSessions.length
-    : new Set(filteredHistory.map((entry) => `${entry.date}-${entry.workoutId ?? entry.title}`)).size;
+    : new Set(
+        filteredHistory
+          .filter((entry) => entry.totalSets > 0)
+          .map((entry) => `${entry.date}-${entry.workoutId ?? entry.title}`),
+      ).size;
 
   const weeklyLoadRpe = useMemo(() => {
     const monday = startOfIsoWeekMonday(new Date());

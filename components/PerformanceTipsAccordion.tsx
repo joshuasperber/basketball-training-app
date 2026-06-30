@@ -12,9 +12,8 @@ type Props = {
 };
 
 function generalSectionLabel(mode: BasketballMode): string {
-  if (mode === "game") return "Spieltag";
-  if (mode === "game_training") return "Spieltraining (allgemein)";
-  return "Basketball (allgemein)";
+  if (mode === "game" || mode === "game_training") return "Spielnotizen";
+  return "Basketball-Training";
 }
 
 export default function PerformanceTipsAccordion({ tips, basketballMode, className }: Props) {

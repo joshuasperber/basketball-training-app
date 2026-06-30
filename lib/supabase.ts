@@ -78,11 +78,15 @@ type SupabaseAuthClient = {
     password: string;
   }) => Promise<{ data: { session: AuthSession | null; needsEmailConfirmation?: boolean }; error: SupabaseError | null }>;
   resendSignupConfirmation: (payload: { email: string }) => Promise<{ error: SupabaseError | null }>;
+  resetPasswordForEmail: (payload: {
+    email: string;
+    redirectTo?: string;
+  }) => Promise<{ error: SupabaseError | null }>;
   verifyOtp: (payload: {
     email: string;
     token: string;
-    type?: "email" | "magiclink";
-  }) => Promise<{ data: { session: AuthSession | null }; error: SupabaseError | null }> ;
+    type?: "email" | "signup" | "recovery" | "magiclink";
+  }) => Promise<{ data: { session: AuthSession | null }; error: SupabaseError | null }>;
   getUser: () => Promise<{ data: { user: AuthUser | null }; error: SupabaseError | null }>;
 };
 
@@ -505,7 +509,9 @@ class SupabaseClient {
           return { data: { session: null }, error: { message: "Supabase ist nicht konfiguriert." } };
         }
         const redirectTo =
-          typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
+          typeof window !== "undefined"
+            ? `${window.location.origin}/auth/confirm?next=${encodeURIComponent("/dashboard")}`
+            : undefined;
         try {
           const response = await fetch(`${this.baseUrl}/auth/v1/signup`, {
             method: "POST",
@@ -549,7 +555,9 @@ class SupabaseClient {
           return { error: { message: "Supabase ist nicht konfiguriert." } };
         }
         const redirectTo =
-          typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
+          typeof window !== "undefined"
+            ? `${window.location.origin}/auth/confirm?next=${encodeURIComponent("/dashboard")}`
+            : undefined;
         try {
           const response = await fetch(`${this.baseUrl}/auth/v1/resend`, {
             method: "POST",
@@ -571,6 +579,34 @@ class SupabaseClient {
           return {
             error: {
               message: error instanceof Error ? error.message : "E-Mail konnte nicht erneut gesendet werden.",
+            },
+          };
+        }
+      },
+      resetPasswordForEmail: async ({ email, redirectTo }) => {
+        if (!this.isConfigured) {
+          return { error: { message: "Supabase ist nicht konfiguriert." } };
+        }
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/v1/recover`, {
+            method: "POST",
+            headers: {
+              apikey: this.anonKey,
+              Authorization: `Bearer ${this.anonKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email,
+              redirect_to: redirectTo,
+            }),
+            cache: "no-store",
+          });
+          const error = await parseAuthResponse(response, "Reset-Mail konnte nicht gesendet werden");
+          return { error };
+        } catch (error) {
+          return {
+            error: {
+              message: error instanceof Error ? error.message : "Reset-Mail konnte nicht gesendet werden.",
             },
           };
         }

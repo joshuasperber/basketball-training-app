@@ -690,10 +690,19 @@ function selectBestWorkout(
 
 export default function WeeklyWorkoutPage() {
   const router = useRouter();
-  const todayIndex = new Date().getDay() as (typeof weekdayOrder)[number];
+  const [todayIndex, setTodayIndex] = useState<(typeof weekdayOrder)[number] | null>(null);
+
+  useEffect(() => {
+    setTodayIndex(new Date().getDay() as (typeof weekdayOrder)[number]);
+  }, []);
+
   const orderedDays = useMemo(
-    () => [...weekdayOrder]
-      .sort((left, right) => ((left - todayIndex + 7) % 7) - ((right - todayIndex + 7) % 7)),
+    () =>
+      todayIndex === null
+        ? [...weekdayOrder]
+        : [...weekdayOrder].sort(
+            (left, right) => ((left - todayIndex + 7) % 7) - ((right - todayIndex + 7) % 7),
+          ),
     [todayIndex],
   );
   const [plannedEntries, setPlannedEntries] = useState<PlannedUiEntry[] | null>(null);
@@ -729,6 +738,8 @@ export default function WeeklyWorkoutPage() {
   }, {});
 
   useEffect(() => {
+    if (todayIndex === null) return;
+
     const timer = window.setTimeout(() => {
       const raw = window.localStorage.getItem("profile_cache_v4");
       if (!raw) return;
@@ -1266,6 +1277,10 @@ export default function WeeklyWorkoutPage() {
         subtitle="Alle Tage sind direkt bearbeitbar – inklusive heute."
       />
 
+      {todayIndex === null ? (
+        <p className="mt-4 text-sm text-muted">Wochenplan wird geladen …</p>
+      ) : (
+        <>
       <div className="weekly-subnav-row">
         <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]} />
         <div className="weekly-subnav-row__actions">
@@ -1724,6 +1739,8 @@ export default function WeeklyWorkoutPage() {
           );
         })}
       </div>
+        </>
+      )}
     </main>
   );
 }

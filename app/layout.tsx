@@ -31,7 +31,9 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const cookieStore = await cookies();
-  const isAuthenticated = Boolean(cookieStore.get("sb-access-token")?.value);
+  const isAuthenticated = Boolean(
+    cookieStore.get("sb-access-token")?.value || cookieStore.get("sb-refresh-token")?.value,
+  );
 
   return (
     <html lang="de">

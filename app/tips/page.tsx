@@ -13,13 +13,11 @@ import {
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 
 const SCOPE_OPTIONS: { value: TipScope; label: string }[] = [
-  { value: "game", label: "Vor Spiel" },
-  { value: "game_training", label: "Vor Spieltraining" },
-  { value: "basketball_training", label: "Vor Basketball-Training" },
-  { value: "subcategory", label: "Workout-Schwerpunkt (z.B. Shooting)" },
+  { value: "spielnotizen", label: "Spielnotizen (Spieltag & Spieltraining)" },
+  { value: "basketball_training", label: "Basketball-Training + Schwerpunkt" },
 ];
 
-const TIP_GROUP_ORDER: TipScope[] = ["game", "game_training", "basketball_training", "subcategory"];
+const TIP_GROUP_ORDER: TipScope[] = ["spielnotizen", "basketball_training"];
 
 const BASKETBALL_SUBS = exerciseSubcategoriesByCategory.Basketball;
 
@@ -28,7 +26,7 @@ export default function TipsPage() {
   const [hydrated, setHydrated] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [scope, setScope] = useState<TipScope>("subcategory");
+  const [scope, setScope] = useState<TipScope>("basketball_training");
   const [scopeValue, setScopeValue] = useState("Shooting");
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -39,10 +37,10 @@ export default function TipsPage() {
 
   const grouped = useMemo(() => {
     return {
-      game: tips.filter((tip) => tip.scope === "game"),
-      game_training: tips.filter((tip) => tip.scope === "game_training"),
-      basketball_training: tips.filter((tip) => tip.scope === "basketball_training"),
-      subcategory: tips.filter((tip) => tip.scope === "subcategory"),
+      spielnotizen: tips.filter((tip) => tip.scope === "spielnotizen" || tip.scope === "game" || tip.scope === "game_training"),
+      basketball_training: tips.filter(
+        (tip) => tip.scope === "basketball_training" || tip.scope === "subcategory",
+      ),
     };
   }, [tips]);
 
@@ -54,7 +52,7 @@ export default function TipsPage() {
   const resetForm = () => {
     setTitle("");
     setContent("");
-    setScope("subcategory");
+    setScope("basketball_training");
     setScopeValue("Shooting");
     setEditingId(null);
   };
@@ -63,7 +61,13 @@ export default function TipsPage() {
     setEditingId(tip.id);
     setTitle(tip.title);
     setContent(tip.content);
-    setScope(tip.scope);
+    const migratedScope =
+      tip.scope === "game" || tip.scope === "game_training"
+        ? "spielnotizen"
+        : tip.scope === "subcategory"
+          ? "basketball_training"
+          : (tip.scope as TipScope);
+    setScope(migratedScope);
     setScopeValue(tip.scopeValue ?? "Shooting");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -72,9 +76,9 @@ export default function TipsPage() {
     const nextTitle = title.trim();
     const nextContent = content.trim();
     if (!nextTitle || !nextContent) return;
-    if (scope === "subcategory" && !scopeValue.trim()) return;
+    if (scope === "basketball_training" && !scopeValue.trim()) return;
     const prev = editingId ? tips.find((t) => t.id === editingId) : null;
-    const subVal = scope === "subcategory" ? scopeValue.trim() : undefined;
+    const subVal = scope === "basketball_training" ? scopeValue.trim() : undefined;
     const next = upsertPerformanceTip(tips, {
       id: editingId ?? undefined,
       title: nextTitle,
@@ -100,7 +104,9 @@ export default function TipsPage() {
       <header>
         <p className="page-eyebrow">Performance Notes</p>
         <h1 className="page-title">Tipps &amp; Notizen</h1>
-        <p className="page-subtitle">Diese Notizen werden dir vor Spiel, Spieltraining oder passenden Trainings angezeigt.</p>
+        <p className="page-subtitle">
+          Spielnotizen erscheinen vor Spieltag und Spieltraining. Basketball-Tipps mit Schwerpunkt passen zu deinem Training.
+        </p>
       </header>
 
       <section className="mt-4 app-card">
@@ -128,7 +134,7 @@ export default function TipsPage() {
                 </option>
               ))}
             </select>
-            {scope === "subcategory" ? (
+            {scope === "basketball_training" ? (
               <select
                 value={BASKETBALL_SUBS.includes(scopeValue) ? scopeValue : "__other__"}
                 onChange={(event) => {
@@ -147,7 +153,7 @@ export default function TipsPage() {
               </select>
             ) : null}
           </div>
-          {scope === "subcategory" && !BASKETBALL_SUBS.includes(scopeValue) ? (
+          {scope === "basketball_training" && !BASKETBALL_SUBS.includes(scopeValue) ? (
             <input
               value={scopeValue}
               onChange={(event) => setScopeValue(event.target.value)}
@@ -177,43 +183,43 @@ export default function TipsPage() {
             ) : (
               <GradientFadeList
                 className="mt-3"
-                  items={grouped[key]}
-                  listClassName="space-y-2"
-                  getKey={(tip) => tip.id}
-                  renderItem={(tip) => (
-                    <article className="list-card">
-                      <p className="font-semibold text-strong">{tip.title}</p>
-                      {tip.scope === "subcategory" ? (
-                        <p className="text-xs text-brand">Schwerpunkt: {tip.scopeValue}</p>
-                      ) : null}
-                      <p className="mt-1 text-sm text-muted">{tip.content}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={() => void startEdit(tip)}>
-                          Bearbeiten
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-xs"
-                          onClick={() => {
-                            const toggled = tips.map((entry) =>
-                              entry.id === tip.id ? { ...entry, active: !entry.active } : entry,
-                            );
-                            persist(toggled);
-                          }}
-                        >
-                          {tip.active ? "Deaktivieren" : "Aktivieren"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-danger-outline btn-xs"
-                          onClick={() => persist(removePerformanceTip(tips, tip.id))}
-                        >
-                          Löschen
-                        </button>
-                      </div>
-                    </article>
-                  )}
-                />
+                items={grouped[key]}
+                listClassName="space-y-2"
+                getKey={(tip) => tip.id}
+                renderItem={(tip) => (
+                  <article className="list-card">
+                    <p className="font-semibold text-strong">{tip.title}</p>
+                    {(tip.scope === "basketball_training" || tip.scope === "subcategory") && tip.scopeValue ? (
+                      <p className="text-xs text-brand">Schwerpunkt: {tip.scopeValue}</p>
+                    ) : null}
+                    <p className="mt-1 text-sm text-muted">{tip.content}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => void startEdit(tip)}>
+                        Bearbeiten
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => {
+                          const toggled = tips.map((entry) =>
+                            entry.id === tip.id ? { ...entry, active: !entry.active } : entry,
+                          );
+                          persist(toggled);
+                        }}
+                      >
+                        {tip.active ? "Deaktivieren" : "Aktivieren"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger-outline btn-xs"
+                        onClick={() => persist(removePerformanceTip(tips, tip.id))}
+                      >
+                        Löschen
+                      </button>
+                    </div>
+                  </article>
+                )}
+              />
             )}
           </div>
         ))}

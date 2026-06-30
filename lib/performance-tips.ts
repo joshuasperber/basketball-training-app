@@ -2,13 +2,16 @@ import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 
 export const PERFORMANCE_TIPS_KEY = "bt.performance-tips.v1";
 
-export type TipScope = "game" | "game_training" | "basketball_training" | "subcategory";
+/** @deprecated Legacy scopes — migrated on load. */
+type LegacyTipScope = "game" | "game_training" | "subcategory";
+
+export type TipScope = "spielnotizen" | "basketball_training";
 
 export type PerformanceTip = {
   id: string;
   title: string;
   content: string;
-  scope: TipScope;
+  scope: TipScope | LegacyTipScope;
   scopeValue?: string;
   active: boolean;
   createdAt: string;
@@ -41,38 +44,55 @@ function makeTip(
 
 export function getDefaultPerformanceTips(): PerformanceTip[] {
   return [
-    makeTip("tip-shooting-1", "Shooting", "Aus den Beinen werfen", "subcategory", "Shooting"),
-    makeTip("tip-shooting-2", "Shooting", "Höher werden (höherer Arch)", "subcategory", "Shooting"),
-    makeTip("tip-shooting-3", "Shooting", "Follow thru", "subcategory", "Shooting"),
-    makeTip("tip-shooting-4", "Shooting", "Mit Confidence", "subcategory", "Shooting"),
-    makeTip("tip-shooting-5", "Shooting", "Gerade hoch, nicht nach vorne", "subcategory", "Shooting"),
-    makeTip("tip-ft-1", "Free Throws", "Aus den Beinen werfen", "subcategory", "Shooting"),
-    makeTip("tip-ft-2", "Free Throws", "Hoher Arch", "subcategory", "Shooting"),
-    makeTip("tip-ft-3", "Free Throws", "Follow thru", "subcategory", "Shooting"),
-    makeTip("tip-ft-4", "Free Throws", "Nicht nach hinten, gerade noch", "subcategory", "Shooting"),
-    makeTip("tip-ft-5", "Free Throws", "Mit Ruhe", "subcategory", "Shooting"),
-    makeTip("tip-dribbling-1", "Dribbling", "Nicht dribbeln, außer wenn freier Weg dann mit Geschwindigkeit", "subcategory", "Handles"),
-    makeTip("tip-dribbling-2", "Dribbling", "Sonst Ball sichern -> an Haile, Salva", "subcategory", "Handles"),
-    makeTip("tip-finishing-1", "Zug zum Korb", "Ball oben halten", "subcategory", "Finishing"),
-    makeTip("tip-finishing-2", "Zug zum Korb", "Ball erst aufnehmen/springen, wenn klarer Plan", "subcategory", "Finishing"),
-    makeTip("tip-finishing-3", "Zug zum Korb", "Bei Euro Step Ball über Defender drüber (Donovan Mitchell)", "subcategory", "Finishing"),
-    makeTip("tip-finishing-4", "Zug zum Korb", "Beim Pass schon in den Pass reinlaufen (Pascal Siakam)", "subcategory", "Finishing"),
-    makeTip("tip-post-1", "Post Moves", "Tief anbieten, mit einem Move reinspringen und volle Power hoch", "game"),
-    makeTip("tip-post-2", "Post Moves", "Mit tiefer Schulter und Ellbogen Space kreieren", "game"),
-    makeTip("tip-post-3", "Post Moves", "Bei Help D Kick Out suchen", "game"),
-    makeTip("tip-post-4", "Post Moves", "Wichtig: zum Korb, strong finishen, Rebound holen", "game"),
-    makeTip("tip-system-1", "Systeme", "Kommunikation mit 2. Big: wer ist 5", "game"),
-    makeTip("tip-system-2", "Systeme", "Bei 2 quick: Screen an der Dreierlinie", "game"),
-    makeTip("tip-system-3", "Systeme", "Bei Horn zuerst D reindrücken, dann Screen stellen", "game"),
-    makeTip("tip-screen-1", "Screens", "Screens stark und breit stellen, nicht bewegen", "game_training"),
-    makeTip("tip-screen-2", "Screens", "Stark zum Korb rollen", "game_training"),
-    makeTip("tip-floater-1", "Floater", "Zwei Beine -> hoher Floater -> zum Korb", "game_training"),
-    makeTip("tip-defense-1", "Defense", "Welche Art von D spielen wir? Man-to-Man, Zone, Teilzone?", "game"),
-    makeTip("tip-defense-2", "Defense", "Arme hoch, viel reden, auf Cuts achten, keine Fouls", "game"),
-    makeTip("tip-defense-3", "Defense", "Erster in der Zone sein", "game"),
-    makeTip("tip-vs-zone-1", "Gegen Zone", "Im Dunkerspot anbieten, Löcher ausnutzen, X-Spielzug", "game"),
-    makeTip("tip-vs-zone-2", "Gegen Zone", "Beim Wurf direkt für Rebound bereit sein", "game"),
+    makeTip("tip-shooting-1", "Shooting", "Aus den Beinen werfen", "basketball_training", "Shooting"),
+    makeTip("tip-shooting-2", "Shooting", "Höher werden (höherer Arch)", "basketball_training", "Shooting"),
+    makeTip("tip-shooting-3", "Shooting", "Follow thru", "basketball_training", "Shooting"),
+    makeTip("tip-shooting-4", "Shooting", "Mit Confidence", "basketball_training", "Shooting"),
+    makeTip("tip-shooting-5", "Shooting", "Gerade hoch, nicht nach vorne", "basketball_training", "Shooting"),
+    makeTip("tip-ft-1", "Free Throws", "Aus den Beinen werfen", "basketball_training", "Shooting"),
+    makeTip("tip-ft-2", "Free Throws", "Hoher Arch", "basketball_training", "Shooting"),
+    makeTip("tip-ft-3", "Free Throws", "Follow thru", "basketball_training", "Shooting"),
+    makeTip("tip-ft-4", "Free Throws", "Nicht nach hinten, gerade noch", "basketball_training", "Shooting"),
+    makeTip("tip-ft-5", "Free Throws", "Mit Ruhe", "basketball_training", "Shooting"),
+    makeTip("tip-dribbling-1", "Dribbling", "Nicht dribbeln, außer wenn freier Weg dann mit Geschwindigkeit", "basketball_training", "Handles"),
+    makeTip("tip-dribbling-2", "Dribbling", "Sonst Ball sichern -> an Haile, Salva", "basketball_training", "Handles"),
+    makeTip("tip-finishing-1", "Zug zum Korb", "Ball oben halten", "basketball_training", "Finishing"),
+    makeTip("tip-finishing-2", "Zug zum Korb", "Ball erst aufnehmen/springen, wenn klarer Plan", "basketball_training", "Finishing"),
+    makeTip("tip-finishing-3", "Zug zum Korb", "Bei Euro Step Ball über Defender drüber (Donovan Mitchell)", "basketball_training", "Finishing"),
+    makeTip("tip-finishing-4", "Zug zum Korb", "Beim Pass schon in den Pass reinlaufen (Pascal Siakam)", "basketball_training", "Finishing"),
+    makeTip("tip-post-1", "Post Moves", "Tief anbieten, mit einem Move reinspringen und volle Power hoch", "spielnotizen"),
+    makeTip("tip-post-2", "Post Moves", "Mit tiefer Schulter und Ellbogen Space kreieren", "spielnotizen"),
+    makeTip("tip-post-3", "Post Moves", "Bei Help D Kick Out suchen", "spielnotizen"),
+    makeTip("tip-post-4", "Post Moves", "Wichtig: zum Korb, strong finishen, Rebound holen", "spielnotizen"),
+    makeTip("tip-system-1", "Systeme", "Kommunikation mit 2. Big: wer ist 5", "spielnotizen"),
+    makeTip("tip-system-2", "Systeme", "Bei 2 quick: Screen an der Dreierlinie", "spielnotizen"),
+    makeTip("tip-system-3", "Systeme", "Bei Horn zuerst D reindrücken, dann Screen stellen", "spielnotizen"),
+    makeTip("tip-screen-1", "Screens", "Screens stark und breit stellen, nicht bewegen", "spielnotizen"),
+    makeTip("tip-screen-2", "Screens", "Stark zum Korb rollen", "spielnotizen"),
+    makeTip("tip-floater-1", "Floater", "Zwei Beine -> hoher Floater -> zum Korb", "spielnotizen"),
+    makeTip("tip-defense-1", "Defense", "Welche Art von D spielen wir? Man-to-Man, Zone, Teilzone?", "spielnotizen"),
+    makeTip("tip-defense-2", "Defense", "Arme hoch, viel reden, auf Cuts achten, keine Fouls", "spielnotizen"),
+    makeTip("tip-defense-3", "Defense", "Erster in der Zone sein", "spielnotizen"),
+    makeTip("tip-vs-zone-1", "Gegen Zone", "Im Dunkerspot anbieten, Löcher ausnutzen, X-Spielzug", "spielnotizen"),
+    makeTip("tip-vs-zone-2", "Gegen Zone", "Beim Wurf direkt für Rebound bereit sein", "spielnotizen"),
   ];
+}
+
+function migrateTipScope(tip: PerformanceTip): PerformanceTip {
+  if (tip.scope === "game" || tip.scope === "game_training") {
+    return { ...tip, scope: "spielnotizen" };
+  }
+  if (tip.scope === "subcategory") {
+    return { ...tip, scope: "basketball_training" };
+  }
+  if (tip.scope === "basketball_training" && !tip.scopeValue?.trim()) {
+    return { ...tip, scope: "basketball_training", scopeValue: "Shooting" };
+  }
+  return tip;
+}
+
+function normalizeTips(tips: PerformanceTip[]): PerformanceTip[] {
+  return tips.map(migrateTipScope);
 }
 
 export function loadPerformanceTips() {
@@ -90,7 +110,10 @@ export function loadPerformanceTips() {
       window.localStorage.setItem(PERFORMANCE_TIPS_KEY, JSON.stringify(defaults));
       return defaults;
     }
-    return parsed;
+    const migrated = normalizeTips(parsed);
+    const needsPersist = migrated.some((tip, index) => tip.scope !== parsed[index]?.scope);
+    if (needsPersist) savePerformanceTips(migrated);
+    return migrated;
   } catch {
     return getDefaultPerformanceTips();
   }
@@ -134,21 +157,23 @@ export function getTipsForWorkoutContext(params: {
 
   return params.tips.filter((tip) => {
     if (!tip.active) return false;
+    const scope = migrateTipScope(tip).scope;
 
-    if (tip.scope === "subcategory") {
+    if (scope === "spielnotizen") {
+      return mode === "game" || mode === "game_training";
+    }
+
+    if (scope === "basketball_training") {
+      if (mode !== "basketball_training") return false;
       if (normalizedSubcategory.length === 0) return false;
       return (tip.scopeValue ?? "").trim().toLowerCase() === normalizedSubcategory;
     }
-
-    if (mode === "game") return tip.scope === "game";
-    if (mode === "game_training") return tip.scope === "game_training";
-    if (mode === "basketball_training") return tip.scope === "basketball_training";
 
     return false;
   });
 }
 
-/** Teilt gefilterte Tipps in „allgemeine“ (game / game_training / basketball_training) und nach Unterkategorie. */
+/** Teilt gefilterte Tipps in Spielnotizen und nach Basketball-Schwerpunkt. */
 export function partitionTipsForDisplay(filtered: PerformanceTip[]): {
   general: PerformanceTip[];
   bySubcategory: Map<string, PerformanceTip[]>;
@@ -156,12 +181,13 @@ export function partitionTipsForDisplay(filtered: PerformanceTip[]): {
   const general: PerformanceTip[] = [];
   const bySubcategory = new Map<string, PerformanceTip[]>();
   for (const tip of filtered) {
-    if (tip.scope === "subcategory") {
+    const scope = migrateTipScope(tip).scope;
+    if (scope === "basketball_training") {
       const key = (tip.scopeValue ?? "Sonstiges").trim() || "Sonstiges";
       const list = bySubcategory.get(key) ?? [];
       list.push(tip);
       bySubcategory.set(key, list);
-    } else {
+    } else if (scope === "spielnotizen") {
       general.push(tip);
     }
   }

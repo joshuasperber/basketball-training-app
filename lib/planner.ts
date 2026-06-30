@@ -79,6 +79,13 @@ export type PlannedDay = {
   reason: string;
 };
 
+/** Anzeige für Weekly-Plan: Spieltag zeigt „Spiel“ statt Minuten. */
+export function formatPlannedDayDuration(entry: Pick<PlannedDay, "sessionType" | "minutes">): string {
+  if (entry.sessionType === "game") return "Spiel";
+  if (entry.minutes <= 0) return "—";
+  return `${entry.minutes} Min`;
+}
+
 const DAYS: DayKey[] = [
   "monday",
   "tuesday",
@@ -128,7 +135,7 @@ export function buildWeeklyPlan(input: PlannerInput): PlannedDay[] {
         raw = { day, minutes: baseMinutes, intensity: "recovery", sessionType: "recovery", reason: "Aktive Regeneration" };
         break;
       case "game_day":
-        raw = { day, minutes: baseMinutes, intensity: "light", sessionType: "game", reason: "Spieltag: leichtes Warm-up" };
+        raw = { day, minutes: 0, intensity: "high", sessionType: "game", reason: "Spieltag" };
         break;
       case "game_training":
         raw = { day, minutes: baseMinutes, intensity: "medium", sessionType: "game-training", reason: "Spieltraining: 15 Min vorab + 30 Min Nachgang" };
@@ -181,6 +188,16 @@ export function getDaysStartingToday(fromDate = new Date()): DayKey[] {
   );
 
   return orderedDays;
+}
+
+const ALL_DAY_KEYS: DayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+/** Leerer Rhythmus — bis der Nutzer die Ersteinrichtung abgeschlossen hat. */
+export function getEmptyWeekConfig(): WeekConfig {
+  return ALL_DAY_KEYS.reduce((acc, day) => {
+    acc[day] = { mode: "unavailable", minutes: 0 };
+    return acc;
+  }, {} as WeekConfig);
 }
 
 /** Standard-Wochenrhythmus (wird im Profil überschrieben). */

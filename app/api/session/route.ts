@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DailyPlanMap } from "@/lib/activity-calendar";
 import { SessionDatabase } from "@/lib/session-types";
 import { mergeSessionDatabases } from "@/lib/server/session-merge";
+import { refreshSessionFromRequest, validateSessionTokens } from "@/lib/server/session-cookies";
 import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
 
 const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -106,6 +107,20 @@ function getDefaultProgress(): ProgressRecord {
 
 async function getRequestUser(request: NextRequest): Promise<AuthedUser | null> {
   const accessToken = request.cookies.get("sb-access-token")?.value;
+  const refreshToken = request.cookies.get("sb-refresh-token")?.value;
+
+  if (accessToken && refreshToken) {
+    const validated = await validateSessionTokens(accessToken, refreshToken);
+    if (validated) {
+      return { id: validated.user.id, email: validated.user.email };
+    }
+  }
+
+  const refreshed = await refreshSessionFromRequest(request);
+  if (refreshed) {
+    return { id: refreshed.user.id, email: refreshed.user.email };
+  }
+
   if (!accessToken || !supabaseUrl || !supabaseAnonKey) return null;
 
   const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
