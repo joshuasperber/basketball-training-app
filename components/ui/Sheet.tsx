@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type SheetProps = {
   open: boolean;
@@ -11,6 +12,12 @@ type SheetProps = {
 };
 
 export default function Sheet({ open, onClose, title, description, children }: SheetProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
@@ -24,9 +31,9 @@ export default function Sheet({ open, onClose, title, description, children }: S
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  return createPortal(
     <div className="sheet-root" role="presentation">
       <button type="button" className="sheet-backdrop" aria-label="Schließen" onClick={onClose} />
       <div className="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
@@ -45,6 +52,7 @@ export default function Sheet({ open, onClose, title, description, children }: S
         </header>
         <div className="sheet-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

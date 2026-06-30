@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
 import {
   type PerformanceTip,
@@ -102,11 +100,8 @@ export default function TipsPage() {
       <header>
         <p className="page-eyebrow">Performance Notes</p>
         <h1 className="page-title">Tipps &amp; Notizen</h1>
-        <p className="page-subtitle">Diese Notizen werden dir vor Spiel, Spieltraining oder passenden Workouts angezeigt.</p>
+        <p className="page-subtitle">Diese Notizen werden dir vor Spiel, Spieltraining oder passenden Trainings angezeigt.</p>
       </header>
-      <div className="mt-3">
-        <TopSubTabs items={[{ label: "Workouts", href: "/workouts" }, { label: "Tipps", href: "/tips" }]} />
-      </div>
 
       <section className="mt-4 app-card">
         <p className="section-eyebrow">{editingId ? "Notiz bearbeiten" : "Neue Notiz"}</p>
@@ -223,10 +218,6 @@ export default function TipsPage() {
           </div>
         ))}
       </section>
-
-      <Link href="/workouts" className="btn btn-ghost btn-sm mt-4">
-        ← Zurück zu Workouts
-      </Link>
     </main>
   );
 }
