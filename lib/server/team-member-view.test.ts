@@ -36,6 +36,9 @@ describe("applyShareLevelToMemberView", () => {
     const result = applyShareLevelToMemberView(sampleView, "user-a", "summary", "user-b");
     expect(result.playStyle).toBeNull();
     expect(result.form.score).toBe(72);
+    expect(result.recentGames).toBe(0);
+    expect(result.shootingZoneTotals).toBeNull();
+    expect(result.gameTrainingInsight).toBeNull();
     expect(result.form.reasons[0]).toContain("Volles Teilen");
   });
 });

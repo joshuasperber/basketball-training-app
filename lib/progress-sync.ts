@@ -11,6 +11,8 @@ import { GAME_STATS_KEY } from "@/lib/game-stats";
 import { LEAGUE_STORAGE_KEY } from "@/lib/league";
 import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
+import { clearLocalProgressDirty, isLocalProgressDirty, markLocalProgressDirty } from "@/lib/sync-dirty";
+import { dispatchSyncStatus } from "@/lib/sync-status";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
@@ -110,14 +112,6 @@ function readWorkoutOverrides(): Record<string, string> {
 function readReminderPrefsRaw() {
   return readRawString(REMINDER_PREFS_KEY) ?? readRawString(LEGACY_REMINDER_PREFS_KEY);
 }
-
-// #region agent log
-function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
-  void hypothesisId;
-  void message;
-  void data;
-}
-// #endregion
 
 export function buildLocalProgressSnapshot(): RemoteProgress {
   return {
@@ -258,6 +252,7 @@ function mergeLocalMap<T extends Record<string, unknown>>(key: string, remote: T
 
 export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   if (typeof window === "undefined") return;
+  clearLocalProgressDirty();
   const localSessions = getWorkoutSessions();
   const mergedSessions = [...localSessions];
   const seenSessionIds = new Set(localSessions.map((session) => session.id));
@@ -320,9 +315,6 @@ export async function pullProgressFromCloud() {
   }
 
   const response = await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
-  // #region agent log
-  agentDebugLog("H1,H2", "pull progress response", { ok: response.ok, status: response.status });
-  // #endregion
   if (!response.ok) return null;
   const remote = (await response.json()) as RemoteProgress;
   if (remote.remoteUpdatedAt) {
@@ -351,6 +343,19 @@ export async function pullProgressFromCloud() {
     return remote;
   }
 
+  const localKnownAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
+  if (
+    isLocalProgressDirty() &&
+    localKnownAt &&
+    remote.remoteUpdatedAt &&
+    remote.remoteUpdatedAt > localKnownAt
+  ) {
+    const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
+    dispatchSyncConflict({ remote, remoteUpdatedAt: remote.remoteUpdatedAt });
+    window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
+    return remote;
+  }
+
   applyRemoteProgressToLocal(remote);
   window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
   return remote;
@@ -359,10 +364,18 @@ export async function pullProgressFromCloud() {
 export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): Promise<boolean> {
   const { me, accountSwitched } = await checkAuthSession();
   if (!me) return false;
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    markLocalProgressDirty();
+    dispatchSyncStatus({ status: "offline" });
+    return false;
+  }
   if (accountSwitched) {
     clearLocalUserProgress();
     await pullProgressFromCloud();
   }
+
+  dispatchSyncStatus({ status: "saving" });
+  markLocalProgressDirty();
 
   const snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
   const clientKnownRemoteUpdatedAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
@@ -381,6 +394,7 @@ export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): 
       const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
       dispatchSyncConflict({ remote: conflict.remote, remoteUpdatedAt: conflict.remoteUpdatedAt });
     }
+    dispatchSyncStatus({ status: "error", message: "Sync-Konflikt — bitte Auswahl im Banner treffen." });
     return false;
   }
   if (response.ok) {
@@ -388,16 +402,11 @@ export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): 
     if (json.remoteUpdatedAt) {
       window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, json.remoteUpdatedAt);
     }
+    clearLocalProgressDirty();
+    dispatchSyncStatus({ status: "saved" });
+  } else {
+    dispatchSyncStatus({ status: "error" });
   }
-  // #region agent log
-  agentDebugLog("H1,H2", "push progress response", {
-    ok: response.ok,
-    status: response.status,
-    sessions: snapshot.sessions.workoutSessions.length,
-    manualDays: Object.keys(snapshot.manualDayWorkoutsMap).length,
-    dailyPlanDays: Object.keys(snapshot.dailyPlanMap).length,
-  });
-  // #endregion
   return response.ok;
 }
 
@@ -417,3 +426,5 @@ export async function pushProgressToCloudWithRetry(
   }
   return false;
 }
+
+export { markLocalProgressDirty, clearLocalProgressDirty, isLocalProgressDirty };

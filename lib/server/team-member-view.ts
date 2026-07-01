@@ -14,6 +14,10 @@ export function applyShareLevelToMemberView(
   return {
     ...view,
     playStyle: null,
+    recentGames: 0,
+    recentWorkouts: view.recentWorkouts,
+    shootingZoneTotals: null,
+    gameTrainingInsight: null,
     form: {
       score: view.form.score,
       tone: view.form.tone,

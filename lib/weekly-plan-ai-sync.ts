@@ -2,13 +2,14 @@ import { applyWeekConfigToCalendar } from "@/lib/activity-calendar";
 import { buildCoachRequestPayload } from "@/lib/coach-request-payload";
 import { sanitizeCoachWorkoutByDay } from "@/lib/coach-workout-by-day";
 import { getIsoWeekKey, writeCoachLlmWeeklyMarkers, weekConfigSignature } from "@/lib/coach-trigger";
-import { pushProgressToCloud } from "@/lib/progress-sync";
+import { markLocalProgressDirty, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
 import type { DayKey, WeekConfig } from "@/lib/planner";
 import { mergeAiWeekConfigPreservingUserMinutes } from "@/lib/week-config-merge";
 
 export type WeeklyPlanAiSyncResult = {
   ok: boolean;
   message: string;
+  cloudSynced?: boolean;
 };
 
 export type WeeklyPlanAiPreview = {
@@ -16,9 +17,50 @@ export type WeeklyPlanAiPreview = {
   bullets: string[];
   weekConfig: WeekConfig;
   coachWorkoutByDay: Partial<Record<DayKey, string>> | null;
+  changedDays: DayKey[];
 };
 
-export function persistWeekFromAi(week: WeekConfig, coachWorkoutByDay?: Partial<Record<DayKey, string>> | null) {
+const DAY_LABELS: Record<DayKey, string> = {
+  monday: "Mo",
+  tuesday: "Di",
+  wednesday: "Mi",
+  thursday: "Do",
+  friday: "Fr",
+  saturday: "Sa",
+  sunday: "So",
+};
+
+function readCurrentWeekConfig(): WeekConfig | null {
+  try {
+    const raw = window.localStorage.getItem("profile_cache_v4");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { weekConfig?: WeekConfig };
+    return parsed.weekConfig ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function diffWeekConfigDays(current: WeekConfig | null, next: WeekConfig): DayKey[] {
+  if (!current) return Object.keys(next) as DayKey[];
+  return (Object.keys(next) as DayKey[]).filter((day) => {
+    const before = current[day];
+    const after = next[day];
+    return before?.mode !== after?.mode || (before?.minutes ?? 0) !== (after?.minutes ?? 0);
+  });
+}
+
+export function formatWeekConfigDaySummary(day: DayKey, config: WeekConfig[DayKey]) {
+  const label = DAY_LABELS[day];
+  if (config.mode === "game_day") return `${label}: Spiel`;
+  if (config.mode === "rest" || config.mode === "unavailable") return `${label}: frei`;
+  return `${label}: ${config.minutes} Min · ${config.mode}`;
+}
+
+export async function persistWeekFromAi(
+  week: WeekConfig,
+  coachWorkoutByDay?: Partial<Record<DayKey, string>> | null,
+): Promise<boolean> {
   const key = "profile_cache_v4";
   let parsed: Record<string, unknown> = {};
   try {
@@ -36,11 +78,13 @@ export function persistWeekFromAi(week: WeekConfig, coachWorkoutByDay?: Partial<
   }
   window.localStorage.setItem(key, JSON.stringify(parsed));
   applyWeekConfigToCalendar(week, 28);
-  void pushProgressToCloud();
+  markLocalProgressDirty();
+  const cloudSynced = await pushProgressToCloudWithRetry();
   writeCoachLlmWeeklyMarkers(getIsoWeekKey(), weekConfigSignature(week));
   window.dispatchEvent(new Event("bt:plan-updated"));
   window.dispatchEvent(new Event("bt:weekly-suggestions-updated"));
   window.dispatchEvent(new Event("storage"));
+  return cloudSynced;
 }
 
 export async function fetchWeeklyPlanAiPreview(skipCache = false): Promise<{
@@ -74,17 +118,9 @@ export async function fetchWeeklyPlanAiPreview(skipCache = false): Promise<{
       json.weekConfig,
       payload.workoutCatalog,
     );
-    let existingWeek: WeekConfig | undefined;
-    try {
-      const raw = window.localStorage.getItem("profile_cache_v4");
-      if (raw) {
-        const parsed = JSON.parse(raw) as { weekConfig?: WeekConfig };
-        if (parsed.weekConfig) existingWeek = parsed.weekConfig;
-      }
-    } catch {
-      existingWeek = undefined;
-    }
+    const existingWeek = readCurrentWeekConfig() ?? undefined;
     const mergedWeek = mergeAiWeekConfigPreservingUserMinutes(json.weekConfig, existingWeek);
+    const changedDays = diffWeekConfigDays(existingWeek ?? null, mergedWeek);
     return {
       ok: true,
       message: "Vorschlag bereit.",
@@ -93,6 +129,7 @@ export async function fetchWeeklyPlanAiPreview(skipCache = false): Promise<{
         bullets: json.bullets ?? [],
         weekConfig: mergedWeek,
         coachWorkoutByDay: safeAssignments ?? null,
+        changedDays,
       },
     };
   } catch {
@@ -100,9 +137,21 @@ export async function fetchWeeklyPlanAiPreview(skipCache = false): Promise<{
   }
 }
 
-export function applyWeeklyPlanAiPreview(preview: WeeklyPlanAiPreview): WeeklyPlanAiSyncResult {
-  persistWeekFromAi(preview.weekConfig, preview.coachWorkoutByDay);
-  return { ok: true, message: "Wochenplan wurde übernommen und ins Weekly synchronisiert." };
+export async function applyWeeklyPlanAiPreview(preview: WeeklyPlanAiPreview): Promise<WeeklyPlanAiSyncResult> {
+  const cloudSynced = await persistWeekFromAi(preview.weekConfig, preview.coachWorkoutByDay);
+  if (!cloudSynced) {
+    return {
+      ok: true,
+      cloudSynced: false,
+      message:
+        "Wochenplan lokal übernommen — Cloud-Sync steht noch aus (offline oder Konflikt). Prüfe das Sync-Banner.",
+    };
+  }
+  return {
+    ok: true,
+    cloudSynced: true,
+    message: "Wochenplan übernommen und in der Cloud gespeichert.",
+  };
 }
 
 /** @deprecated Nutze fetchWeeklyPlanAiPreview + applyWeeklyPlanAiPreview */

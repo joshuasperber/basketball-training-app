@@ -1,5 +1,6 @@
 import type { OpponentStyleTag } from "@/lib/opponent-styles";
 import type { FormScoreResult } from "@/lib/form-score";
+import type { ShootingZoneTotals } from "@/lib/shooting-zone-stats";
 
 export type TeamRole = "owner" | "captain" | "player" | "coach";
 export type TeamShareLevel = "summary" | "full";
@@ -24,6 +25,8 @@ export type TeamMemberView = {
   form: FormScoreResult;
   recentGames: number;
   recentWorkouts: number;
+  shootingZoneTotals?: ShootingZoneTotals | null;
+  gameTrainingInsight?: string | null;
 };
 
 export type OpponentScoutingEntry = {

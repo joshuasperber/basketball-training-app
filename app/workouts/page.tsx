@@ -87,14 +87,6 @@ import {
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
-// #region agent log
-function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
-  void hypothesisId;
-  void message;
-  void data;
-}
-// #endregion
-
 function loadHistory(): CompletedWorkoutHistoryEntry[] {
   const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
   if (!rawHistory) return [];
@@ -384,12 +376,6 @@ function WorkoutsPageContent() {
       syncPausedWorkoutRegistry({ progress: paused, progressStorageKey: progressStorageKeyRef.current });
       window.dispatchEvent(new Event("bt:workout-progress-updated"));
       setProgress(paused);
-      // #region agent log
-      agentDebugLog("H5", "workout auto-paused on page leave", {
-        workoutId: paused.workoutId,
-        dateKey: dateKeyRef.current,
-      });
-      // #endregion
     };
 
     const handleVisibilityChange = () => {
@@ -609,20 +595,6 @@ function WorkoutsPageContent() {
       parsed.date === fallbackProgress.date &&
       (rawForWorkout != null || parsed.status !== "completed") &&
       (!isCatalogWorkoutRun || parsed.status !== "completed");
-    // #region agent log
-    agentDebugLog("H5", "workout progress load decision", {
-      dateKey,
-      workoutId: workoutForExecution.id,
-      progressStorageKey,
-      hasWorkoutRaw: Boolean(rawForWorkout),
-      hasLegacyRaw: Boolean(legacyRaw),
-      parsedWorkoutId: parsed.workoutId,
-      parsedStatus: parsed.status,
-      parsedElapsed: parsed.elapsedSeconds ?? null,
-      parsedStarted: Boolean(parsed.startedAtIso),
-      isValidForActiveWorkout,
-    });
-    // #endregion
 
     const timer = window.setTimeout(() => {
       const nextProgress = isValidForActiveWorkout ? parsed : fallbackProgress;
@@ -641,19 +613,6 @@ function WorkoutsPageContent() {
     window.localStorage.setItem(buildWorkoutStorageKey(dateKey), JSON.stringify(next));
     syncPausedWorkoutRegistry({ progress: next, progressStorageKey });
     window.dispatchEvent(new Event("bt:workout-progress-updated"));
-    if (next.status === "in_progress" || next.status === "completed") {
-      // #region agent log
-      agentDebugLog("H5", "workout progress persisted", {
-        dateKey,
-        workoutId: next.workoutId,
-        status: next.status,
-        elapsedSeconds: next.elapsedSeconds ?? null,
-        hasStartedAt: Boolean(next.startedAtIso),
-        hasEndedAt: Boolean(next.endedAtIso),
-        progressStorageKey,
-      });
-      // #endregion
-    }
   };
 
   const isGymWorkout = workoutForExecution.sport === "Gym";
@@ -1194,13 +1153,6 @@ function WorkoutsPageContent() {
       endedAtIso: undefined,
     };
     persistProgress(pausedProgress);
-    // #region agent log
-    agentDebugLog("H5", "workout paused instead of completed", {
-      workoutId: pausedProgress.workoutId,
-      completedExercises: workoutForExecution.exercises.filter((_, index) => getExerciseStatus(index, pausedProgress) === "completed").length,
-      totalExercises: workoutForExecution.exercises.length,
-    });
-    // #endregion
   };
   const completeWorkout = (sourceProgress: WorkoutProgress = progressRef.current) => {
     if (!isWorkoutFullyTracked(sourceProgress)) {
@@ -1276,16 +1228,6 @@ function WorkoutsPageContent() {
         0,
       ),
     };
-
-    // #region agent log
-    agentDebugLog("H5", "workout completion session logs derived", {
-      workoutId: completedProgress.workoutId,
-      totalExercises: workoutForExecution.exercises.length,
-      loggedExercises: new Set(sessionLogs.map((log) => log.exerciseId)).size,
-      loggedSets: sessionLogs.length,
-      fullyTracked: isWorkoutFullyTracked(completedProgress),
-    });
-    // #endregion
 
     persistHistoryEntry(historyEntry);
 

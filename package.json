@@ -9,6 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:supabase": "node scripts/verify-supabase-launch.mjs",
+    "verify:supabase:remote": "node scripts/verify-supabase-launch.mjs --remote",
     "lighthouse": "node scripts/lighthouse-ci.mjs"
   },
   "dependencies": {

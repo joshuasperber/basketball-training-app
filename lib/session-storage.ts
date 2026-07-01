@@ -116,6 +116,9 @@ export function updateWorkoutSession(sessionId: string, patch: Partial<Pick<Work
   writeJson(WORKOUT_SESSIONS_KEY, next);
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("bt:sessions-updated"));
+    void import("@/lib/sync-workout-sessions").then(({ syncWorkoutSessionsToCloudWithRetry }) => {
+      void syncWorkoutSessionsToCloudWithRetry();
+    });
   }
 }
 
@@ -129,5 +132,8 @@ export function updateWorkoutSessionLogNote(sessionId: string, logIndex: number,
   writeJson(WORKOUT_SESSIONS_KEY, next);
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("bt:sessions-updated"));
+    void import("@/lib/sync-workout-sessions").then(({ syncWorkoutSessionsToCloudWithRetry }) => {
+      void syncWorkoutSessionsToCloudWithRetry();
+    });
   }
 }

@@ -1,6 +1,8 @@
 import type { GameStatEntry } from "@/lib/game-stats";
+import { buildGameTrainingCorrelation } from "@/lib/game-training-insights";
 import { computeFormScore } from "@/lib/form-score";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
+import { buildShootingZoneStatsBundle } from "@/lib/shooting-zone-aggregate";
 import type { WorkoutSessionEntry } from "@/lib/session-storage";
 import type { TeamMemberView } from "@/lib/team-types";
 import { parseWorkoutSessionsFromProgress } from "@/lib/server/parse-user-progress";
@@ -55,6 +57,12 @@ function recentCount<T extends { dateISO?: string; date?: string }>(items: T[], 
   }).length;
 }
 
+function buildGameTrainingInsight(games: GameStatEntry[], sessions: WorkoutSessionEntry[]): string | null {
+  const correlation = buildGameTrainingCorrelation(games, sessions);
+  if (correlation.withTraining.count === 0 || correlation.withoutTraining.count === 0) return null;
+  return `Mit Vorbereitung (3 T.): Ø ${correlation.withTraining.avgPoints.toFixed(1)} Pkt — ohne: Ø ${correlation.withoutTraining.avgPoints.toFixed(1)} Pkt`;
+}
+
 export function buildMemberViewFromProgress(
   member: {
     id: string;
@@ -71,6 +79,7 @@ export function buildMemberViewFromProgress(
   const games = parseGameStats(progress?.game_stats);
   const profile = parseProfile(progress?.profile_cache);
   const form = computeFormScore({ sessions, games });
+  const shootingBundle = buildShootingZoneStatsBundle(sessions, games);
 
   return {
     id: member.id,
@@ -83,6 +92,8 @@ export function buildMemberViewFromProgress(
     form,
     recentGames: recentCount(games.map((game) => ({ date: game.date })), 14),
     recentWorkouts: recentCount(sessions.map((session) => ({ dateISO: session.dateISO })), 14),
+    shootingZoneTotals: shootingBundle?.totals ?? null,
+    gameTrainingInsight: buildGameTrainingInsight(games, sessions),
   };
 }
 

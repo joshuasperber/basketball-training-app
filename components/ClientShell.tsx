@@ -1,9 +1,13 @@
 "use client";
 
 import { ErrorBoundary } from "@sentry/nextjs";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { ensureInitialCloudSync } from "@/lib/progress-sync";
+import {
+  ensureInitialCloudSync,
+  markLocalProgressDirty,
+  pushProgressToCloudWithRetry,
+} from "@/lib/progress-sync";
 import { syncWorkoutSessionsToCloud } from "@/lib/sync-workout-sessions";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
@@ -21,70 +25,57 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
 }
 
 import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
+import OfflineBanner from "@/components/OfflineBanner";
 import SyncConflictBanner from "@/components/SyncConflictBanner";
+import SyncStatusToast from "@/components/SyncStatusToast";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 
-// #region agent log
-function agentDebugLog(hypothesisId: string, message: string, data: Record<string, unknown>) {
-  void hypothesisId;
-  void message;
-  void data;
-}
-// #endregion
+const PLAN_SYNC_EVENTS = ["bt:plan-updated", "bt:training-goals-updated", "bt:player-intake-updated"] as const;
 
 function CloudSyncBridge() {
+  const planPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    const sync = () => {
-      void ensureInitialCloudSync()
-        .then((remote) => {
-          // #region agent log
-          agentDebugLog("H1,H2", "cloud sync bridge result", {
-            remoteExists: remote && typeof remote === "object" && "remoteExists" in remote ? remote.remoteExists : undefined,
-            hasRemote: Boolean(remote),
-            href: window.location.pathname,
-          });
-          // #endregion
-        })
-        .catch((error) => {
-          // #region agent log
-          agentDebugLog("H1", "cloud sync bridge failure", {
-            errorName: error instanceof Error ? error.name : typeof error,
-            errorMessage: error instanceof Error ? error.message : String(error),
-            href: window.location.pathname,
-          });
-          // #endregion
-        });
-    };
-    const onError = (event: ErrorEvent) => {
-      // #region agent log
-      agentDebugLog("H1", "global runtime error", { message: event.message, filename: event.filename, href: window.location.pathname });
-      // #endregion
-    };
-    const onUnhandled = (event: PromiseRejectionEvent) => {
-      const reason = event.reason;
-      // #region agent log
-      agentDebugLog("H1", "global unhandled rejection", {
-        reasonName: reason instanceof Error ? reason.name : typeof reason,
-        reasonMessage: reason instanceof Error ? reason.message : String(reason),
-        href: window.location.pathname,
+    const pull = () => {
+      void ensureInitialCloudSync().catch(() => {
+        /* Cloud optional */
       });
-      // #endregion
     };
+
+    const queuePlanPush = () => {
+      markLocalProgressDirty();
+      if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
+      planPushTimerRef.current = setTimeout(() => {
+        void pushProgressToCloudWithRetry();
+      }, 800);
+    };
+
     const onSessionsUpdated = () => {
       void syncWorkoutSessionsToCloud();
     };
-    sync();
-    window.addEventListener("focus", sync);
+
+    const onOnline = () => {
+      void pushProgressToCloudWithRetry().then(() => ensureInitialCloudSync());
+    };
+
+    pull();
+    window.addEventListener("focus", pull);
+    window.addEventListener("online", onOnline);
     window.addEventListener("bt:sessions-updated", onSessionsUpdated);
-    window.addEventListener("error", onError);
-    window.addEventListener("unhandledrejection", onUnhandled);
-    document.addEventListener("visibilitychange", sync);
+    document.addEventListener("visibilitychange", pull);
+    for (const eventName of PLAN_SYNC_EVENTS) {
+      window.addEventListener(eventName, queuePlanPush);
+    }
+
     return () => {
-      window.removeEventListener("focus", sync);
+      if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
+      window.removeEventListener("focus", pull);
+      window.removeEventListener("online", onOnline);
       window.removeEventListener("bt:sessions-updated", onSessionsUpdated);
-      window.removeEventListener("error", onError);
-      window.removeEventListener("unhandledrejection", onUnhandled);
-      document.removeEventListener("visibilitychange", sync);
+      document.removeEventListener("visibilitychange", pull);
+      for (const eventName of PLAN_SYNC_EVENTS) {
+        window.removeEventListener(eventName, queuePlanPush);
+      }
     };
   }, []);
 
@@ -95,7 +86,9 @@ export default function ClientShell({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary fallback={({ resetError }) => <CoachFallback resetError={resetError} />}>
       <AppDialogProvider>
+        <OfflineBanner />
         <CloudSyncBridge />
+        <SyncStatusToast />
         <SyncConflictBanner />
         <OnboardingGateLauncher />
         {children}

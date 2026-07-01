@@ -7,7 +7,6 @@ import { loadGameStats } from "@/lib/game-stats";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
 import { getProgressionState } from "@/lib/level-system";
-import { applyWeekConfigToCalendar } from "@/lib/activity-calendar";
 import {
   buildRecentTrainingLog14d,
   buildWorkoutCatalogForCoach,
@@ -16,7 +15,7 @@ import {
 import { buildCoachHeuristicResponse } from "@/lib/coach-heuristic";
 import { readStoredCoachingCache, writeStoredCoachingCache } from "@/lib/coach-llm-cache";
 import { sanitizeCoachWorkoutByDay } from "@/lib/coach-workout-by-day";
-import { pushProgressToCloud } from "@/lib/progress-sync";
+import { persistWeekFromAi } from "@/lib/weekly-plan-ai-sync";
 import type { DayKey, WeekConfig } from "@/lib/planner";
 import { mergeAiWeekConfigPreservingUserMinutes } from "@/lib/week-config-merge";
 import { formatPlayerIntakeForPrompt, loadPlayerIntake } from "@/lib/coach-intake";
@@ -26,7 +25,6 @@ import {
   loadWeekConfigFromProfileCache,
   shouldAutoRunWeeklyPlanLlm,
   weekConfigSignature,
-  writeCoachLlmWeeklyMarkers,
 } from "@/lib/coach-trigger";
 
 type CoachCoachingResponse = {
@@ -211,32 +209,6 @@ export default function CoachInsight() {
     weekSigRef.current = weekConfigSignature(loadWeekConfigFromProfileCache());
   }, []);
 
-  const persistWeekFromAi = useCallback((week: WeekConfig, coachWorkoutByDay?: Partial<Record<DayKey, string>> | null) => {
-    const key = "profile_cache_v4";
-    let parsed: Record<string, unknown> = {};
-    try {
-      parsed = JSON.parse(window.localStorage.getItem(key) || "{}") as Record<string, unknown>;
-    } catch {
-      parsed = {};
-    }
-    parsed.weekConfig = week;
-    if (coachWorkoutByDay != null) {
-      if (Object.keys(coachWorkoutByDay).length === 0) {
-        delete parsed.coachWorkoutByDay;
-      } else {
-        parsed.coachWorkoutByDay = coachWorkoutByDay;
-      }
-    }
-    window.localStorage.setItem(key, JSON.stringify(parsed));
-    applyWeekConfigToCalendar(week, 28);
-    void pushProgressToCloud();
-    const sig = weekConfigSignature(week);
-    weekSigRef.current = sig;
-    writeCoachLlmWeeklyMarkers(getIsoWeekKey(), sig);
-    window.dispatchEvent(new Event("bt:plan-updated"));
-    window.dispatchEvent(new Event("storage"));
-  }, []);
-
   const syncWeeklyPlanLlm = useCallback(
     async (skipCache = false) => {
       if (autoWeeklyRunningRef.current) return;
@@ -270,15 +242,20 @@ export default function CoachInsight() {
           existingWeek = undefined;
         }
         const mergedWeek = mergeAiWeekConfigPreservingUserMinutes(json.weekConfig, existingWeek);
-        persistWeekFromAi(mergedWeek, safeAssignments ?? null);
-        setPlanNote("Wochenplan wurde per KI abgestimmt und ins Weekly übernommen.");
+        const cloudSynced = await persistWeekFromAi(mergedWeek, safeAssignments ?? null);
+        weekSigRef.current = weekConfigSignature(mergedWeek);
+        setPlanNote(
+          cloudSynced
+            ? "Wochenplan wurde per KI abgestimmt und in der Cloud gespeichert."
+            : "Wochenplan lokal übernommen — Cloud-Sync steht noch aus.",
+        );
       } catch {
         setPlanNote("Wochen-Sync fehlgeschlagen — Weekly zeigt weiter deine gespeicherte Woche.");
       } finally {
         autoWeeklyRunningRef.current = false;
       }
     },
-    [persistWeekFromAi],
+    [buildPayload],
   );
 
   const fetchCoachingLlm = useCallback(async (skipCache = false) => {

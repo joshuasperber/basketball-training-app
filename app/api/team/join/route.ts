@@ -10,6 +10,7 @@ type InviteRow = {
   expires_at: string;
   max_uses: number;
   use_count: number;
+  invited_role?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -39,10 +40,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, teamId: invite.team_id, alreadyMember: true });
   }
 
+  const invitedRole = invite.invited_role === "coach" ? "coach" : "player";
   const memberPayload = {
     team_id: invite.team_id,
     user_id: user.id,
-    role: "player",
+    role: invitedRole,
     display_name: body?.displayName?.trim() || user.email.split("@")[0],
     member_email: user.email,
     share_level: "summary",

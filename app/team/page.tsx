@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
 import {
@@ -12,7 +13,7 @@ import {
   type OpponentStyleTag,
 } from "@/lib/opponent-styles";
 import { buildStartLineupRecommendation, buildTeamMatchupHints } from "@/lib/matchup-hints";
-import type { TeamCoachResponse, TeamDetail, TeamShareLevel, TeamSummary } from "@/lib/team-types";
+import type { TeamCoachResponse, TeamDetail, TeamRole, TeamShareLevel, TeamSummary } from "@/lib/team-types";
 import { fetchAuthMe } from "@/lib/auth-session-align";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
@@ -43,6 +44,15 @@ export default function TeamPage() {
   const [authMe, setAuthMe] = useState<{ id: string; email: string; cloudWorkouts14d: number; cloudSessionCount: number } | null>(null);
   const [localSessionCount, setLocalSessionCount] = useState(0);
   const [shareLevelSaving, setShareLevelSaving] = useState(false);
+  const [roleSavingUserId, setRoleSavingUserId] = useState<string | null>(null);
+
+  const selectedTeam = useMemo(
+    () => teams.find((team) => team.id === selectedTeamId) ?? null,
+    [teams, selectedTeamId],
+  );
+  const viewerRole = selectedTeam?.role ?? "player";
+  const canManageTeam = viewerRole === "owner" || viewerRole === "captain";
+  const isCoachViewer = viewerRole === "coach";
 
   const viewerMember = useMemo(
     () => detail?.members.find((member) => member.userId === authMe?.id) ?? null,
@@ -291,23 +301,51 @@ export default function TeamPage() {
     }
   };
 
-  const copyInvite = async () => {
+  const copyInvite = async (inviteRole: "player" | "coach" = "player") => {
     if (!selectedTeamId) return;
     try {
-      const response = await fetch(`/api/team/${selectedTeamId}`, { cache: "no-store", credentials: "same-origin" });
+      const response = await fetch("/api/team/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ teamId: selectedTeamId, inviteRole }),
+      });
       if (!response.ok) throw new Error("invite_load_failed");
-      const json = (await response.json()) as TeamDetail;
-      setDetail(json);
-      const token = json.inviteToken;
+      const json = (await response.json()) as { token?: string; inviteRole?: string };
+      const token = json.token;
       if (!token) {
         setMessage("Keine Einladung verfügbar — prüfe SUPABASE_SERVICE_ROLE_KEY und teams.sql.");
         return;
       }
       const link = `${window.location.origin}/team?join=${encodeURIComponent(token)}`;
       await navigator.clipboard.writeText(link);
-      setMessage("Einladungslink kopiert — mit dem anderen Account öffnen oder einloggen.");
+      setMessage(
+        inviteRole === "coach"
+          ? "Trainer-Einladungslink kopiert (read-only Ansicht)."
+          : "Spieler-Einladungslink kopiert.",
+      );
     } catch {
       setMessage("Einladungslink konnte nicht geladen werden.");
+    }
+  };
+
+  const updateMemberRole = async (memberUserId: string, role: Extract<TeamRole, "player" | "coach" | "captain">) => {
+    if (!selectedTeamId) return;
+    setRoleSavingUserId(memberUserId);
+    try {
+      const response = await fetch("/api/team/member", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ teamId: selectedTeamId, memberUserId, role }),
+      });
+      if (!response.ok) throw new Error("Rolle konnte nicht gespeichert werden.");
+      await loadDetail(selectedTeamId);
+      setMessage("Rolle aktualisiert.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Rolle konnte nicht gespeichert werden.");
+    } finally {
+      setRoleSavingUserId(null);
     }
   };
 
@@ -334,36 +372,40 @@ export default function TeamPage() {
 
       <section className="mt-4 app-card">
         <p className="section-eyebrow">Team verwalten</p>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <div>
-            <label className="input-label">Neues Team</label>
-            <div className="mt-1 flex gap-2">
-              <input
-                value={newTeamName}
-                onChange={(event) => setNewTeamName(event.target.value)}
-                placeholder="z. B. U18 Lions"
-                className="input"
-              />
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => void createTeam()}>
-                Erstellen
-              </button>
+        {isCoachViewer ? (
+          <p className="mt-2 text-sm text-muted">Trainer-Ansicht (read-only) — Kader, Wochenpläne und Empfehlungen ansehen.</p>
+        ) : (
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="input-label">Neues Team</label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  value={newTeamName}
+                  onChange={(event) => setNewTeamName(event.target.value)}
+                  placeholder="z. B. U18 Lions"
+                  className="input"
+                />
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => void createTeam()}>
+                  Erstellen
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="input-label">Team beitreten</label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  value={joinToken}
+                  onChange={(event) => setJoinToken(parseJoinInviteToken(event.target.value) || event.target.value)}
+                  placeholder="Einladungs-Token"
+                  className="input"
+                />
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => void joinTeam()}>
+                  Beitreten
+                </button>
+              </div>
             </div>
           </div>
-          <div>
-            <label className="input-label">Team beitreten</label>
-            <div className="mt-1 flex gap-2">
-              <input
-                value={joinToken}
-                onChange={(event) => setJoinToken(parseJoinInviteToken(event.target.value) || event.target.value)}
-                placeholder="Einladungs-Token"
-                className="input"
-              />
-              <button type="button" className="btn btn-outline btn-sm" onClick={() => void joinTeam()}>
-                Beitreten
-              </button>
-            </div>
-          </div>
-        </div>
+        )}
       </section>
 
       {loading ? <p className="mt-6 text-sm text-muted">Lade Teams …</p> : null}
@@ -409,13 +451,16 @@ export default function TeamPage() {
                 ))}
               </div>
 
-              {["owner", "captain", "coach"].includes(
-                teams.find((team) => team.id === selectedTeamId)?.role ?? "",
-              ) ? (
-                <div className="mt-3">
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyInvite()}>
-                    Einladungslink kopieren
+              {["owner", "captain", "coach"].includes(viewerRole) ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyInvite("player")}>
+                    Spieler einladen
                   </button>
+                  {canManageTeam ? (
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyInvite("coach")}>
+                      Trainer einladen (read-only)
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -512,27 +557,54 @@ export default function TeamPage() {
                       <div className="list-card text-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="font-semibold text-strong">{member.displayName}</p>
+                            <p className="font-semibold text-strong">
+                              {member.displayName}{" "}
+                              <span className="text-xs font-normal text-muted">· {member.role}</span>
+                            </p>
                             <p className="text-xs text-muted">
                               {member.position ?? "—"} · {member.playStyle ?? "—"} · {member.recentWorkouts} Workouts (14 T.) ·{" "}
                               {member.recentGames} Spiele
                             </p>
+                            {member.gameTrainingInsight ? (
+                              <p className="mt-1 text-xs text-muted">{member.gameTrainingInsight}</p>
+                            ) : null}
                             {member.recentWorkouts === 0 && member.recentGames === 0 ? (
                               <p className="mt-1 text-xs text-amber-600">
                                 Noch keine Cloud-Daten — Workout abschließen oder Team-Seite nach dem Training neu öffnen.
                               </p>
                             ) : null}
+                            {canManageTeam && member.userId !== authMe?.id && member.role !== "owner" ? (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {(["player", "coach", "captain"] as const).map((role) => (
+                                  <button
+                                    key={role}
+                                    type="button"
+                                    disabled={roleSavingUserId === member.userId || member.role === role}
+                                    className={`chip chip-sm ${member.role === role ? "chip-active" : ""}`}
+                                    onClick={() => void updateMemberRole(member.userId, role)}
+                                  >
+                                    {role}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
                           <p className={`text-lg font-bold tabular-nums ${formToneClass(member.form.tone)}`}>{member.form.score}</p>
                         </div>
                         <p className="mt-2 text-xs text-muted">{member.form.reasons[0] ?? "—"}</p>
+                        {member.shootingZoneTotals ? (
+                          <div className="mt-3">
+                            <p className="text-xs font-semibold text-strong">Wurfzonen (geteilt)</p>
+                            <ShootingZoneHeatmap totals={member.shootingZoneTotals} className="mt-2" />
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   />
                 </section>
               ) : null}
 
-              {tab === "scouting" ? (
+              {tab === "scouting" && !isCoachViewer ? (
                 <section className="mt-4 app-card">
                   <h2 className="section-title">Gegner-Scouting</h2>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -576,6 +648,27 @@ export default function TeamPage() {
 
                   <GradientFadeList
                     className="mt-5"
+                    items={detail.scouting}
+                    listClassName="space-y-2"
+                    getKey={(entry) => entry.id}
+                    renderItem={(entry) => (
+                      <div className="list-card text-sm">
+                        <p className="font-semibold text-strong">{entry.opponentName}</p>
+                        <p className="text-xs text-muted">
+                          {entry.styles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(", ") || "Keine Tags"}
+                        </p>
+                        {entry.notes ? <p className="mt-1 text-muted">{entry.notes}</p> : null}
+                      </div>
+                    )}
+                  />
+                </section>
+              ) : null}
+
+              {tab === "scouting" && isCoachViewer ? (
+                <section className="mt-4 app-card">
+                  <h2 className="section-title">Gegner-Scouting (read-only)</h2>
+                  <GradientFadeList
+                    className="mt-3"
                     items={detail.scouting}
                     listClassName="space-y-2"
                     getKey={(entry) => entry.id}
