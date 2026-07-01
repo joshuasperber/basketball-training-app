@@ -12,7 +12,6 @@ import { LEAGUE_STORAGE_KEY } from "@/lib/league";
 import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
 import { clearLocalProgressDirty, isLocalProgressDirty, markLocalProgressDirty } from "@/lib/sync-dirty";
-import { dispatchSyncStatus } from "@/lib/sync-status";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
@@ -286,7 +285,7 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   for (const [dateKey, workoutId] of Object.entries(remote.workoutOverrides ?? {})) {
     window.localStorage.setItem(`${WORKOUT_OVERRIDE_PREFIX}${dateKey}`, workoutId);
   }
-  window.dispatchEvent(new Event("bt:plan-updated"));
+  window.dispatchEvent(new CustomEvent("bt:plan-updated", { detail: { source: "remote" } }));
   window.dispatchEvent(new Event(PLAYER_INTAKE_UPDATED_EVENT));
   if (remote.trainingGoals) {
     window.dispatchEvent(new Event("bt:training-goals-updated"));
@@ -294,6 +293,7 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
 }
 
 let initialCloudSyncPromise: Promise<RemoteProgress | null> | null = null;
+let pushInFlight: Promise<boolean> | null = null;
 
 /** Einmaliger Cloud-Pull beim App-Start — verhindert doppelte parallele Requests. */
 export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
@@ -361,12 +361,40 @@ export async function pullProgressFromCloud() {
   return remote;
 }
 
-export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): Promise<boolean> {
+type PushOptions = {
+  /** Toast anzeigen (Standard: still) */
+  quiet?: boolean;
+  /** Nach Sync-Konflikt lokale Version erzwingen */
+  forceOverwrite?: boolean;
+};
+
+async function postProgressSnapshot(
+  snapshot: RemoteProgress,
+  clientKnownRemoteUpdatedAt: string | null,
+  forceOverwrite: boolean,
+): Promise<Response> {
+  return fetch("/api/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({
+      ...snapshot,
+      clientKnownRemoteUpdatedAt,
+      forceOverwrite,
+    }),
+  });
+}
+
+async function pushProgressToCloudOnce(
+  overrides?: Partial<RemoteProgress>,
+  options?: PushOptions,
+): Promise<boolean> {
+  const quiet = options?.quiet ?? true;
+  const forceOverwrite = options?.forceOverwrite ?? false;
   const { me, accountSwitched } = await checkAuthSession();
   if (!me) return false;
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     markLocalProgressDirty();
-    dispatchSyncStatus({ status: "offline" });
     return false;
   }
   if (accountSwitched) {
@@ -374,40 +402,50 @@ export async function pushProgressToCloud(overrides?: Partial<RemoteProgress>): 
     await pullProgressFromCloud();
   }
 
-  dispatchSyncStatus({ status: "saving" });
   markLocalProgressDirty();
 
   const snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
   const clientKnownRemoteUpdatedAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
-  const response = await fetch("/api/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify({
-      ...snapshot,
-      clientKnownRemoteUpdatedAt,
-    }),
-  });
+
+  let response = await postProgressSnapshot(snapshot, clientKnownRemoteUpdatedAt, forceOverwrite);
+
+  if (response.status === 401) {
+    const refreshed = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
+    if (refreshed.ok) {
+      response = await postProgressSnapshot(snapshot, clientKnownRemoteUpdatedAt, forceOverwrite);
+    }
+  }
+
   if (response.status === 409) {
     const conflict = (await response.json()) as { remote?: RemoteProgress; remoteUpdatedAt?: string };
     if (conflict.remote && conflict.remoteUpdatedAt) {
       const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
       dispatchSyncConflict({ remote: conflict.remote, remoteUpdatedAt: conflict.remoteUpdatedAt });
     }
-    dispatchSyncStatus({ status: "error", message: "Sync-Konflikt — bitte Auswahl im Banner treffen." });
     return false;
   }
+
   if (response.ok) {
     const json = (await response.json()) as { remoteUpdatedAt?: string };
     if (json.remoteUpdatedAt) {
       window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, json.remoteUpdatedAt);
     }
     clearLocalProgressDirty();
-    dispatchSyncStatus({ status: "saved" });
-  } else {
-    dispatchSyncStatus({ status: "error" });
+    return true;
   }
-  return response.ok;
+
+  return false;
+}
+
+export async function pushProgressToCloud(
+  overrides?: Partial<RemoteProgress>,
+  options?: PushOptions,
+): Promise<boolean> {
+  if (pushInFlight) return pushInFlight;
+  pushInFlight = pushProgressToCloudOnce(overrides, options).finally(() => {
+    pushInFlight = null;
+  });
+  return pushInFlight;
 }
 
 /** Sync mit kurzem Retry — hilft direkt nach Workout-Abschluss. */
@@ -419,7 +457,9 @@ export async function pushProgressToCloudWithRetry(
   const attempts = typeof overridesOrAttempts === "number" ? overridesOrAttempts : attemptsArg;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (await pushProgressToCloud(overrides)) return true;
+    if (await pushProgressToCloud(overrides, { quiet: true })) {
+      return true;
+    }
     if (attempt < attempts - 1) {
       await new Promise((resolve) => setTimeout(resolve, 400));
     }

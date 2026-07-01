@@ -27,7 +27,6 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
 import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
 import OfflineBanner from "@/components/OfflineBanner";
 import SyncConflictBanner from "@/components/SyncConflictBanner";
-import SyncStatusToast from "@/components/SyncStatusToast";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 
 const PLAN_SYNC_EVENTS = ["bt:plan-updated", "bt:training-goals-updated", "bt:player-intake-updated"] as const;
@@ -37,12 +36,15 @@ function CloudSyncBridge() {
 
   useEffect(() => {
     const pull = () => {
+      if (document.visibilityState === "hidden") return;
       void ensureInitialCloudSync().catch(() => {
         /* Cloud optional */
       });
     };
 
-    const queuePlanPush = () => {
+    const queuePlanPush = (event: Event) => {
+      const source = (event as CustomEvent<{ source?: string }>).detail?.source;
+      if (source === "remote") return;
       markLocalProgressDirty();
       if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
       planPushTimerRef.current = setTimeout(() => {
@@ -88,7 +90,6 @@ export default function ClientShell({ children }: { children: ReactNode }) {
       <AppDialogProvider>
         <OfflineBanner />
         <CloudSyncBridge />
-        <SyncStatusToast />
         <SyncConflictBanner />
         <OnboardingGateLauncher />
         {children}

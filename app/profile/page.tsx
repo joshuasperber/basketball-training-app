@@ -33,6 +33,7 @@ import Link from "next/link";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { fetchAuthMe } from "@/lib/auth-session-align";
 import { downloadFullUserExport, deleteAccountAndLocalData } from "@/lib/account-data";
 import { isInitialSetupComplete } from "@/lib/onboarding-gate";
 import NumericInput from "@/components/ui/NumericInput";
@@ -344,7 +345,6 @@ export default function ProfilePage() {
         saveLocalCache({ profile, playStyle, weekConfig: next, weeklyGoalSessions, bodyMetrics });
         const updatedDailyPlan = applyWeekConfigToCalendar(next, 28);
         setDailyPlanMap(updatedDailyPlan);
-        void pushProgressToCloud();
         return next;
       });
     },
@@ -446,7 +446,6 @@ export default function ProfilePage() {
     setCompletedDates(getCompletedWorkoutDateSet());
     setDailyPlanMap(latestDailyPlan);
     savePersistedWeekConfig(resolvedWeekConfig);
-    void pushProgressToCloud();
     } finally {
     setLoading(false);
     }
@@ -463,8 +462,8 @@ export default function ProfilePage() {
     if (loading || !isInitialSetupComplete()) return;
     const timer = window.setTimeout(() => {
       persistCurrentCache();
-      void pushProgressToCloud();
-    }, 500);
+      void pushProgressToCloud(undefined, { quiet: true });
+    }, 800);
     return () => window.clearTimeout(timer);
   }, [
     loading,
@@ -573,7 +572,6 @@ export default function ProfilePage() {
           writeManualDayDisabledMap(nextDisabledMap);
         }
       }
-      void pushProgressToCloud();
 
       const selectedDate = new Date(`${selectedDateKey}T00:00:00`);
       const dayIndex = selectedDate.getDay();
@@ -677,24 +675,18 @@ const refreshProfileAndWeekly = () => {
       return false;
     }
 
-    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
-    let authUser: SupabaseAuthUser | null = null;
-    if (authApi?.getUser) {
-      const { data: authData } = await authApi.getUser();
-      authUser = authData?.user ?? null;
-      if (!authData?.user) {
-        window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-        saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
-        void pushProgressToCloud();
-        showProfileFeedback("Nur lokal gespeichert (kein Supabase-Login).", "info");
-        return true;
-      }
-      const loginEmail = authData.user?.email ?? profile.email ?? null;
-      if (typeof window !== "undefined" && loginEmail) {
-        window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, loginEmail);
-      }
-      setProfile((current: ProfileRow) => ({ ...current, email: loginEmail }));
+    const me = await fetchAuthMe();
+    if (!me) {
+      window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
+      saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+      return true;
     }
+
+    const loginEmail = me.email ?? profile.email ?? null;
+    if (typeof window !== "undefined" && loginEmail) {
+      window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, loginEmail);
+    }
+    setProfile((current: ProfileRow) => ({ ...current, email: loginEmail }));
 
     const payload = {
       username,
@@ -704,12 +696,24 @@ const refreshProfileAndWeekly = () => {
       weight_kg: profile.weight_kg,
     };
 
-    const profileResponse = await fetch("/api/profile", {
+    let profileResponse = await fetch("/api/profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify(payload),
     });
+
+    if (profileResponse.status === 401) {
+      const refreshed = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
+      if (refreshed.ok) {
+        profileResponse = await fetch("/api/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        });
+      }
+    }
 
     if (!profileResponse.ok) {
       const profileJson = (await profileResponse.json().catch(() => null)) as { detail?: string; error?: string } | null;
@@ -720,13 +724,6 @@ const refreshProfileAndWeekly = () => {
       if (profileResponse.status === 401 || profileResponse.status === 502) {
         window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
         saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
-        void pushProgressToCloud();
-        showProfileFeedback(
-          profileResponse.status === 401
-            ? "Nur lokal gespeichert (kein Supabase-Login)."
-            : "Profil lokal gespeichert (Cloud-Profil derzeit nicht erreichbar).",
-          "info",
-        );
         return true;
       }
       if (isDuplicateUsername) {
@@ -741,7 +738,6 @@ const refreshProfileAndWeekly = () => {
     setProfile(nextProfile);
     window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
     saveLocalCache({ profile: nextProfile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
-    void pushProgressToCloud();
     return true;
   }, [bodyMetrics, playStyle, profile, showProfileFeedback, weekConfig, weeklyGoalSessions]);
 
@@ -1225,11 +1221,7 @@ const refreshProfileAndWeekly = () => {
           saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
           const updatedDailyPlan = applyWeekConfigToCalendar(weekConfig, 28);
           setDailyPlanMap(updatedDailyPlan);
-          const saved = await persistProfileToSupabase();
-          await pushProgressToCloud();
-          if (saved) {
-            showProfileFeedback("Profil gespeichert ✅", "success");
-          }
+          await persistProfileToSupabase();
         }}
         className="btn btn-primary btn-block mt-4"
       >

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DailyPlanMap } from "@/lib/activity-calendar";
 import { SessionDatabase } from "@/lib/session-types";
 import { mergeSessionDatabases } from "@/lib/server/session-merge";
-import { refreshSessionFromRequest, validateSessionTokens } from "@/lib/server/session-cookies";
+import { getRequestUser, type AuthedUser } from "@/lib/server/supabase-admin";
 import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
 
 const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -67,8 +67,6 @@ type ProgressRow = {
   updated_at?: string | null;
 };
 
-type AuthedUser = { id: string; email: string };
-
 const emptySessions: SessionDatabase = { workoutSessions: [], exerciseHistory: {} };
 
 function isSupabaseConfigured() {
@@ -103,40 +101,6 @@ function getDefaultProgress(): ProgressRecord {
     workoutOverrides: {},
     remoteExists: false,
   };
-}
-
-async function getRequestUser(request: NextRequest): Promise<AuthedUser | null> {
-  const accessToken = request.cookies.get("sb-access-token")?.value;
-  const refreshToken = request.cookies.get("sb-refresh-token")?.value;
-
-  if (accessToken && refreshToken) {
-    const validated = await validateSessionTokens(accessToken, refreshToken);
-    if (validated) {
-      return { id: validated.user.id, email: validated.user.email };
-    }
-  }
-
-  const refreshed = await refreshSessionFromRequest(request);
-  if (refreshed) {
-    return { id: refreshed.user.id, email: refreshed.user.email };
-  }
-
-  if (!accessToken || !supabaseUrl || !supabaseAnonKey) return null;
-
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) return null;
-  const user = (await response.json()) as { id?: string; email?: string };
-  const id = user.id?.trim();
-  const email = user.email?.trim().toLowerCase();
-  if (!id || !email) return null;
-  return { id, email };
 }
 
 function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {

@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dispatchSyncStatus } from "@/lib/sync-status";
 
 export default function OfflineBanner() {
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
     const sync = () => {
-      const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
-      setOffline(isOffline);
-      if (isOffline) {
-        dispatchSyncStatus({ status: "offline" });
-      }
+      setOffline(typeof navigator !== "undefined" && !navigator.onLine);
     };
     sync();
     window.addEventListener("online", sync);
