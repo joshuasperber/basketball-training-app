@@ -1653,3 +1653,77 @@ a.icon-btn {
   border-radius: 999px;
   border: 1px solid var(--surface-border);
 }
+
+/* ------------------------------------------------------------------ */
+/* App Busy Overlay (Login, Logout, …)                                 */
+/* ------------------------------------------------------------------ */
+.app-busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(244, 246, 249, 0.88);
+  backdrop-filter: blur(10px);
+}
+
+.app-busy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  width: min(100%, 18rem);
+  padding: 1.75rem 1.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--surface-border);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  text-align: center;
+}
+
+.app-busy-ball-ring {
+  display: grid;
+  place-items: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 25%, #fff 0%, var(--brand-soft) 55%, rgba(255, 107, 0, 0.12) 100%);
+  box-shadow: var(--shadow-glow-brand);
+}
+
+.app-busy-ball {
+  font-size: 2rem;
+  line-height: 1;
+  animation: appBusyBounce 0.85s ease-in-out infinite;
+}
+
+.app-busy-label {
+  margin: 0.35rem 0 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--fg-strong);
+}
+
+.app-busy-sublabel {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
+@keyframes appBusyBounce {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-9px) rotate(8deg);
+  }
+}
+
+.profile-section-body {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}

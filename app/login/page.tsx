@@ -1,6 +1,7 @@
 "use client";
 
 import { SyntheticEvent, useEffect, useMemo, useState } from "react";
+import AppBusyOverlay from "@/components/AppBusyOverlay";
 import { friendlyAuthErrorMessage } from "@/lib/auth-messages";
 import { alignLocalAuthAfterServerSession, finalizeClientAuthSession } from "@/lib/auth-finalize-client";
 import { buildPasswordResetConfirmUrl } from "@/lib/auth-redirect";
@@ -43,6 +44,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Anmeldung läuft …");
+  const [busySublabel, setBusySublabel] = useState("Einen Moment — wir bereiten dein Dashboard vor.");
   const [codeSent, setCodeSent] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -101,6 +104,8 @@ export default function LoginPage() {
 
   const signInWithPassword = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setBusyLabel("Anmeldung läuft …");
+    setBusySublabel("Einen Moment — wir bereiten dein Dashboard vor.");
     setLoading(true);
     setMessage(null);
 
@@ -114,6 +119,9 @@ export default function LoginPage() {
         body: JSON.stringify({ email: trimmedEmail, password }),
       });
 
+      setBusyLabel("Trainingsdaten werden geladen …");
+      setBusySublabel("Dein Fortschritt wird aus der Cloud synchronisiert.");
+
       const redirectError = await completeServerAuth({
         response,
         email: trimmedEmail,
@@ -121,18 +129,20 @@ export default function LoginPage() {
       });
       if (redirectError) {
         setMessage(redirectError);
+        setLoading(false);
         return;
       }
 
       setMessage("Anmeldung erfolgreich — weiterleiten …");
     } catch {
       setMessage("Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
-    } finally {
       setLoading(false);
     }
   };
 
   const signUpWithPassword = async () => {
+    setBusyLabel("Konto wird erstellt …");
+    setBusySublabel("Einen Moment — wir richten dein Profil ein.");
     setLoading(true);
     setMessage(null);
 
@@ -152,6 +162,9 @@ export default function LoginPage() {
         body: JSON.stringify({ email: trimmedEmail, password }),
       });
 
+      setBusyLabel("Trainingsdaten werden geladen …");
+      setBusySublabel("Dein Fortschritt wird aus der Cloud synchronisiert.");
+
       const redirectError = await completeServerAuth({
         response,
         email: trimmedEmail,
@@ -160,18 +173,20 @@ export default function LoginPage() {
       });
       if (redirectError) {
         setMessage(friendlyAuthErrorMessage(redirectError, "signup"));
+        setLoading(false);
         return;
       }
 
       setMessage("Konto erstellt — weiterleiten …");
     } catch {
       setMessage("Registrierung fehlgeschlagen. Bitte erneut versuchen.");
-    } finally {
       setLoading(false);
     }
   };
 
   const requestPasswordReset = async () => {
+    setBusyLabel("Reset-Link wird gesendet …");
+    setBusySublabel("Einen Moment.");
     setLoading(true);
     setMessage(null);
 
@@ -201,6 +216,8 @@ export default function LoginPage() {
 
   const sendCode = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setBusyLabel("Code wird gesendet …");
+    setBusySublabel("Prüfe gleich dein Postfach.");
     setLoading(true);
     setMessage(null);
 
@@ -224,6 +241,8 @@ export default function LoginPage() {
 
   const verifyCode = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setBusyLabel("Code wird geprüft …");
+    setBusySublabel("Einen Moment — wir bereiten dein Dashboard vor.");
     setLoading(true);
     setMessage(null);
 
@@ -239,6 +258,9 @@ export default function LoginPage() {
       return;
     }
 
+    setBusyLabel("Trainingsdaten werden geladen …");
+    setBusySublabel("Dein Fortschritt wird aus der Cloud synchronisiert.");
+
     const redirectError = await finalizeClientAuthSession(data.session, { nextPath, emailHint: email.trim() });
     if (redirectError) {
       setMessage(redirectError);
@@ -247,6 +269,8 @@ export default function LoginPage() {
   };
 
   return (
+    <>
+      <AppBusyOverlay open={loading} label={busyLabel} sublabel={busySublabel} />
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-md app-card animate-in">
         <div className="flex items-center gap-3">
@@ -423,5 +447,6 @@ export default function LoginPage() {
         ) : null}
       </div>
     </main>
+    </>
   );
 }

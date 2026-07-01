@@ -28,7 +28,7 @@ import {
   writeManualDayDisabledMap,
   writeManualPlanOverrides,
 } from "@/lib/activity-calendar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import Link from "next/link";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
@@ -183,6 +183,83 @@ function weekConfigMatchesDailyPlan(config: WeekConfig, dailyPlan: Record<string
   });
 }
 
+const EMPTY_PROFILE: ProfileRow = {
+  username: "",
+  full_name: "",
+  favorite_position: "sg",
+  height_cm: null,
+  weight_kg: null,
+  email: null,
+};
+
+type ProfilePageSnapshot = {
+  profile: ProfileRow;
+  playStyle: string;
+  weekConfig: WeekConfig;
+  bodyMetrics: {
+    wingspan_cm: number | null;
+    standing_reach_cm: number | null;
+    body_fat_pct: number | null;
+  };
+  dailyPlanMap: Record<string, PlannedWorkoutTag[]>;
+};
+
+function resolveWeekConfigFromStorage(
+  localCache: ProfileLocalCache | null,
+  latestDailyPlan: Record<string, PlannedWorkoutTag[]>,
+): WeekConfig {
+  const storedWeekConfig = loadPersistedWeekConfig();
+  const dailyPlanWeekConfig = deriveWeekConfigFromDailyPlan(latestDailyPlan);
+  const cachedWeekConfig =
+    localCache?.weekConfig && weekConfigMatchesDailyPlan(localCache.weekConfig, latestDailyPlan)
+      ? localCache.weekConfig
+      : null;
+  const setupComplete = isInitialSetupComplete();
+
+  return (
+    storedWeekConfig ??
+    cachedWeekConfig ??
+    dailyPlanWeekConfig ??
+    (setupComplete ? localCache?.weekConfig ?? getDefaultWeekConfig() : getEmptyWeekConfig())
+  );
+}
+
+/** Sofort aus localStorage — kein Warten auf Cloud-Pull. */
+function readProfilePageLocalSnapshot(): ProfilePageSnapshot {
+  if (typeof window === "undefined") {
+    return {
+      profile: EMPTY_PROFILE,
+      playStyle: "Shooter",
+      weekConfig: getEmptyWeekConfig(),
+      bodyMetrics: { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null },
+      dailyPlanMap: {},
+    };
+  }
+
+  const localCache = loadLocalCache();
+  const latestDailyPlan = readDailyPlanMap();
+  const resolvedWeekConfig = resolveWeekConfigFromStorage(localCache, latestDailyPlan);
+  const setupComplete = isInitialSetupComplete();
+
+  if (localCache && setupComplete) {
+    return {
+      profile: localCache.profile,
+      playStyle: localCache.playStyle,
+      weekConfig: resolvedWeekConfig,
+      bodyMetrics: localCache.bodyMetrics ?? { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null },
+      dailyPlanMap: latestDailyPlan,
+    };
+  }
+
+  return {
+    profile: EMPTY_PROFILE,
+    playStyle: "Shooter",
+    weekConfig: resolvedWeekConfig,
+    bodyMetrics: { wingspan_cm: null, standing_reach_cm: null, body_fat_pct: null },
+    dailyPlanMap: latestDailyPlan,
+  };
+}
+
 function loadLocalCache() {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
@@ -276,6 +353,7 @@ function profileFeedbackClass(tone: ProfileFeedbackTone) {
 
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; tone: ProfileFeedbackTone } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
@@ -303,20 +381,16 @@ export default function ProfilePage() {
     [],
   );
 
-  const [profile, setProfile] = useState<ProfileRow>({ username: "", full_name: "", favorite_position: "sg", height_cm: null, weight_kg: null, email: null });
-  const [playStyle, setPlayStyle] = useState<string>("Shooter");
-  const [weekConfig, setWeekConfig] = useState<WeekConfig>(getEmptyWeekConfig());
+  const [profile, setProfile] = useState<ProfileRow>(() => readProfilePageLocalSnapshot().profile);
+  const [playStyle, setPlayStyle] = useState<string>(() => readProfilePageLocalSnapshot().playStyle);
+  const [weekConfig, setWeekConfig] = useState<WeekConfig>(() => readProfilePageLocalSnapshot().weekConfig);
   const [weeklyGoalSessions] = useState<number>(4);
-  const [bodyMetrics, setBodyMetrics] = useState({
-    wingspan_cm: null as number | null,
-    standing_reach_cm: null as number | null,
-    body_fat_pct: null as number | null,
-  });
+  const [bodyMetrics, setBodyMetrics] = useState(() => readProfilePageLocalSnapshot().bodyMetrics);
 
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selectedDateKey, setSelectedDateKey] = useState(() => toLocalDateKey(new Date()));
-  const [completedDates, setCompletedDates] = useState<Set<string>>(new Set());
-  const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>({});
+  const [completedDates, setCompletedDates] = useState<Set<string>>(() => getCompletedWorkoutDateSet());
+  const [dailyPlanMap, setDailyPlanMap] = useState<Record<string, PlannedWorkoutTag[]>>(() => readProfilePageLocalSnapshot().dailyPlanMap);
   const [customSubcategories, setCustomSubcategories] = useState(() => ({
     Basketball: [...new Set(["Warm-Up", ...exerciseSubcategoriesByCategory.Basketball])],
     Gym: [...exerciseSubcategoriesByCategory.Gym],
@@ -351,17 +425,25 @@ export default function ProfilePage() {
     [bodyMetrics, playStyle, profile, weeklyGoalSessions],
   );
 
+  const applyLocalSnapshot = useCallback((snapshot: ProfilePageSnapshot) => {
+    setProfile(snapshot.profile);
+    setPlayStyle(snapshot.playStyle);
+    setWeekConfig(snapshot.weekConfig);
+    setBodyMetrics(snapshot.bodyMetrics);
+    setDailyPlanMap(snapshot.dailyPlanMap);
+    setCompletedDates(getCompletedWorkoutDateSet());
+    savePersistedWeekConfig(snapshot.weekConfig);
+  }, []);
+
   const loadProfile = useCallback(async (usernameOverride?: string) => {
+    applyLocalSnapshot(readProfilePageLocalSnapshot());
+    setLoading(false);
+
     try {
     await pullProgressFromCloud();
     const localCache = loadLocalCache();
     const latestDailyPlan = readDailyPlanMap();
-    const storedWeekConfig = loadPersistedWeekConfig();
-    const dailyPlanWeekConfig = deriveWeekConfigFromDailyPlan(latestDailyPlan);
-    const cachedWeekConfig =
-      localCache?.weekConfig && weekConfigMatchesDailyPlan(localCache.weekConfig, latestDailyPlan)
-        ? localCache.weekConfig
-        : null;
+    const resolvedWeekConfig = resolveWeekConfigFromStorage(localCache, latestDailyPlan);
     const setupComplete = isInitialSetupComplete();
 
     const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
@@ -369,12 +451,6 @@ export default function ProfilePage() {
     const authUserId = authData?.data?.user?.id ?? null;
     const cachedLoginEmail = typeof window !== "undefined" ? window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY) : null;
     const authEmail = authData?.data?.user?.email ?? cachedLoginEmail ?? null;
-
-    const resolvedWeekConfig =
-      storedWeekConfig ??
-      cachedWeekConfig ??
-      dailyPlanWeekConfig ??
-      (setupComplete ? localCache?.weekConfig ?? getDefaultWeekConfig() : getEmptyWeekConfig());
 
     if (localCache && setupComplete) {
       setProfile(localCache.profile);
@@ -446,10 +522,10 @@ export default function ProfilePage() {
     setCompletedDates(getCompletedWorkoutDateSet());
     setDailyPlanMap(latestDailyPlan);
     savePersistedWeekConfig(resolvedWeekConfig);
-    } finally {
-    setLoading(false);
+    } catch {
+      /* Cloud optional — lokale Daten sind bereits sichtbar */
     }
-  }, []);
+  }, [applyLocalSnapshot]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -763,7 +839,7 @@ const refreshProfileAndWeekly = () => {
           </div>
           <button
             type="button"
-            onClick={() => setStammdatenOpen((current) => !current)}
+            onClick={() => startTransition(() => setStammdatenOpen((current) => !current))}
             className="btn btn-ghost btn-sm shrink-0"
             aria-expanded={stammdatenOpen}
           >
@@ -772,6 +848,7 @@ const refreshProfileAndWeekly = () => {
         </div>
 
         {stammdatenOpen ? (
+          <div className="profile-section-body">
           <>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
@@ -891,6 +968,7 @@ const refreshProfileAndWeekly = () => {
           </div>
         </div>
           </>
+          </div>
         ) : null}
       </section>
 
@@ -905,7 +983,7 @@ const refreshProfileAndWeekly = () => {
           </div>
           <button
             type="button"
-            onClick={() => setAvailabilityOpen((current) => !current)}
+            onClick={() => startTransition(() => setAvailabilityOpen((current) => !current))}
             className="btn btn-ghost btn-sm shrink-0"
             aria-expanded={availabilityOpen}
           >
@@ -929,6 +1007,7 @@ const refreshProfileAndWeekly = () => {
           })}
         </div>
         {availabilityOpen ? (
+          <div className="profile-section-body">
           <>
         <div className="mt-4 space-y-2">
           {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as DayKey[]).map((dayKey) => {
@@ -1040,6 +1119,7 @@ const refreshProfileAndWeekly = () => {
           Tipp: 3–5 Trainings/Woche sind ein guter Start. Mehr ist nur sinnvoll, wenn Regeneration und Schlaf passen.
         </p>
           </>
+          </div>
         ) : null}
       </section>
 
@@ -1217,15 +1297,24 @@ const refreshProfileAndWeekly = () => {
 
       <button
         type="button"
+        disabled={saving}
         onClick={async () => {
-          saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
-          const updatedDailyPlan = applyWeekConfigToCalendar(weekConfig, 28);
-          setDailyPlanMap(updatedDailyPlan);
-          await persistProfileToSupabase();
+          setSaving(true);
+          try {
+            saveLocalCache({ profile, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
+            const updatedDailyPlan = applyWeekConfigToCalendar(weekConfig, 28);
+            setDailyPlanMap(updatedDailyPlan);
+            const saved = await persistProfileToSupabase();
+            if (saved) {
+              showProfileFeedback("Profil gespeichert ✓", "success");
+            }
+          } finally {
+            setSaving(false);
+          }
         }}
         className="btn btn-primary btn-block mt-4"
       >
-        Profil aktualisieren
+        {saving ? "Speichern …" : "Profil aktualisieren"}
       </button>
 
       <section className="mt-6 app-card">
