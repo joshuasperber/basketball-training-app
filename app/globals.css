@@ -74,6 +74,10 @@ body {
   min-height: 100vh;
 }
 
+body[data-app-booting="true"] {
+  overflow: hidden;
+}
+
 body[data-onboarding-active="true"] .bottom-nav {
   display: none;
 }

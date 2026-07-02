@@ -3,6 +3,7 @@
 import { useState } from "react";
 import AppBusyOverlay from "@/components/AppBusyOverlay";
 import Sheet from "@/components/ui/Sheet";
+import PwaInstallSection from "@/components/PwaInstallSection";
 import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 import { clearPlayerIntake } from "@/lib/coach-intake";
 import { pushProgressToCloud, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
@@ -51,6 +52,12 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
         <div className="mt-4">
           <WorkoutReminderSettings weekConfig={weekConfig} />
         </div>
+
+        <section className="app-card mt-4">
+          <p className="section-eyebrow">App</p>
+          <h2 className="section-title mt-1">Zum Home-Bildschirm</h2>
+          <PwaInstallSection compact />
+        </section>
 
         <section className="app-card mt-4">
           <p className="section-eyebrow">Session</p>

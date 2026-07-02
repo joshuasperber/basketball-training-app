@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Mobile-first Basketball Trainings-App",
     start_url: "/",
     display: "standalone",
-    background_color: "#000000",
-    theme_color: "#000000",
+    background_color: "#f4f6f9",
+    theme_color: "#f4f6f9",
     icons: [
       {
         src: "/icon-512.png",

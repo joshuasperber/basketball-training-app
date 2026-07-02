@@ -25,6 +25,7 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
 }
 
 import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
+import AppBootGate from "@/components/AppBootGate";
 import OfflineBanner from "@/components/OfflineBanner";
 import SyncConflictBanner from "@/components/SyncConflictBanner";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
@@ -88,11 +89,13 @@ export default function ClientShell({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary fallback={({ resetError }) => <CoachFallback resetError={resetError} />}>
       <AppDialogProvider>
+        <AppBootGate>
         <OfflineBanner />
         <CloudSyncBridge />
         <SyncConflictBanner />
         <OnboardingGateLauncher />
         {children}
+        </AppBootGate>
       </AppDialogProvider>
     </ErrorBoundary>
   );

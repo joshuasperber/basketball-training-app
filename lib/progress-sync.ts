@@ -293,15 +293,24 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
 }
 
 let initialCloudSyncPromise: Promise<RemoteProgress | null> | null = null;
+let initialCloudSyncResult: RemoteProgress | null | undefined;
 let pushInFlight: Promise<boolean> | null = null;
 
 /** Einmaliger Cloud-Pull beim App-Start — verhindert doppelte parallele Requests. */
 export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
+  if (initialCloudSyncResult !== undefined) {
+    return Promise.resolve(initialCloudSyncResult);
+  }
   if (!initialCloudSyncPromise) {
-    initialCloudSyncPromise = pullProgressFromCloud().finally(() => {
-      initialCloudSyncPromise = null;
-    });
+    initialCloudSyncPromise = pullProgressFromCloud()
+      .then((result) => {
+        initialCloudSyncResult = result;
+        return result;
+      })
+      .finally(() => {
+        initialCloudSyncPromise = null;
+      });
   }
   return initialCloudSyncPromise;
 }
