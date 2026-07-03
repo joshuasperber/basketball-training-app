@@ -905,7 +905,9 @@ export function ExercisesTab({
             <p className="ui-card__subtitle">Video, Dauer und Ort — optional einklappbar.</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <FilterClearButton onClick={onDrillFiltersReset} disabled={drillActiveCount === 0} />
+            {drillActiveCount > 0 ? (
+              <FilterClearButton onClick={onDrillFiltersReset} />
+            ) : null}
             <button
               type="button"
               onClick={() => setFiltersOpen((current) => !current)}

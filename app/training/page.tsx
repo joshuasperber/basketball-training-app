@@ -15,7 +15,7 @@ import {
 } from "@/lib/training-data";
 import { matchesDrillCatalogFilters, DEFAULT_DRILL_FILTERS, type DrillCatalogFilters } from "@/lib/drill-catalog-filters";
 import { rankByFuzzySearch } from "@/lib/fuzzy-search";
-import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
+import { loadExercises, loadWorkouts, persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
 import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab, WorkoutCreateForm, ExerciseCreateForm } from "@/components/training/TrainingTabs";
 import TopSubTabs from "@/components/TopSubTabs";
 import ExpandableCatalogSearch from "@/components/training/ExpandableCatalogSearch";
@@ -145,7 +145,7 @@ function validateMetricTargets(category: Category, metricKeys: MetricKey[], targ
 function TrainingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [clientReady, setClientReady] = useState(false);
+  const [clientReady, setClientReady] = useState(true);
   const [activeTab, setActiveTab] = useState<TrainingTab | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const completedParam = searchParams.get("completed");
@@ -195,8 +195,8 @@ function TrainingPageContent() {
   const [workoutSelectionReady, setWorkoutSelectionReady] = useState(false);
   const [exerciseSelectionReady, setExerciseSelectionReady] = useState(false);
 
-  const [exercises, setExercises] = useState<Exercise[]>(defaultExercises);
-  const [workouts, setWorkouts] = useState<Workout[]>(defaultWorkouts);
+  const [exercises, setExercises] = useState<Exercise[]>(() => loadExercises());
+  const [workouts, setWorkouts] = useState<Workout[]>(() => loadWorkouts());
 
   const [newWorkoutName, setNewWorkoutName] = useState("");
   const [newWorkoutExerciseIds, setNewWorkoutExerciseIds] = useState<string[]>([]);
@@ -698,41 +698,45 @@ function TrainingPageContent() {
               <h1 className="page-title">Training</h1>
               <p className="page-subtitle">Workouts und Exercises verwalten, filtern und starten.</p>
             </div>
-            <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: buildTrainingHref(activeTab) }]} />
-            <TabSwitcher activeTab={activeTab} onTabChange={handleTabChange} />
-          </div>
-          <div className="training-top__rail">
-            <div className="training-top__tools">
-              <ExpandableCatalogSearch
-                value={catalogSearch}
-                onChange={setCatalogSearch}
-                expanded={catalogSearchExpanded}
-                onExpandedChange={setCatalogSearchExpanded}
-                placeholder="Exercise oder Workout suchen…"
-                ariaLabel="Katalog durchsuchen"
-              />
-              <IconButton
-                variant="primary"
-                label={activeTab === "Workouts" ? "Workout hinzufügen" : "Exercise hinzufügen"}
-                onClick={() => setCreateOpen(true)}
-              >
-                <PlusIcon />
-              </IconButton>
+            <div className="training-top__nav-row">
+              <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: buildTrainingHref(activeTab) }]} />
+              <div className="training-top__tools">
+                <ExpandableCatalogSearch
+                  value={catalogSearch}
+                  onChange={setCatalogSearch}
+                  expanded={catalogSearchExpanded}
+                  onExpandedChange={setCatalogSearchExpanded}
+                  placeholder="Exercise oder Workout suchen…"
+                  ariaLabel="Katalog durchsuchen"
+                />
+                <IconButton
+                  variant="primary"
+                  label={activeTab === "Workouts" ? "Workout hinzufügen" : "Exercise hinzufügen"}
+                  onClick={() => setCreateOpen(true)}
+                >
+                  <PlusIcon />
+                </IconButton>
+              </div>
             </div>
-            <button
-              type="button"
-              className="btn btn-outline btn-xs shrink-0"
-              onClick={() => startGameToday("game")}
-            >
-              Spieltag starten
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline btn-xs shrink-0"
-              onClick={() => startGameToday("game_training")}
-            >
-              Spieltraining starten
-            </button>
+            <div className="training-top__nav-row">
+              <TabSwitcher activeTab={activeTab} onTabChange={handleTabChange} />
+              <div className="training-top__game-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline btn-xs shrink-0"
+                  onClick={() => startGameToday("game")}
+                >
+                  Spieltag starten
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-xs shrink-0"
+                  onClick={() => startGameToday("game_training")}
+                >
+                  Spieltraining starten
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

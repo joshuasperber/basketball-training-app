@@ -662,29 +662,23 @@ a.icon-btn {
 }
 
 .training-top {
-  display: grid;
+  display: block;
   width: 100%;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  column-gap: 1rem;
 }
 
 .training-top__main {
   display: flex;
   min-width: 0;
-  grid-column: 1;
   flex-direction: column;
   gap: 0.75rem;
 }
 
-.training-top__rail {
+.training-top__nav-row {
   display: flex;
-  grid-column: 2;
-  grid-row: 1;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-self: end;
-  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .training-top__tools {
@@ -692,32 +686,48 @@ a.icon-btn {
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
-.training-top__rail .btn {
-  white-space: nowrap;
+.training-top__game-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
-.training-top__main .top-tabs,
-.training-top__main .segmented {
+.training-top__tools .icon-btn {
+  width: 2.125rem;
+  height: 2.125rem;
+}
+
+.training-top__tools .catalog-search--compact {
+  width: 2.125rem;
+  flex: 0 0 2.125rem;
+  height: 2.125rem;
+  padding: 0;
+  justify-content: center;
+}
+
+.training-top__main .top-tabs-wrap,
+.training-top__main .segmented-wrap {
+  margin-top: 0;
+}
+
+.training-top__main .top-tabs {
   margin-top: 0;
 }
 
 @media (max-width: 639px) {
-  .training-top {
-    grid-template-columns: 1fr;
-    row-gap: 1rem;
+  .training-top__nav-row {
+    align-items: center;
   }
 
-  .training-top__rail {
-    grid-column: 1;
-    grid-row: auto;
-    align-items: stretch;
-    width: 100%;
-  }
-
-  .training-top__tools {
-    justify-content: flex-end;
+  .training-top__game-actions {
+    width: auto;
+    margin-left: auto;
   }
 }
 

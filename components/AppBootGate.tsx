@@ -10,6 +10,8 @@ const HIDDEN_PREFIXES = ["/login", "/auth/"];
 
 const BOOT_TIMEOUT_MS = 9000;
 
+let bootCompletedThisSession = false;
+
 function isHiddenBootRoute(pathname: string) {
   return HIDDEN_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix));
 }
@@ -20,16 +22,22 @@ function waitForPaint() {
   });
 }
 
-/** Blockiert kurz Interaktionen beim App-Start, bis Auth + erster Cloud-Pull durch sind. */
+/** Einmal pro Session — nicht bei Tab-Wechseln. */
 export default function AppBootGate({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
   const hiddenRoute = isHiddenBootRoute(pathname);
-  const [booting, setBooting] = useState(!hiddenRoute);
+  const [booting, setBooting] = useState(() => !hiddenRoute && !bootCompletedThisSession);
   const [label, setLabel] = useState("App wird geladen …");
   const [sublabel, setSublabel] = useState("Einen Moment — wir bereiten alles vor.");
 
   useEffect(() => {
     if (hiddenRoute) {
+      setBooting(false);
+      delete document.body.dataset.appBooting;
+      return;
+    }
+
+    if (bootCompletedThisSession) {
       setBooting(false);
       delete document.body.dataset.appBooting;
       return;
@@ -51,7 +59,7 @@ export default function AppBootGate({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (me) {
           setLabel("Trainingsdaten werden geladen …");
-          setSublabel("Dein Fortschritt wird synchronisiert.");
+          setSublabel("Lokal zuerst — Cloud-Updates im Hintergrund.");
           await ensureInitialCloudSync().catch(() => {
             /* Offline oder Cloud optional */
           });
@@ -65,6 +73,7 @@ export default function AppBootGate({ children }: { children: ReactNode }) {
 
       await Promise.race([bootWork, timeout]);
       if (cancelled) return;
+      bootCompletedThisSession = true;
       setBooting(false);
       delete document.body.dataset.appBooting;
     };
@@ -73,9 +82,8 @@ export default function AppBootGate({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
-      delete document.body.dataset.appBooting;
     };
-  }, [hiddenRoute, pathname]);
+  }, [hiddenRoute]);
 
   return (
     <>

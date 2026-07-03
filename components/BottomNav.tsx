@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { fetchAuthMe } from "@/lib/auth-session-align";
+import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 
 type NavItem = {
@@ -84,18 +85,35 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
   const [isAuthenticated, setIsAuthenticated] = useState(initialAuthenticated);
 
   useEffect(() => {
-    setIsAuthenticated(initialAuthenticated);
+    setIsAuthenticated(initialAuthenticated || hasOfflineSessionHint());
   }, [initialAuthenticated]);
 
   useEffect(() => {
     let cancelled = false;
-    void fetchAuthMe().then((me) => {
-      if (!cancelled) setIsAuthenticated(Boolean(me));
-    });
+
+    const refreshAuth = () => {
+      void fetchAuthMe().then((me) => {
+        if (cancelled) return;
+        if (me) {
+          setIsAuthenticated(true);
+          return;
+        }
+        if (!navigator.onLine) {
+          setIsAuthenticated((current) => current || initialAuthenticated || hasOfflineSessionHint());
+          return;
+        }
+        setIsAuthenticated(false);
+      });
+    };
+
+    refreshAuth();
+    window.addEventListener("online", refreshAuth);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("online", refreshAuth);
     };
-  }, [pathname]);
+  }, [initialAuthenticated]);
 
   if (pathname.startsWith("/login")) return null;
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import AppBusyOverlay from "@/components/AppBusyOverlay";
 import Sheet from "@/components/ui/Sheet";
 import PwaInstallSection from "@/components/PwaInstallSection";
+import ProfilePrivacySection from "@/components/ProfilePrivacySection";
 import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 import { clearPlayerIntake } from "@/lib/coach-intake";
 import { pushProgressToCloud, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
@@ -13,7 +14,7 @@ type ProfileSettingsSheetProps = {
   open: boolean;
   onClose: () => void;
   weekConfig: WeekConfig;
-  onFeedback: (message: string, tone: "success" | "error") => void;
+  onFeedback: (message: string, tone: "success" | "error" | "info") => void;
 };
 
 export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeedback }: ProfileSettingsSheetProps) {
@@ -58,6 +59,10 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
           <h2 className="section-title mt-1">Zum Home-Bildschirm</h2>
           <PwaInstallSection compact />
         </section>
+
+        <div className="mt-4">
+          <ProfilePrivacySection onFeedback={onFeedback} />
+        </div>
 
         <section className="app-card mt-4">
           <p className="section-eyebrow">Session</p>

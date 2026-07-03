@@ -9,6 +9,7 @@ import { PLAYER_INTAKE_STORAGE_KEY } from "@/lib/coach-intake";
 import { GAME_STATS_KEY } from "@/lib/game-stats";
 import { LEAGUE_STORAGE_KEY } from "@/lib/league";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
+import { TEAM_LIST_CACHE_KEY } from "@/lib/team-local-cache";
 import { REMINDER_PREFS_KEY } from "@/lib/workout-reminders";
 import { WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
 
@@ -58,6 +59,7 @@ const STRING_KEYS = [
   MANUAL_DAY_DISABLED_KEY,
   WEEKLY_REGEN_SLOT_MAP_KEY,
   HIDDEN_AUTO_WORKOUTS_KEY,
+  TEAM_LIST_CACHE_KEY,
 ];
 
 /** Entfernt nutzergebundene Trainings-/Profildaten — z. B. bei Account-Wechsel oder frischer Registrierung. */
@@ -73,6 +75,7 @@ export function clearLocalUserProgress() {
     const key = window.localStorage.key(index);
     if (key?.startsWith(WORKOUT_OVERRIDE_PREFIX)) overrideKeys.push(key);
     if (key?.startsWith("bt.workout-progress.")) overrideKeys.push(key);
+    if (key?.startsWith("bt.team-detail.v1:")) overrideKeys.push(key);
   }
   for (const key of overrideKeys) {
     window.localStorage.removeItem(key);

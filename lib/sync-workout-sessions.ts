@@ -1,4 +1,5 @@
 import { checkAuthSession } from "@/lib/auth-session-align";
+import { markLocalProgressDirty } from "@/lib/sync-dirty";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { WORKOUT_HISTORY_KEY as LEGACY_WORKOUT_HISTORY_KEY } from "@/lib/workout";
 
@@ -24,6 +25,11 @@ export async function syncWorkoutSessionsToCloud(): Promise<WorkoutSyncResult> {
     return { ok: false, status: 401, sessionCount: 0, error: "unauthorized" };
   }
 
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    markLocalProgressDirty();
+    return { ok: false, status: 0, sessionCount: 0, error: "offline" };
+  }
+
   if (accountSwitched) {
     await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
   }
@@ -46,13 +52,19 @@ export async function syncWorkoutSessionsToCloud(): Promise<WorkoutSyncResult> {
     detail?: string;
   } | null;
 
-  return {
+  const result: WorkoutSyncResult = {
     ok: response.ok,
     status: response.status,
     sessionCount: json?.sessionCount ?? sessions.workoutSessions.length,
     error: json?.error,
     detail: json?.detail,
   };
+
+  if (!result.ok) {
+    markLocalProgressDirty();
+  }
+
+  return result;
 }
 
 export async function syncWorkoutSessionsToCloudWithRetry(attempts = 3): Promise<WorkoutSyncResult> {

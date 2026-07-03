@@ -34,12 +34,10 @@ import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
 import { fetchAuthMe } from "@/lib/auth-session-align";
-import { downloadFullUserExport, deleteAccountAndLocalData } from "@/lib/account-data";
 import { isInitialSetupComplete } from "@/lib/onboarding-gate";
 import NumericInput from "@/components/ui/NumericInput";
 import PageHeader from "@/components/PageHeader";
 import ProfileSettingsSheet from "@/components/ProfileSettingsSheet";
-import ProfileLegalFooter from "@/components/ProfileLegalFooter";
 import ViewportToast from "@/components/ViewportToast";
 import IconButton, { GearIcon } from "@/components/ui/IconButton";
 
@@ -1317,43 +1315,6 @@ const refreshProfileAndWeekly = () => {
         {saving ? "Speichern …" : "Profil aktualisieren"}
       </button>
 
-      <section className="mt-6 app-card">
-        <p className="section-eyebrow">Datenschutz</p>
-        <h2 className="section-title mt-1">Deine Daten</h2>
-        <p className="mt-2 text-xs text-muted">
-          Export (Art. 20 DSGVO) oder Löschung von Cloud-Konto und lokalen Browser-Daten. Details in der
-          Datenschutzerklärung ganz unten auf dieser Seite.
-        </p>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            onClick={() => void downloadFullUserExport()}
-          >
-            Alle Daten exportieren (JSON)
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm text-rose-300"
-            onClick={async () => {
-              const confirmed = window.confirm(
-                "Konto und alle Cloud-Daten unwiderruflich löschen? Lokale Browser-Daten werden ebenfalls geleert.",
-              );
-              if (!confirmed) return;
-              const typed = window.prompt('Zur Bestätigung "DELETE" eingeben:');
-              if (typed !== "DELETE") {
-                showProfileFeedback("Löschung abgebrochen.", "info");
-                return;
-              }
-              const result = await deleteAccountAndLocalData();
-              showProfileFeedback(result.message, result.ok ? "success" : "error");
-            }}
-          >
-            Konto &amp; Cloud-Daten löschen
-          </button>
-        </div>
-      </section>
-
       <ProfileSettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -1386,8 +1347,6 @@ const refreshProfileAndWeekly = () => {
           })}
         </ul>
       </section>
-
-      <ProfileLegalFooter />
 
       <ViewportToast
         message={feedback?.text ?? null}

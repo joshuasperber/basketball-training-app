@@ -8,7 +8,7 @@ import {
   markLocalProgressDirty,
   pushProgressToCloudWithRetry,
 } from "@/lib/progress-sync";
-import { syncWorkoutSessionsToCloud } from "@/lib/sync-workout-sessions";
+import { syncWorkoutSessionsToCloud, syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
   return (
@@ -58,7 +58,9 @@ function CloudSyncBridge() {
     };
 
     const onOnline = () => {
-      void pushProgressToCloudWithRetry().then(() => ensureInitialCloudSync());
+      void syncWorkoutSessionsToCloudWithRetry().then(() =>
+        pushProgressToCloudWithRetry().then(() => ensureInitialCloudSync()),
+      );
     };
 
     pull();

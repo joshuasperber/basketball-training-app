@@ -24,7 +24,7 @@ import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
 import { downloadWorkoutSessionsTcx } from "@/lib/export-workout-tcx";
-import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { ensureInitialCloudSync, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
 import { countStrictTrackedSetsInLogs, countTrackedSetsInLogs, logCountsAsTrackedSet, sessionHasCompletedWork } from "@/lib/workout-session-metrics";
 import { repCountFromSessionLog } from "@/lib/workout-metrics";
@@ -446,11 +446,17 @@ export default function StatsPage() {
   const tabParam = searchParams.get("tab");
   const detailTab: StatsDetailTab =
     tabParam === "basketball" || tabParam === "gym" ? tabParam : "overview";
-  const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
-  const [sessionDetails, setSessionDetails] = useState<WorkoutSessionEntry[]>([]);
+  const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>(() =>
+    typeof window !== "undefined" ? loadCombinedHistory() : [],
+  );
+  const [sessionDetails, setSessionDetails] = useState<WorkoutSessionEntry[]>(() =>
+    typeof window !== "undefined" ? getTrackedWorkoutSessions() : [],
+  );
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [range, setRange] = useState<StatsRange>("all");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    games: true,
+    trainingStats: false,
     basketballQuotes: false,
     timeExercises: false,
     history: false,
@@ -459,7 +465,9 @@ export default function StatsPage() {
     gymHistory: false,
   });
   const [username, setUsername] = useState("Champion");
-  const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>([]);
+  const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>(() =>
+    typeof window !== "undefined" ? loadGameStats() : [],
+  );
   const [sessionNotesDraft, setSessionNotesDraft] = useState("");
 
   const refreshSessionDetails = useCallback(() => {
@@ -484,8 +492,13 @@ useEffect(() => {
   }, []);
 
 useEffect(() => {
-    void pullProgressFromCloud().then(() => setGameStats(loadGameStats()));
-  }, []);
+    setGameStats(loadGameStats());
+    void ensureInitialCloudSync().then(() => {
+      setGameStats(loadGameStats());
+      setHistory(loadCombinedHistory());
+      refreshSessionDetails();
+    });
+  }, [refreshSessionDetails]);
 
   useEffect(() => {
     const onGameStatsUpdate = () => setGameStats(loadGameStats());
@@ -806,7 +819,15 @@ useEffect(() => {
   }, [basketballSessions, exerciseLookupForSplit, filteredGameStats]);
 
   const toggleSection = (
-    key: "basketballQuotes" | "timeExercises" | "history" | "gymGoals" | "basketballHistory" | "gymHistory",
+    key:
+      | "games"
+      | "trainingStats"
+      | "basketballQuotes"
+      | "timeExercises"
+      | "history"
+      | "gymGoals"
+      | "basketballHistory"
+      | "gymHistory",
   ) => {
     setOpenSections((current) => ({ ...current, [key]: !current[key] }));
   };
@@ -1032,18 +1053,68 @@ useEffect(() => {
       {detailTab === "basketball" ? (
         <>
           <section className="mt-6 app-card">
-            <p className="section-eyebrow">Basketball</p>
-            <h2 className="section-title mt-1">Basketball Kennzahlen</h2>
-            <div className="mt-3 grid-stats">
-              <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{basketballTotals.workouts}</p></div>
-              <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{basketballTotals.exercises}</p></div>
-              <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{basketballTotals.sets}</p></div>
-              <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{basketballTotals.reps}</p></div>
-              <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{basketballTotals.minutes}</p></div>
-            </div>
+            <button type="button" onClick={() => toggleSection("games")} className="flex w-full items-center justify-between text-left">
+              <div>
+                <p className="section-eyebrow">Game Tracking</p>
+                <span className="section-title">Spiele</span>
+              </div>
+              <span className="chip">{openSections.games ? "−" : "+"}</span>
+            </button>
+            {openSections.games ? (
+              <div className="mt-4">
+                <p className="text-xs text-muted">
+                  {gameTotals.games} Spieltage · {gameTotals.gameTrainings} Spieltrainings · {filteredGameStats.length}{" "}
+                  Einträge im Zeitraum
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div className="stat-tile">
+                    <p className="stat-tile__label">Spiele</p>
+                    <p className="stat-tile__value">{gameTotals.games}</p>
+                  </div>
+                  <div className="stat-tile">
+                    <p className="stat-tile__label">Spieltraining</p>
+                    <p className="stat-tile__value">{gameTotals.gameTrainings}</p>
+                  </div>
+                  <div className="stat-tile">
+                    <p className="stat-tile__label">Ø Punkte / Spiel</p>
+                    <p className="stat-tile__value">
+                      {gameTotals.games > 0 ? Math.round(gameTotals.points / gameTotals.games) : "–"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 border-t border-[var(--surface-border)] pt-4">
+                  <GameStatsSearchPanel entries={filteredGameStats} variant="full" />
+                </div>
+                <div className="mt-6">
+                  <GameTrainingInsights />
+                </div>
+                <div className="mt-6">
+                  <MatchupHintsCard />
+                </div>
+              </div>
+            ) : null}
           </section>
 
-          {shootingZoneStats.rows.length > 0 ? (
+          <section className="mt-6 app-card">
+            <button type="button" onClick={() => toggleSection("trainingStats")} className="flex w-full items-center justify-between text-left">
+              <div>
+                <p className="section-eyebrow">Training</p>
+                <span className="section-title">Workouts &amp; Übungen</span>
+              </div>
+              <span className="chip">{openSections.trainingStats ? "−" : "+"}</span>
+            </button>
+            {openSections.trainingStats ? (
+              <>
+                <div className="mt-3 grid-stats">
+                  <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{basketballTotals.workouts}</p></div>
+                  <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{basketballTotals.minutes}</p></div>
+                  <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{basketballTotals.sets}</p></div>
+                </div>
+              </>
+            ) : null}
+          </section>
+
+          {openSections.trainingStats && shootingZoneStats.rows.length > 0 ? (
             <section className="mt-6 app-card--accent-cyan">
               <p className="section-eyebrow">Shooting Splits</p>
               <h2 className="section-title mt-1">Wurfzonen (NBA-Standard)</h2>
@@ -1103,40 +1174,6 @@ useEffect(() => {
               />
             </section>
           ) : null}
-
-          <section className="mt-6 app-card--accent-violet">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="section-eyebrow">Game Tracking</p>
-                <h2 className="section-title mt-1">Spiel-Stats</h2>
-              </div>
-              <p className="text-xs font-medium text-faint">{filteredGameStats.length} Einträge</p>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { label: "Spiele", value: gameTotals.games },
-                { label: "Spieltraining", value: gameTotals.gameTrainings },
-                { label: "Minuten", value: gameTotals.minutes },
-                { label: "Punkte Σ", value: gameTotals.points },
-              ].map((card) => (
-                <div key={card.label} className="stat-tile">
-                  <p className="stat-tile__label">{card.label}</p>
-                  <p className="stat-tile__value">{card.value}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-5 border-t border-[var(--surface-border)] pt-4">
-              <GameStatsSearchPanel entries={filteredGameStats} variant="full" />
-            </div>
-          </section>
-
-          <div className="mt-6">
-            <GameTrainingInsights />
-          </div>
-
-          <div className="mt-6">
-            <MatchupHintsCard />
-          </div>
 
           <section className="mt-6 app-card">
             <button type="button" onClick={() => toggleSection("basketballQuotes")} className="flex w-full items-center justify-between text-left">

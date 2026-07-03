@@ -1,10 +1,14 @@
 const CACHE_NAME = "bt-app-cache-v2";
 const APP_SHELL = [
   "/",
+  "/dashboard",
+  "/profile",
   "/training",
   "/weekly-workout",
   "/workouts",
   "/stats",
+  "/team",
+  "/game-track",
   "/manifest.webmanifest",
 ];
 

@@ -19,6 +19,12 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
 import { teamJoinErrorMessage } from "@/lib/team-join-errors";
 import { parseJoinInviteToken } from "@/lib/team-invite-token";
+import {
+  loadCachedTeamDetail,
+  loadCachedTeamList,
+  saveCachedTeamDetail,
+  saveCachedTeamList,
+} from "@/lib/team-local-cache";
 
 type TeamTab = "overview" | "roster" | "scouting" | "advice";
 
@@ -27,11 +33,25 @@ function formToneClass(tone: "green" | "yellow" | "red") {
 }
 
 export default function TeamPage() {
-  const [teams, setTeams] = useState<TeamSummary[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<TeamDetail | null>(null);
+  const [teams, setTeams] = useState<TeamSummary[]>(() =>
+    typeof window !== "undefined" ? (loadCachedTeamList() ?? []) : [],
+  );
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const cached = loadCachedTeamList();
+    return cached?.[0]?.id ?? null;
+  });
+  const [detail, setDetail] = useState<TeamDetail | null>(() => {
+    if (typeof window === "undefined") return null;
+    const cached = loadCachedTeamList();
+    const teamId = cached?.[0]?.id;
+    return teamId ? loadCachedTeamDetail(teamId) : null;
+  });
   const [tab, setTab] = useState<TeamTab>("overview");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return !(loadCachedTeamList()?.length ?? 0);
+  });
   const [message, setMessage] = useState<string | null>(null);
   const [newTeamName, setNewTeamName] = useState("");
   const [joinToken, setJoinToken] = useState("");
@@ -60,20 +80,35 @@ export default function TeamPage() {
   );
 
   const loadTeams = useCallback(async () => {
-    setLoading(true);
+    const cached = loadCachedTeamList();
+    const hasCache = (cached?.length ?? 0) > 0;
+    if (!hasCache) setLoading(true);
     try {
       const response = await fetch("/api/team", { cache: "no-store" });
       if (response.status === 401) {
-        setMessage("Bitte einloggen, um Teams zu nutzen.");
-        setTeams([]);
+        if (!hasCache) {
+          setMessage("Bitte einloggen, um Teams zu nutzen.");
+          setTeams([]);
+        }
         return;
       }
       if (!response.ok) throw new Error("Team-Liste konnte nicht geladen werden.");
       const json = (await response.json()) as { teams: TeamSummary[] };
-      setTeams(json.teams ?? []);
-      setSelectedTeamId((current) => current ?? json.teams?.[0]?.id ?? null);
+      const nextTeams = json.teams ?? [];
+      setTeams(nextTeams);
+      saveCachedTeamList(nextTeams);
+      setSelectedTeamId((current) => current ?? nextTeams[0]?.id ?? null);
+      setMessage(null);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Fehler beim Laden.");
+      if (hasCache) {
+        setMessage(
+          typeof navigator !== "undefined" && !navigator.onLine
+            ? "Offline — zuletzt gespeicherte Team-Daten."
+            : null,
+        );
+      } else {
+        setMessage(error instanceof Error ? error.message : "Fehler beim Laden.");
+      }
     } finally {
       setLoading(false);
     }
@@ -96,6 +131,8 @@ export default function TeamPage() {
   }, []);
 
   const loadDetail = useCallback(async (teamId: string) => {
+    const cached = loadCachedTeamDetail(teamId);
+    if (cached) setDetail(cached);
     try {
       const me = await refreshAuthDiagnostics();
       const syncResult = await syncWorkoutSessionsToCloudWithRetry();
@@ -104,6 +141,7 @@ export default function TeamPage() {
       if (!response.ok) throw new Error("Team-Details konnten nicht geladen werden.");
       const json = (await response.json()) as TeamDetail;
       setDetail(json);
+      saveCachedTeamDetail(teamId, json);
       setAdviceOpponent((current) => current || json.scouting[0]?.opponentName || "");
       const localCount = getWorkoutSessions().length;
       setLocalSessionCount(localCount);
@@ -126,7 +164,11 @@ export default function TeamPage() {
         setMessage(null);
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Fehler beim Laden der Team-Details.");
+      if (!cached) {
+        setMessage(error instanceof Error ? error.message : "Fehler beim Laden der Team-Details.");
+      } else if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setMessage("Offline — zuletzt gespeicherte Team-Details.");
+      }
     }
   }, [refreshAuthDiagnostics]);
 
@@ -139,6 +181,7 @@ export default function TeamPage() {
       setDetail(null);
       return;
     }
+    setDetail(loadCachedTeamDetail(selectedTeamId));
     void loadDetail(selectedTeamId);
   }, [loadDetail, selectedTeamId]);
 
