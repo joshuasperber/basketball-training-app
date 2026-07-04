@@ -43,7 +43,7 @@ import {
   type WeeklyWorkoutTransferPayload,
 } from "@/lib/weekly-workout-nav";
 import { buildGeneratedWorkout } from "@/lib/player-workout-engine";
-import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { ensureInitialCloudSync } from "@/lib/progress-sync";
 import { syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
 import { getTipsForWorkoutContext, loadPerformanceTips, type PerformanceTip } from "@/lib/performance-tips";
 import { countTrackedSetsInLogs } from "@/lib/workout-session-metrics";
@@ -147,7 +147,7 @@ function WorkoutsPageContent() {
   const [selectedManualExerciseIds, setSelectedManualExerciseIds] = useState<string[]>([]);
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
-  const [isClientReady, setIsClientReady] = useState(false);
+  const [isClientReady, setIsClientReady] = useState(() => typeof window !== "undefined");
   const [completionBanner, setCompletionBanner] = useState<string | null>(null);
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
   const [pendingManualEntry, setPendingManualEntry] = useState<ManualDayWorkout | null>(null);
@@ -169,7 +169,7 @@ function WorkoutsPageContent() {
 
   useEffect(() => {
     setIsClientReady(true);
-    void pullProgressFromCloud();
+    void ensureInitialCloudSync();
   }, []);
 
   useEffect(() => {
