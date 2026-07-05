@@ -824,6 +824,7 @@ const refreshProfileAndWeekly = () => {
         eyebrow="Spielerprofil"
         title="Profil & Wochenplanung"
         subtitle="Profil, Verfügbarkeit und Kalender."
+        actionsLayout="top-right"
         actions={
           <IconButton variant="ghost" label="Einstellungen" className="settings-gear-btn" onClick={() => setSettingsOpen(true)}>
             <GearIcon />

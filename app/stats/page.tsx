@@ -837,7 +837,8 @@ useEffect(() => {
       <PageHeader
         eyebrow={`Hi ${username}`}
         title="Statistiken"
-        subtitle="Langfristige Auswertung deiner abgeschlossenen Workouts und Spiele."
+        subtitle="Workouts, Spiele und Fortschritt auf einen Blick."
+        actionsLayout="stack"
         actions={
           <>
             <button type="button" onClick={() => downloadTrainingCsv()} className="btn btn-ghost btn-sm">
