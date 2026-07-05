@@ -6,7 +6,9 @@ import { friendlyAuthErrorMessage } from "@/lib/auth-messages";
 import { alignLocalAuthAfterServerSession, finalizeClientAuthSession } from "@/lib/auth-finalize-client";
 import { buildPasswordResetConfirmUrl } from "@/lib/auth-redirect";
 import { redirectToRecoveryPageIfHashPresent } from "@/lib/auth-recovery-client";
+import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { createClient } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
@@ -39,6 +41,7 @@ async function completeServerAuth(options: {
 
 export default function LoginPage() {
   const supabase = createClient();
+  const router = useRouter();
   const [mode, setMode] = useState<LoginMode>("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -54,6 +57,11 @@ export default function LoginPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (redirectToRecoveryPageIfHashPresent()) return;
+
+    if (!navigator.onLine && hasOfflineSessionHint()) {
+      router.replace("/dashboard");
+      return;
+    }
 
     const params = new URLSearchParams(window.location.search);
     const timer = window.setTimeout(() => {
@@ -74,7 +82,7 @@ export default function LoginPage() {
       if (savedEmail) setEmail(savedEmail);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [router]);
 
   const configError = useMemo(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";

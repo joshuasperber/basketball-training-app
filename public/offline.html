@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Offline — Basketball Training</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f4f6f9;
+        color: #0f172a;
+        padding: 1.5rem;
+        text-align: center;
+      }
+      .card {
+        max-width: 22rem;
+        background: #fff;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      }
+      button {
+        margin: 0.35rem;
+        padding: 0.65rem 1rem;
+        border-radius: 0.65rem;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .primary {
+        background: #ea580c;
+        border-color: #ea580c;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Offline</h1>
+      <p>Die App lädt deinen letzten gespeicherten Stand.</p>
+      <div>
+        <button class="primary" type="button" onclick="openDashboard()">Dashboard öffnen</button>
+        <button type="button" onclick="location.reload()">Erneut versuchen</button>
+      </div>
+    </div>
+    <script>
+      function openDashboard() {
+        location.replace("/dashboard");
+      }
+      if (!navigator.onLine) {
+        openDashboard();
+      }
+    </script>
+  </body>
+</html>

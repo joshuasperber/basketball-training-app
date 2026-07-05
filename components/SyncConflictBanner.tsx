@@ -24,7 +24,9 @@ export default function SyncConflictBanner() {
     window.localStorage.setItem("bt.cloud-updated-at.v1", conflict.remoteUpdatedAt);
     setConflict(null);
     setBusy(false);
-    window.location.reload();
+    if (navigator.onLine) {
+      window.location.reload();
+    }
   }, [conflict]);
 
   const keepLocal = useCallback(async () => {

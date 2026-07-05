@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import InitialSetupWizard from "@/components/InitialSetupWizard";
 import { INITIAL_SETUP_UPDATED_EVENT, isInitialSetupComplete } from "@/lib/onboarding-gate";
+import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { ensureInitialCloudSync } from "@/lib/progress-sync";
 
 const HIDDEN_PREFIXES = ["/login", "/auth/"];
@@ -34,6 +35,12 @@ export default function OnboardingGateLauncher() {
       if (cancelled) return;
 
       if (!meRes.ok) {
+        if (!navigator.onLine && hasOfflineSessionHint()) {
+          setLoggedIn(true);
+          setShowWizard(!isInitialSetupComplete(null));
+          setAuthReady(true);
+          return;
+        }
         setLoggedIn(false);
         setShowWizard(false);
         setAuthReady(true);

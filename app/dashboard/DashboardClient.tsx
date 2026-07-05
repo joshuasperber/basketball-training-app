@@ -23,7 +23,7 @@ import {
 import {
   readDailyPlanMap,
 } from "@/lib/activity-calendar";
-import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { ensureInitialCloudSync } from "@/lib/progress-sync";
 import { loadPerformanceTips } from "@/lib/performance-tips";
 import { getCompletedWorkoutIdsForDate, isWorkoutIdCompletedOnDate } from "@/lib/workout-completion";
 import { loadGameStats } from "@/lib/game-stats";
@@ -241,7 +241,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   }, [dateKey, fallbackProgress, todayDayIndex, todayWorkout.id, todayWorkout.sport, todayWorkout.subcategory, todayWorkout.title]);
 
   useEffect(() => {
-    void pullProgressFromCloud();
+    void ensureInitialCloudSync();
   }, []);
 
   useEffect(() => {

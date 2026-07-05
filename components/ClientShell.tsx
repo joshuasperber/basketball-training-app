@@ -25,6 +25,7 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
 }
 
 import OfflineRouteWarmup from "@/components/OfflineRouteWarmup";
+import OfflineSessionGuard from "@/components/OfflineSessionGuard";
 import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
 import AppBootGate from "@/components/AppBootGate";
 import OfflineBanner from "@/components/OfflineBanner";
@@ -96,6 +97,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
         <OfflineBanner />
         <CloudSyncBridge />
         <OfflineRouteWarmup />
+        <OfflineSessionGuard />
         <SyncConflictBanner />
         <OnboardingGateLauncher />
         {children}

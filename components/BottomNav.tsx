@@ -82,11 +82,21 @@ function isItemActive(itemHref: string, matches: string[] | undefined, pathname:
 
 export default function BottomNav({ isAuthenticated: initialAuthenticated }: { isAuthenticated: boolean }) {
   const pathname = usePathname() ?? "";
-  const [isAuthenticated, setIsAuthenticated] = useState(initialAuthenticated);
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => initialAuthenticated || (typeof window !== "undefined" && hasOfflineSessionHint()),
+  );
+  const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && !navigator.onLine);
 
   useEffect(() => {
-    setIsAuthenticated(initialAuthenticated || hasOfflineSessionHint());
-  }, [initialAuthenticated]);
+    const syncOffline = () => setOffline(typeof navigator !== "undefined" && !navigator.onLine);
+    syncOffline();
+    window.addEventListener("online", syncOffline);
+    window.addEventListener("offline", syncOffline);
+    return () => {
+      window.removeEventListener("online", syncOffline);
+      window.removeEventListener("offline", syncOffline);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +136,8 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
         {navItems.map((item) => {
           const isActive = isItemActive(item.href, item.matches, pathname);
           const requiresAuth = item.href !== "/dashboard";
-          const isLocked = !isAuthenticated && requiresAuth;
+          const isLocked =
+            !isAuthenticated && requiresAuth && !offline && !hasOfflineSessionHint();
 
           return (
             <Link

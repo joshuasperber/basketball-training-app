@@ -1,6 +1,6 @@
 import { ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
-import { pullProgressFromCloud } from "@/lib/progress-sync";
+import { ensureInitialCloudSync } from "@/lib/progress-sync";
 
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
 
@@ -29,7 +29,8 @@ function alignLocalStorage(email: string, userId: string | undefined, options?: 
 
 async function restoreCloudProgressAfterAuth() {
   try {
-    await pullProgressFromCloud();
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    await ensureInitialCloudSync();
   } catch {
     /* Cloud optional — App startet trotzdem mit lokalen Daten */
   }
@@ -60,7 +61,11 @@ export async function alignLocalAuthAfterServerSession(options: {
   }
 
   if (!email) {
-    return "Anmeldung konnte nicht abgeschlossen werden. Bitte erneut einloggen.";
+    if (typeof navigator !== "undefined" && !navigator.onLine && options.emailHint) {
+      email = options.emailHint.trim().toLowerCase();
+    } else {
+      return "Anmeldung konnte nicht abgeschlossen werden. Bitte erneut einloggen.";
+    }
   }
 
   alignLocalStorage(email, userId, { freshAccount: options.freshAccount });

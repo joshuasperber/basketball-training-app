@@ -99,8 +99,11 @@ export default function AuthConfirmPage() {
   }, []);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-black px-4 text-white">
-      <p className="text-sm text-zinc-300">{message}</p>
+    <main className="flex min-h-screen items-center justify-center bg-[var(--surface-bg)] px-4">
+      <div className="app-card max-w-md w-full text-center">
+        <p className="section-eyebrow">Anmeldung</p>
+        <p className="mt-2 text-sm text-muted">{message}</p>
+      </div>
     </main>
   );
 }

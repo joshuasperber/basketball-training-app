@@ -1,7 +1,6 @@
-const CACHE_NAME = "bt-app-cache-v3";
+const CACHE_NAME = "bt-app-cache-v4";
 
-/** Nur öffentliche Assets beim Install — geschützte Seiten brauchen Auth-Cookies (Client-Warmup). */
-const INSTALL_SHELL = ["/manifest.webmanifest", "/favicon.ico", "/icon.png", "/apple-icon.png"];
+const INSTALL_SHELL = ["/manifest.webmanifest", "/favicon.ico", "/icon.png", "/apple-icon.png", "/offline.html"];
 
 const WARM_ROUTES = [
   "/dashboard",
@@ -53,18 +52,45 @@ function isSameOrigin(url) {
   return url.startsWith(self.location.origin);
 }
 
-function isApiRequest(url) {
-  return url.pathname.startsWith("/api/");
+function isAuthPath(pathname) {
+  return pathname === "/login" || pathname.startsWith("/auth/");
 }
 
-function isStaticAsset(url) {
-  return url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/_next/image/");
+function isApiRequest(pathname) {
+  return pathname.startsWith("/api/");
+}
+
+function isStaticAsset(pathname) {
+  return pathname.startsWith("/_next/static/") || pathname.startsWith("/_next/image/");
+}
+
+function isRedirectResponse(response) {
+  if (!response) return false;
+  if (response.type === "opaqueredirect") return true;
+  return response.status >= 300 && response.status < 400;
+}
+
+function isCacheableResponse(response) {
+  return Boolean(response && response.ok && !isRedirectResponse(response));
 }
 
 async function putInCache(request, response) {
-  if (!response || !response.ok) return;
+  if (!isCacheableResponse(response)) return;
   const cache = await caches.open(CACHE_NAME);
   await cache.put(request, response.clone()).catch(() => undefined);
+}
+
+async function purgeRedirectEntries() {
+  const cache = await caches.open(CACHE_NAME);
+  const keys = await cache.keys();
+  await Promise.all(
+    keys.map(async (request) => {
+      const response = await cache.match(request);
+      if (response && isRedirectResponse(response)) {
+        await cache.delete(request);
+      }
+    }),
+  );
 }
 
 async function matchByPathname(request) {
@@ -72,46 +98,68 @@ async function matchByPathname(request) {
   const cache = await caches.open(CACHE_NAME);
 
   const direct = await cache.match(pathname);
-  if (direct) return direct;
+  if (direct && !isRedirectResponse(direct)) return direct;
 
   const keys = await cache.keys();
   for (const cachedRequest of keys) {
-    if (new URL(cachedRequest.url).pathname === pathname) {
-      const match = await cache.match(cachedRequest);
-      if (match) return match;
-    }
+    if (new URL(cachedRequest.url).pathname !== pathname) continue;
+    const match = await cache.match(cachedRequest);
+    if (match && !isRedirectResponse(match)) return match;
   }
 
   return null;
 }
 
+async function offlineFallback(pathname) {
+  const cache = await caches.open(CACHE_NAME);
+  const preferred = [pathname, "/dashboard", "/weekly-workout", "/training", "/offline.html", "/"];
+  for (const path of preferred) {
+    const match = await cache.match(path);
+    if (match && !isRedirectResponse(match)) return match;
+    const byPath = await matchByPathname(new Request(path));
+    if (byPath) return byPath;
+  }
+  return new Response(
+    "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Offline</title></head><body style=\"font-family:system-ui;padding:2rem;text-align:center\"><h1>Offline</h1><p>Bitte einmal online die App öffnen, damit alle Seiten gespeichert werden.</p><button onclick=\"location.reload()\">Erneut versuchen</button></body></html>",
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
 async function cacheFirst(request) {
   const cached = await caches.match(request);
-  if (cached) return cached;
+  if (cached && !isRedirectResponse(cached)) return cached;
 
   try {
     const response = await fetch(request);
+    if (isRedirectResponse(response)) {
+      const fallback = await matchByPathname(request);
+      return fallback ?? (await offlineFallback(new URL(request.url).pathname));
+    }
     await putInCache(request, response);
     return response;
   } catch {
-    return (await matchByPathname(request)) || (await caches.match("/")) || Response.error();
+    const fallback = await matchByPathname(request);
+    return fallback ?? (await offlineFallback(new URL(request.url).pathname));
   }
 }
 
 async function staleWhileRevalidate(request) {
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(request);
+  const cached = await caches.match(request);
+  const safeCached = cached && !isRedirectResponse(cached) ? cached : null;
 
   const networkPromise = fetch(request)
     .then(async (response) => {
+      if (isRedirectResponse(response)) {
+        return null;
+      }
       await putInCache(request, response);
       return response;
     })
     .catch(() => null);
 
-  if (cached) {
+  if (safeCached) {
     void networkPromise;
-    return cached;
+    return safeCached;
   }
 
   const network = await networkPromise;
@@ -120,13 +168,7 @@ async function staleWhileRevalidate(request) {
   const pathnameMatch = await matchByPathname(request);
   if (pathnameMatch) return pathnameMatch;
 
-  const root = await caches.match("/");
-  if (root) return root;
-
-  return new Response("Offline — bitte einmal online alle Tabs öffnen.", {
-    status: 503,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+  return offlineFallback(new URL(request.url).pathname);
 }
 
 async function warmRoutesFromClient() {
@@ -135,7 +177,7 @@ async function warmRoutesFromClient() {
     try {
       const docRequest = new Request(path, { credentials: "include" });
       const docResponse = await fetch(docRequest);
-      if (docResponse.ok) await cache.put(docRequest, docResponse.clone());
+      if (isCacheableResponse(docResponse)) await cache.put(docRequest, docResponse.clone());
 
       const rscRequest = new Request(path, {
         credentials: "include",
@@ -146,7 +188,7 @@ async function warmRoutesFromClient() {
         },
       });
       const rscResponse = await fetch(rscRequest);
-      if (rscResponse.ok) await cache.put(rscRequest, rscResponse.clone());
+      if (isCacheableResponse(rscResponse)) await cache.put(rscRequest, rscResponse.clone());
     } catch {
       /* offline during warm */
     }
@@ -162,9 +204,11 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
-    ),
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
+      await purgeRedirectEntries();
+    })(),
   );
   self.clients.claim();
 });
@@ -174,9 +218,9 @@ self.addEventListener("fetch", (event) => {
   if (!isSameOrigin(event.request.url)) return;
 
   const url = new URL(event.request.url);
-  if (isApiRequest(url)) return;
+  if (isApiRequest(url.pathname) || isAuthPath(url.pathname)) return;
 
-  if (isStaticAsset(url)) {
+  if (isStaticAsset(url.pathname)) {
     event.respondWith(cacheFirst(event.request));
     return;
   }
