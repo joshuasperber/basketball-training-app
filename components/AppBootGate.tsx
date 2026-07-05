@@ -1,16 +1,12 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
-import AppBusyOverlay from "@/components/AppBusyOverlay";
+import { useEffect, type ReactNode } from "react";
 import { isAppOnline } from "@/lib/app-online";
 import { fetchAuthMe } from "@/lib/auth-session-align";
-import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { ensureInitialCloudSync } from "@/lib/progress-sync";
 
 const HIDDEN_PREFIXES = ["/login", "/auth/"];
-
-const BOOT_TIMEOUT_MS = 6000;
 
 let bootCompletedThisSession = false;
 
@@ -24,74 +20,36 @@ function waitForPaint() {
   });
 }
 
-function finishBoot(setBooting: (value: boolean) => void) {
+function finishBoot() {
   bootCompletedThisSession = true;
-  setBooting(false);
   delete document.body.dataset.appBooting;
   window.dispatchEvent(new Event("bt:app-boot-complete"));
 }
 
-/** Einmal pro Session — offline sofort, online mit optionalem Cloud-Sync. */
+/** Einmal pro Session — UI sofort aus Cache, Cloud-Sync im Hintergrund. */
 export default function AppBootGate({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
   const hiddenRoute = isHiddenBootRoute(pathname);
-  const [booting, setBooting] = useState(() => !hiddenRoute && !bootCompletedThisSession);
-  const [label, setLabel] = useState("App wird geladen …");
-  const [sublabel, setSublabel] = useState("Einen Moment — wir bereiten alles vor.");
 
   useEffect(() => {
-    if (hiddenRoute) {
-      setBooting(false);
-      delete document.body.dataset.appBooting;
-      return;
-    }
-
-    if (bootCompletedThisSession) {
-      setBooting(false);
+    if (hiddenRoute || bootCompletedThisSession) {
       delete document.body.dataset.appBooting;
       return;
     }
 
     let cancelled = false;
-    setBooting(true);
-    document.body.dataset.appBooting = "true";
 
     const run = async () => {
       await waitForPaint();
       if (cancelled) return;
+      finishBoot();
 
-      if (!isAppOnline()) {
-        setLabel(hasOfflineSessionHint() ? "Offline-Modus" : "Keine Verbindung");
-        setSublabel(
-          hasOfflineSessionHint()
-            ? "Dein letzter Stand wird aus dem lokalen Speicher geladen."
-            : "Bitte später erneut verbinden, um dich anzumelden.",
-        );
-        await waitForPaint();
-        if (!cancelled) finishBoot(setBooting);
-        return;
-      }
+      if (!isAppOnline()) return;
 
-      setLabel("App wird geladen …");
-      setSublabel("Lokal zuerst — Cloud-Updates im Hintergrund.");
-
-      const bootWork = (async () => {
-        const me = await fetchAuthMe();
-        if (cancelled) return;
-        if (me) {
-          setLabel("Trainingsdaten werden vorbereitet …");
-          await ensureInitialCloudSync().catch(() => undefined);
-        }
-        await waitForPaint();
-      })();
-
-      const timeout = new Promise<void>((resolve) => {
-        window.setTimeout(resolve, BOOT_TIMEOUT_MS);
+      void fetchAuthMe().then((me) => {
+        if (cancelled || !me) return;
+        void ensureInitialCloudSync().catch(() => undefined);
       });
-
-      await Promise.race([bootWork, timeout]);
-      if (cancelled) return;
-      finishBoot(setBooting);
     };
 
     void run();
@@ -101,12 +59,5 @@ export default function AppBootGate({ children }: { children: ReactNode }) {
     };
   }, [hiddenRoute]);
 
-  return (
-    <>
-      <AppBusyOverlay open={booting} label={label} sublabel={sublabel} />
-      <div aria-hidden={booting} className={booting ? "pointer-events-none select-none" : undefined}>
-        {children}
-      </div>
-    </>
-  );
+  return children;
 }

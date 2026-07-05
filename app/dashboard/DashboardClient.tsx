@@ -126,8 +126,8 @@ function getTimeGreeting(date = new Date()) {
 }
 
 export default function DashboardPage({ forceProfileSetup = false }: { forceProfileSetup?: boolean }) {
-  const [dateKey, setDateKey] = useState("");
-  const [headerGreeting, setHeaderGreeting] = useState("Hi");
+  const [dateKey, setDateKey] = useState(() => getTodayDateKey());
+  const [headerGreeting, setHeaderGreeting] = useState(() => getTimeGreeting());
 
   useEffect(() => {
     setDateKey(getTodayDateKey());
@@ -328,20 +328,6 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
   }, [visibleBadges]);
 
   const greeting = headerGreeting;
-
-  if (!dateKey) {
-    return (
-      <main className="app-container animate-in">
-        <PageHeader
-          eyebrow="Hi"
-          title={`Hi, ${username}`}
-          subtitle="Dein heutiger Trainingsplan auf einen Blick."
-          actions={<div className="avatar-bubble">{getInitials(username)}</div>}
-        />
-        <p className="mt-6 text-sm text-muted">Dashboard wird geladen …</p>
-      </main>
-    );
-  }
 
   return (
     <main className="app-container animate-in">

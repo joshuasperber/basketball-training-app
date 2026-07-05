@@ -142,14 +142,17 @@ function validateMetricTargets(category: Category, metricKeys: MetricKey[], targ
   return null;
 }
 
+function resolveInitialTrainingTab(tabParam: string | null): TrainingTab {
+  return getTrainingTabFromParam(tabParam) ?? loadTrainingTab() ?? "Workouts";
+}
+
 function TrainingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [clientReady, setClientReady] = useState(true);
-  const [activeTab, setActiveTab] = useState<TrainingTab | null>(null);
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<TrainingTab>(() => resolveInitialTrainingTab(tabParam));
   const [createOpen, setCreateOpen] = useState(false);
   const completedParam = searchParams.get("completed");
-  const tabParam = searchParams.get("tab");
   const completionMessage = useMemo(() => {
     if (completedParam === "workout") return "Workout abgeschlossen ✅";
     if (completedParam === "exercise") return "Exercise abgeschlossen ✅";
@@ -158,11 +161,9 @@ function TrainingPageContent() {
 
   useEffect(() => {
     const fromUrl = getTrainingTabFromParam(tabParam);
-    const fromStorage = loadTrainingTab();
-    const nextTab = fromUrl ?? fromStorage ?? "Workouts";
+    const nextTab = fromUrl ?? loadTrainingTab() ?? "Workouts";
     setActiveTab(nextTab);
     persistTrainingTab(nextTab);
-    setClientReady(true);
     if (!fromUrl) {
       router.replace(
         buildTrainingHref(nextTab, completedParam ? { completed: completedParam } : undefined),
@@ -172,7 +173,7 @@ function TrainingPageContent() {
   }, [tabParam, completedParam, router]);
 
   useEffect(() => {
-    if (!completedParam || !activeTab) return;
+    if (!completedParam) return;
     const timer = window.setTimeout(() => {
       router.replace(buildTrainingHref(activeTab), { scroll: false });
     }, 2500);
@@ -695,10 +696,6 @@ function TrainingPageContent() {
   return (
     <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
-        {!clientReady || !activeTab ? (
-          <p className="text-sm text-muted">Lade Training …</p>
-        ) : (
-        <>
         <div className="training-top">
           <div className="training-top__main">
             <div>
@@ -707,7 +704,10 @@ function TrainingPageContent() {
               <p className="page-subtitle">Workouts und Exercises verwalten, filtern und starten.</p>
             </div>
             <div className="training-top__nav-row">
-              <TopSubTabs items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: buildTrainingHref(activeTab) }]} />
+              <TopSubTabs
+                variant="training"
+                items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: buildTrainingHref(activeTab) }]}
+              />
               <div className="training-top__tools">
                 <ExpandableCatalogSearch
                   value={catalogSearch}
@@ -751,7 +751,7 @@ function TrainingPageContent() {
         {completionMessage ? (
           <div className="alert-success flex items-center justify-between gap-2">
             <span>{completionMessage}</span>
-            <button type="button" onClick={() => router.replace(buildTrainingHref(activeTab ?? "Workouts"))} className="btn btn-ghost btn-xs">
+            <button type="button" onClick={() => router.replace(buildTrainingHref(activeTab))} className="btn btn-ghost btn-xs">
               ×
             </button>
           </div>
@@ -984,8 +984,6 @@ function TrainingPageContent() {
             />
           )}
         </Sheet>
-        </>
-        )}
       </div>
     </main>
   );

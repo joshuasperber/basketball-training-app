@@ -1390,7 +1390,7 @@ type TabSwitcherProps = {
 export function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
   return (
     <div className="segmented-wrap">
-    <div className="segmented">
+    <div className="segmented segmented--brand">
       {(["Workouts", "Exercises"] as TrainingTab[]).map((tab) => (
         <button
           key={tab}

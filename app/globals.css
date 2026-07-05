@@ -597,10 +597,17 @@ a.icon-btn {
 .catalog-search--compact .catalog-search__input {
   width: 0;
   min-width: 0;
+  flex: 0 0 0;
   padding: 0;
   border: 0;
   opacity: 0;
   pointer-events: none;
+}
+
+.catalog-search--compact:not(.catalog-search--expanded) {
+  justify-content: center;
+  padding: 0;
+  gap: 0;
 }
 
 .catalog-search__input {
@@ -830,6 +837,13 @@ a.icon-btn {
   box-shadow: var(--shadow-soft);
 }
 
+.segmented--brand .segmented__btn[aria-pressed="true"],
+.segmented--brand .segmented__btn--active {
+  background: var(--brand-soft);
+  color: var(--brand-500);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 0, 0.28);
+}
+
 /* ------------------------------------------------------------------ */
 /* Bottom navigation                                                   */
 /* ------------------------------------------------------------------ */
@@ -945,6 +959,12 @@ a.icon-btn {
 .top-tabs--team-liga .top-tabs__btn--active.top-tabs__btn--liga {
   background: var(--brand-soft);
   color: var(--brand-600, #c2410c);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 0, 0.28);
+}
+
+.top-tabs--training .top-tabs__btn--active {
+  background: var(--brand-soft);
+  color: var(--brand-500);
   box-shadow: inset 0 0 0 1px rgba(255, 107, 0, 0.28);
 }
 
