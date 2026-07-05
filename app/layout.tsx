@@ -10,18 +10,11 @@ import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 export const metadata: Metadata = {
   title: "Basketball Training App",
   description: "Mobile-first Basketball Training App",
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icon.png", type: "image/png", sizes: "32x32" },
-    ],
-    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
-    shortcut: ["/favicon.ico"],
-  },
+  applicationName: "BB Training",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f4f6f9",
+  themeColor: "#0b0b12",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",

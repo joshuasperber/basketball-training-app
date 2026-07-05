@@ -1,6 +1,13 @@
-const CACHE_NAME = "bt-app-cache-v5";
+const CACHE_NAME = "bt-app-cache-v7";
 
-const INSTALL_SHELL = ["/manifest.webmanifest", "/favicon.ico", "/icon.png", "/apple-icon.png", "/offline.html"];
+const INSTALL_SHELL = [
+  "/manifest.webmanifest",
+  "/icon.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/apple-icon.png",
+  "/offline.html",
+];
 
 const WARM_ROUTES = [
   "/dashboard",
