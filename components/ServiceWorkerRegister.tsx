@@ -6,6 +6,16 @@ export default function ServiceWorkerRegister() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
+    let reloadScheduled = false;
+
+    const scheduleReloadForNewWorker = () => {
+      if (reloadScheduled) return;
+      reloadScheduled = true;
+      window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener("controllerchange", scheduleReloadForNewWorker);
+
     void navigator.serviceWorker
       .register("/sw.js")
       .then((registration) => {

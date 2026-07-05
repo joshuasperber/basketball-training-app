@@ -97,6 +97,11 @@ export function markInitialSetupComplete(existing?: ProfileCacheShape | null) {
   };
   window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(next));
   window.dispatchEvent(new Event(INITIAL_SETUP_UPDATED_EVENT));
+  if (typeof window !== "undefined") {
+    void import("@/lib/progress-sync").then(({ pushProgressToCloudWithRetry }) => {
+      pushProgressToCloudWithRetry({ profileCache: JSON.stringify(next) });
+    });
+  }
 }
 
 export function createBlankProfileCache(email?: string | null): ProfileCacheShape {

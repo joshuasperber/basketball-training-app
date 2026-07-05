@@ -8,6 +8,8 @@ import { applyWeekConfigToCalendar } from "@/lib/activity-calendar";
 import {
   createBlankProfileCache,
   DAY_LABELS,
+  hasConfiguredWeekRhythm,
+  hasProfileBasics,
   markInitialSetupComplete,
   SETUP_DAY_KEYS,
   type ProfileCacheShape,
@@ -77,6 +79,14 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
       if (raw) {
         const parsed = JSON.parse(raw) as ProfileCacheShape;
         if (parsed.onboardingComplete) return parsed;
+        if (hasProfileBasics(parsed) || hasConfiguredWeekRhythm(parsed)) {
+          return {
+            ...blank,
+            ...parsed,
+            profile: { ...blank.profile, ...parsed.profile },
+            weekConfig: parsed.weekConfig ?? blank.weekConfig,
+          };
+        }
       }
     } catch {
       /* blank */

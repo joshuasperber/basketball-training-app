@@ -7,6 +7,7 @@ import {
   ensureInitialCloudSync,
   markLocalProgressDirty,
   pushProgressToCloudWithRetry,
+  resetInitialCloudSyncCache,
 } from "@/lib/progress-sync";
 import { isAppOnline } from "@/lib/app-online";
 import { syncWorkoutSessionsToCloud, syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
@@ -68,6 +69,7 @@ function CloudSyncBridge() {
 
     const onOnline = () => {
       if (!isAppOnline()) return;
+      resetInitialCloudSyncCache();
       void syncWorkoutSessionsToCloudWithRetry().then(() =>
         pushProgressToCloudWithRetry().then(() => ensureInitialCloudSync()),
       );

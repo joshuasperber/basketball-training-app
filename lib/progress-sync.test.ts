@@ -95,4 +95,41 @@ describe("progress-sync snapshot", () => {
     expect(cached.profile?.username).toBe("local-user");
     expect(cached.profile?.full_name).toBe("Local User");
   });
+
+  it("does not seed empty cloud profile into empty local storage", () => {
+    applyRemoteProgressToLocal({
+      sessions: { workoutSessions: [], exerciseHistory: {} },
+      dailyPlanMap: {},
+      manualDayWorkoutsMap: {},
+      manualDayDisabledMap: {},
+      manualPlanOverrides: null,
+      weeklyRegenSlotMap: {},
+      hiddenAutoWorkoutsMap: {},
+      profileCache: JSON.stringify({
+        profile: { username: "", full_name: "" },
+        weekConfig: getEmptyWeekConfig(),
+        onboardingComplete: false,
+      }),
+      profileUsername: null,
+      profileWeekConfig: null,
+      playerIntake: null,
+      xpHistory: null,
+      xpProgression: null,
+      performanceTips: null,
+      gameStats: null,
+      leagueData: null,
+      trainingGoals: null,
+      customSubcategories: null,
+      workoutHistory: null,
+      reminderPrefs: null,
+      coachWeeklyNote: null,
+      trainingExercises: null,
+      trainingWorkouts: null,
+      workoutOverrides: {},
+      remoteExists: true,
+      remoteUpdatedAt: new Date().toISOString(),
+    });
+
+    expect(window.localStorage.getItem("profile_cache_v4")).toBeNull();
+  });
 });

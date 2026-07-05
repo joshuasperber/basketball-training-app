@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v7";
+const CACHE_NAME = "bt-app-cache-v8";
 
 const INSTALL_SHELL = [
   "/manifest.webmanifest",
@@ -152,11 +152,6 @@ async function offlineFallback(pathname) {
 
 async function handleDocumentNavigation(request) {
   const pathname = new URL(request.url).pathname;
-  const cached = await caches.match(request);
-  if (cached && isHtmlResponse(cached)) return cached;
-
-  const htmlByPath = await matchHtmlByPathname(pathname);
-  if (htmlByPath) return htmlByPath;
 
   try {
     const response = await fetch(request);
@@ -171,23 +166,24 @@ async function handleDocumentNavigation(request) {
     const fallback = await matchHtmlByPathname(pathname);
     return fallback ?? (await offlineFallback(pathname));
   } catch {
+    const cached = await caches.match(request);
+    if (cached && isHtmlResponse(cached)) return cached;
     const fallback = await matchHtmlByPathname(pathname);
     return fallback ?? (await offlineFallback(pathname));
   }
 }
 
 async function handleRscRequest(request) {
-  const cached = await caches.match(request);
-  if (cached && !isRedirectResponse(cached)) return cached;
-
   try {
     const response = await fetch(request);
     if (isCacheableResponse(response)) {
       await putInCache(request, response.clone());
       return response;
     }
-    return cached ?? Response.error();
+    const cached = await caches.match(request);
+    return cached && !isRedirectResponse(cached) ? cached : Response.error();
   } catch {
+    const cached = await caches.match(request);
     if (cached && !isRedirectResponse(cached)) return cached;
     return Response.error();
   }

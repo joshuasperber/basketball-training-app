@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { type Category } from "@/lib/training-data";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
@@ -439,7 +439,7 @@ function resolveHistorySport(session: WorkoutSessionEntry): HistorySportBucket {
   return "Basketball";
 }
 
-export default function StatsPage() {
+function StatsPageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const detailTab: StatsDetailTab =
@@ -1386,5 +1386,19 @@ useEffect(() => {
         </section>
       ) : null}
     </main>
+  );
+}
+
+export default function StatsPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="app-container">
+          <p className="text-sm text-muted">Lade Statistiken …</p>
+        </main>
+      }
+    >
+      <StatsPageContent />
+    </Suspense>
   );
 }

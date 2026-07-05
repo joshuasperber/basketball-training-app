@@ -217,11 +217,17 @@ function mergeProfileCacheObjects(local: ProfileCacheShape, remote: ProfileCache
   };
 }
 
+function profileCacheHasContent(cache: ProfileCacheShape): boolean {
+  return Boolean(
+    cache.onboardingComplete || hasProfileBasics(cache) || hasConfiguredWeekRhythm(cache),
+  );
+}
+
 function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
   if (!remoteCache || typeof window === "undefined") return;
 
   const remote = parseProfileCache(remoteCache);
-  if (!remote) return;
+  if (!remote || !profileCacheHasContent(remote)) return;
 
   const localRaw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
   if (!localRaw) {
@@ -289,22 +295,30 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
 
 let initialCloudSyncPromise: Promise<RemoteProgress | null> | null = null;
 let initialCloudSyncResult: RemoteProgress | null | undefined;
+let initialCloudSyncAttemptedOnline = false;
 let pushInFlight: Promise<boolean> | null = null;
+
+/** Erlaubt erneuten Cloud-Pull nach Offline-Start oder wenn zuvor noch nicht synchronisiert wurde. */
+export function resetInitialCloudSyncCache() {
+  initialCloudSyncResult = undefined;
+  initialCloudSyncAttemptedOnline = false;
+  initialCloudSyncPromise = null;
+}
 
 /** Einmaliger Cloud-Pull beim App-Start — verhindert doppelte parallele Requests. */
 export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
   if (!isAppOnline()) {
-    if (initialCloudSyncResult === undefined) initialCloudSyncResult = null;
-    return Promise.resolve(initialCloudSyncResult);
+    return Promise.resolve(initialCloudSyncResult ?? null);
   }
-  if (initialCloudSyncResult !== undefined) {
+  if (initialCloudSyncAttemptedOnline && initialCloudSyncResult !== undefined) {
     return Promise.resolve(initialCloudSyncResult);
   }
   if (!initialCloudSyncPromise) {
     initialCloudSyncPromise = pullProgressFromCloud()
       .then((result) => {
         initialCloudSyncResult = result;
+        initialCloudSyncAttemptedOnline = true;
         return result;
       })
       .finally(() => {
