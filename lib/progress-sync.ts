@@ -12,6 +12,11 @@ import { LEAGUE_STORAGE_KEY } from "@/lib/league";
 import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
 import { isAppOnline } from "@/lib/app-online";
+import {
+  hasConfiguredWeekRhythm,
+  hasProfileBasics,
+  type ProfileCacheShape,
+} from "@/lib/onboarding-gate";
 import { clearLocalProgressDirty, isLocalProgressDirty, markLocalProgressDirty } from "@/lib/sync-dirty";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
@@ -177,72 +182,61 @@ function writeRawStringIfPresent(key: string, value: string | null | undefined) 
   window.localStorage.setItem(key, value);
 }
 
+function parseProfileCache(raw: string | null | undefined): ProfileCacheShape | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ProfileCacheShape;
+  } catch {
+    return null;
+  }
+}
+
+function mergeProfileCacheObjects(local: ProfileCacheShape, remote: ProfileCacheShape): ProfileCacheShape {
+  return {
+    ...remote,
+    ...local,
+    onboardingComplete: Boolean(local.onboardingComplete || remote.onboardingComplete),
+    profile: {
+      ...remote.profile,
+      ...local.profile,
+      username: local.profile?.username?.trim() || remote.profile?.username?.trim() || "",
+      full_name: local.profile?.full_name?.trim() || remote.profile?.full_name?.trim() || "",
+      favorite_position: local.profile?.favorite_position ?? remote.profile?.favorite_position ?? "sg",
+      height_cm: local.profile?.height_cm ?? remote.profile?.height_cm ?? null,
+      weight_kg: local.profile?.weight_kg ?? remote.profile?.weight_kg ?? null,
+      email: local.profile?.email ?? remote.profile?.email ?? null,
+    },
+    playStyle: local.playStyle || remote.playStyle || "Shooter",
+    weekConfig: hasConfiguredWeekRhythm(local)
+      ? local.weekConfig
+      : hasConfiguredWeekRhythm(remote)
+        ? remote.weekConfig
+        : local.weekConfig ?? remote.weekConfig,
+    weeklyGoalSessions: local.weeklyGoalSessions ?? remote.weeklyGoalSessions ?? 4,
+    bodyMetrics: local.bodyMetrics ?? remote.bodyMetrics,
+  };
+}
+
 function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
   if (!remoteCache || typeof window === "undefined") return;
+
+  const remote = parseProfileCache(remoteCache);
+  if (!remote) return;
+
   const localRaw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
   if (!localRaw) {
     window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
     return;
   }
 
-  let localOnboardingComplete = false;
-  try {
-    const local = JSON.parse(localRaw) as { onboardingComplete?: boolean };
-    localOnboardingComplete = Boolean(local.onboardingComplete);
-  } catch {
+  const local = parseProfileCache(localRaw);
+  if (!local) {
     window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
     return;
   }
 
-  if (!localOnboardingComplete) {
-    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
-    return;
-  }
-
-  try {
-    const local = JSON.parse(localRaw) as {
-      profile?: {
-        username?: string | null;
-        full_name?: string | null;
-        favorite_position?: string | null;
-        height_cm?: number | null;
-        weight_kg?: number | null;
-        email?: string | null;
-      };
-      playStyle?: string;
-      weekConfig?: unknown;
-      weeklyGoalSessions?: number;
-      onboardingComplete?: boolean;
-      bodyMetrics?: {
-        wingspan_cm?: number | null;
-        standing_reach_cm?: number | null;
-        body_fat_pct?: number | null;
-      };
-    };
-    const remote = JSON.parse(remoteCache) as typeof local;
-    const merged = {
-      ...remote,
-      ...local,
-      onboardingComplete: local.onboardingComplete ?? remote.onboardingComplete ?? false,
-      profile: {
-        ...remote.profile,
-        ...local.profile,
-        username: local.profile?.username || remote.profile?.username || "",
-        full_name: local.profile?.full_name || remote.profile?.full_name || "",
-        favorite_position: local.profile?.favorite_position ?? remote.profile?.favorite_position ?? "sg",
-        height_cm: local.profile?.height_cm ?? remote.profile?.height_cm ?? null,
-        weight_kg: local.profile?.weight_kg ?? remote.profile?.weight_kg ?? null,
-        email: local.profile?.email ?? remote.profile?.email ?? null,
-      },
-      playStyle: local.playStyle || remote.playStyle || "Shooter",
-      weekConfig: local.weekConfig ?? remote.weekConfig,
-      weeklyGoalSessions: local.weeklyGoalSessions ?? remote.weeklyGoalSessions ?? 4,
-      bodyMetrics: local.bodyMetrics ?? remote.bodyMetrics,
-    };
-    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(merged));
-  } catch {
-    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
-  }
+  const merged = mergeProfileCacheObjects(local, remote);
+  window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(merged));
 }
 
 function mergeLocalMap<T extends Record<string, unknown>>(key: string, remote: T | null | undefined, fallback: T): T {

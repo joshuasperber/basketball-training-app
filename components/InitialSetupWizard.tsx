@@ -143,7 +143,7 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
         normalizedWeek[day] = { mode: "game_day", minutes: 0 };
       }
     }
-    const next: ProfileCacheShape = { ...cache, weekConfig: normalizedWeek, onboardingComplete: false };
+    const next: ProfileCacheShape = { ...cache, weekConfig: normalizedWeek, onboardingComplete: true };
     persistSetupCache(next);
     applyWeekConfigToCalendar(normalizedWeek, 28);
     setCache(next);

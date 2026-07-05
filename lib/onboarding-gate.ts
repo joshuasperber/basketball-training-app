@@ -1,4 +1,3 @@
-import { isPlayerIntakeDoneLocallyOrRemote } from "@/lib/coach-intake";
 import { getEmptyWeekConfig, type DayKey, type WeekConfig } from "@/lib/planner";
 
 export const INITIAL_SETUP_UPDATED_EVENT = "bt:initial-setup-updated";
@@ -64,9 +63,8 @@ export function isInitialSetupComplete(remotePlayerIntake?: string | null, remot
 
   const profileOk = hasProfileBasics(cache);
   const weekOk = hasConfiguredWeekRhythm(cache);
-  const coachOk = isPlayerIntakeDoneLocallyOrRemote(remotePlayerIntake ?? null);
 
-  if (profileOk && weekOk && coachOk) {
+  if (profileOk && weekOk) {
     markInitialSetupComplete(cache);
     return true;
   }

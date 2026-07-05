@@ -463,12 +463,22 @@ export default function ProfilePage() {
       }
     } else {
       setWeekConfig(resolvedWeekConfig);
-      setProfile((current) => ({
-        ...current,
-        email: authEmail ?? current.email,
-        username: "",
-        full_name: "",
-      }));
+      if (localCache?.profile?.username?.trim() || localCache?.profile?.full_name?.trim()) {
+        setProfile((current) => ({
+          ...current,
+          ...localCache.profile,
+          email: authEmail ?? localCache.profile?.email ?? current.email,
+        }));
+        if (localCache.playStyle) setPlayStyle(localCache.playStyle);
+        if (localCache.bodyMetrics) setBodyMetrics(localCache.bodyMetrics);
+      } else {
+        setProfile((current) => ({
+          ...current,
+          email: authEmail ?? current.email,
+          username: "",
+          full_name: "",
+        }));
+      }
     }
 
     const username = usernameOverride ?? (setupComplete ? localCache?.profile.username ?? (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) : null) ?? "";

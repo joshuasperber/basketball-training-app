@@ -1,8 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { hasConfiguredWeekRhythm, hasProfileBasics, isInitialSetupComplete } from "@/lib/onboarding-gate";
 import { getEmptyWeekConfig } from "@/lib/planner";
 
+function installBrowserStorage() {
+  const store = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, value);
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    },
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage,
+      dispatchEvent: () => true,
+    },
+  });
+}
+
 describe("onboarding-gate", () => {
+  beforeEach(() => {
+    installBrowserStorage();
+  });
+
   it("requires profile basics and week rhythm locally", () => {
     const cache = {
       profile: { username: "josh", full_name: "Josh" },
@@ -35,5 +62,21 @@ describe("onboarding-gate", () => {
     const weekConfig = getEmptyWeekConfig();
     weekConfig.saturday = { mode: "game_day", minutes: 0 };
     expect(hasConfiguredWeekRhythm({ weekConfig })).toBe(true);
+  });
+
+  it("marks setup complete from local profile and week without coach intake", () => {
+    const weekConfig = getEmptyWeekConfig();
+    weekConfig.monday = { mode: "basketball_training", minutes: 45 };
+    window.localStorage.setItem(
+      "profile_cache_v4",
+      JSON.stringify({
+        profile: { username: "josh", full_name: "Josh" },
+        weekConfig,
+        onboardingComplete: false,
+      }),
+    );
+    expect(isInitialSetupComplete(null, null)).toBe(true);
+    const cached = JSON.parse(window.localStorage.getItem("profile_cache_v4") ?? "{}") as { onboardingComplete?: boolean };
+    expect(cached.onboardingComplete).toBe(true);
   });
 });
