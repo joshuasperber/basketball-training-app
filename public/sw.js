@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v8";
+const CACHE_NAME = "bt-app-cache-v9";
 
 const INSTALL_SHELL = [
   "/manifest.webmanifest",
@@ -65,6 +65,13 @@ function isAuthPath(pathname) {
 
 function isApiRequest(pathname) {
   return pathname.startsWith("/api/");
+}
+
+function shouldBypassServiceWorker(url, request) {
+  if (isAuthPath(url.pathname) || isApiRequest(url.pathname)) return true;
+  // Safari rejects navigation responses served by a SW when they involved redirects.
+  if (request.mode === "navigate") return true;
+  return false;
 }
 
 function isStaticAsset(pathname) {
@@ -150,24 +157,37 @@ async function offlineFallback(pathname) {
   );
 }
 
+async function sanitizeServiceWorkerResponse(response) {
+  if (!response || isRedirectResponse(response) || !response.redirected) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  const body = await response.arrayBuffer();
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function handleDocumentNavigation(request) {
   const pathname = new URL(request.url).pathname;
 
   try {
     const response = await fetch(request);
-    if (isHtmlResponse(response)) {
-      await putInCache(request, response.clone());
-      return response;
-    }
     if (isRedirectResponse(response)) {
-      const fallback = await matchHtmlByPathname(pathname);
-      return fallback ?? (await offlineFallback(pathname));
+      return Response.error();
+    }
+    const safe = await sanitizeServiceWorkerResponse(response);
+    if (isHtmlResponse(safe)) {
+      await putInCache(request, safe.clone());
+      return safe;
     }
     const fallback = await matchHtmlByPathname(pathname);
     return fallback ?? (await offlineFallback(pathname));
   } catch {
     const cached = await caches.match(request);
-    if (cached && isHtmlResponse(cached)) return cached;
+    if (cached && isHtmlResponse(cached) && !isRedirectResponse(cached)) return cached;
     const fallback = await matchHtmlByPathname(pathname);
     return fallback ?? (await offlineFallback(pathname));
   }
@@ -176,9 +196,13 @@ async function handleDocumentNavigation(request) {
 async function handleRscRequest(request) {
   try {
     const response = await fetch(request);
-    if (isCacheableResponse(response)) {
-      await putInCache(request, response.clone());
-      return response;
+    if (isRedirectResponse(response)) {
+      return Response.error();
+    }
+    const safe = await sanitizeServiceWorkerResponse(response);
+    if (isCacheableResponse(safe)) {
+      await putInCache(request, safe.clone());
+      return safe;
     }
     const cached = await caches.match(request);
     return cached && !isRedirectResponse(cached) ? cached : Response.error();
@@ -196,11 +220,11 @@ async function cacheFirst(request) {
   try {
     const response = await fetch(request);
     if (isRedirectResponse(response)) {
-      const fallback = await matchHtmlByPathname(new URL(request.url).pathname);
-      return fallback ?? (await offlineFallback(new URL(request.url).pathname));
+      return Response.error();
     }
-    await putInCache(request, response);
-    return response;
+    const safe = await sanitizeServiceWorkerResponse(response);
+    await putInCache(request, safe);
+    return safe;
   } catch {
     const fallback = await matchHtmlByPathname(new URL(request.url).pathname);
     return fallback ?? (await offlineFallback(new URL(request.url).pathname));
@@ -263,7 +287,7 @@ self.addEventListener("fetch", (event) => {
   if (!isSameOrigin(event.request.url)) return;
 
   const url = new URL(event.request.url);
-  if (isApiRequest(url.pathname) || isAuthPath(url.pathname)) return;
+  if (shouldBypassServiceWorker(url, event.request)) return;
 
   if (isStaticAsset(url.pathname)) {
     event.respondWith(cacheFirst(event.request));
