@@ -7,6 +7,8 @@ import TopSubTabs from "@/components/TopSubTabs";
 import { buildBasketballCoachingPlan } from "@/lib/basketball-coaching";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
+import { downloadWorkoutSessionsTcx } from "@/lib/export-workout-tcx";
+import { toLocalDateKey } from "@/lib/workout";
 import { getProgressionState } from "@/lib/level-system";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
@@ -117,12 +119,30 @@ export default function ReviewPage() {
       ) : null}
 
       <section className="mt-6 app-card">
-        <p className="section-eyebrow">Export</p>
-        <h2 className="section-title mt-1">Daten sichern</h2>
-        <p className="mt-1 text-xs text-muted">Export enthält Session-Logs und Spiel-Stats als CSV.</p>
-        <button type="button" onClick={() => downloadTrainingCsv()} className="btn btn-ghost btn-sm mt-3">
-          CSV herunterladen
-        </button>
+        <p className="section-eyebrow">Export &amp; Review</p>
+        <h2 className="section-title mt-1">Daten exportieren</h2>
+        <p className="mt-1 text-xs text-muted">CSV für Auswertungen, TCX für Apple Health / Strava.</p>
+        <div className="mt-3 flex flex-col gap-2">
+          <button type="button" onClick={() => downloadTrainingCsv()} className="btn btn-ghost btn-sm">
+            CSV Export
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const sessions = getWorkoutSessions()
+                .filter((session) => session.workoutId !== "single-exercise-session")
+                .slice(0, 24);
+              if (sessions.length === 0) {
+                window.alert("Keine Workout-Sessions zum Export vorhanden.");
+                return;
+              }
+              downloadWorkoutSessionsTcx(`basketball-training-sessions-${toLocalDateKey(new Date())}.tcx`, sessions);
+            }}
+            className="btn btn-ghost btn-sm"
+          >
+            TCX (Health / Strava)
+          </button>
+        </div>
       </section>
 
       <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm mt-8">

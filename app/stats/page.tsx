@@ -22,8 +22,6 @@ import GradientFadeList from "@/components/GradientFadeList";
 import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
-import { downloadTrainingCsv } from "@/lib/export-training-csv";
-import { downloadWorkoutSessionsTcx } from "@/lib/export-workout-tcx";
 import { ensureInitialCloudSync, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
 import { countStrictTrackedSetsInLogs, countTrackedSetsInLogs, logCountsAsTrackedSet, sessionHasCompletedWork } from "@/lib/workout-session-metrics";
@@ -838,33 +836,6 @@ useEffect(() => {
         eyebrow={`Hi ${username}`}
         title="Statistiken"
         subtitle="Workouts, Spiele und Fortschritt auf einen Blick."
-        actionsLayout="stack"
-        actions={
-          <>
-            <button type="button" onClick={() => downloadTrainingCsv()} className="btn btn-ghost btn-sm">
-              CSV Export
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const sessions = getWorkoutSessions()
-                  .filter((s) => s.workoutId !== "single-exercise-session")
-                  .slice(0, 24);
-                if (sessions.length === 0) {
-                  window.alert("Keine Workout-Sessions zum Export vorhanden.");
-                  return;
-                }
-                downloadWorkoutSessionsTcx(`basketball-training-sessions-${toLocalDateKey(new Date())}.tcx`, sessions);
-              }}
-              className="btn btn-ghost btn-sm"
-            >
-              TCX (Health / Strava)
-            </button>
-            <Link href="/review" className="btn btn-outline btn-sm">
-              Wochen-Review
-            </Link>
-          </>
-        }
       />
       <div className="mt-3">
         <TopSubTabs
