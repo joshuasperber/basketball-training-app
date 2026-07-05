@@ -171,6 +171,14 @@ function TrainingPageContent() {
     }
   }, [tabParam, completedParam, router]);
 
+  useEffect(() => {
+    if (!completedParam || !activeTab) return;
+    const timer = window.setTimeout(() => {
+      router.replace(buildTrainingHref(activeTab), { scroll: false });
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, completedParam, router]);
+
   const handleTabChange = (tab: TrainingTab) => {
     setActiveTab(tab);
     persistTrainingTab(tab);
@@ -741,10 +749,10 @@ function TrainingPageContent() {
         </div>
 
         {completionMessage ? (
-          <div className="alert-success flex flex-wrap items-center justify-between gap-2">
-            <span>{completionMessage} Du bist wieder auf der Training-Startseite.</span>
-            <button type="button" onClick={() => router.replace(buildTrainingHref(activeTab))} className="btn btn-ghost btn-xs">
-              Hinweis schließen
+          <div className="alert-success flex items-center justify-between gap-2">
+            <span>{completionMessage}</span>
+            <button type="button" onClick={() => router.replace(buildTrainingHref(activeTab ?? "Workouts"))} className="btn btn-ghost btn-xs">
+              ×
             </button>
           </div>
         ) : null}

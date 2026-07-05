@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { isAppOnline } from "@/lib/app-online";
-import { OFFLINE_APP_ROUTES } from "@/lib/offline-routes";
+import { collectCatalogWarmPaths, OFFLINE_APP_ROUTES } from "@/lib/offline-routes";
 import { hasOfflineSessionHint } from "@/lib/offline-session";
+import { loadExercises, loadWorkouts } from "@/lib/training-storage";
 
 const WARMUP_INTERVAL_MS = 30 * 60 * 1000;
 
@@ -29,7 +30,7 @@ async function warmRouteDocument(path: string) {
       headers: {
         RSC: "1",
         "Next-Router-Prefetch": "1",
-        "Next-Url": path,
+        "Next-Url": path.split("?")[0] ?? path,
       },
     });
   } catch {
@@ -37,7 +38,18 @@ async function warmRouteDocument(path: string) {
   }
 }
 
-/** Prefetch aller Haupt-Routen für Offline-Navigation (beliebige Tab-Reihenfolge). */
+function buildAllWarmPaths() {
+  const catalog = new Set(collectCatalogWarmPaths());
+  for (const exercise of loadExercises()) {
+    catalog.add(`/exercises/${exercise.id}`);
+  }
+  for (const workout of loadWorkouts()) {
+    catalog.add(`/workouts?workoutId=${encodeURIComponent(workout.id)}`);
+  }
+  return [...OFFLINE_APP_ROUTES, ...catalog];
+}
+
+/** Prefetch aller Haupt-Routen + Katalog für Offline-Navigation. */
 export default function OfflineRouteWarmup() {
   const router = useRouter();
   const lastWarmupRef = useRef(0);
@@ -53,15 +65,19 @@ export default function OfflineRouteWarmup() {
       }
       lastWarmupRef.current = now;
 
-      postSwMessage("warm-routes");
+      const paths = buildAllWarmPaths();
+      postSwMessage("warm-routes", { paths });
 
-      for (const path of OFFLINE_APP_ROUTES) {
-        router.prefetch(path);
+      for (const path of paths) {
+        router.prefetch(path.split("?")[0] ?? path);
       }
 
       void (async () => {
-        for (const path of OFFLINE_APP_ROUTES) {
-          await warmRouteDocument(path);
+        for (let index = 0; index < paths.length; index += 1) {
+          await warmRouteDocument(paths[index]!);
+          if (index > 0 && index % 12 === 0) {
+            await new Promise((resolve) => window.setTimeout(resolve, 50));
+          }
         }
       })();
     };

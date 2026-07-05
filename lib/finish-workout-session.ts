@@ -337,7 +337,7 @@ export function finishWorkoutSession(input: {
     window.dispatchEvent(new Event("bt:paused-workouts-updated"));
     return {
       ok: true,
-      bannerMessage: "Workout beendet — es wurden keine Sätze erfasst.",
+      bannerMessage: "Keine Sätze erfasst.",
     };
   }
 
@@ -514,9 +514,7 @@ export function finishWorkoutSession(input: {
   window.dispatchEvent(new Event("bt:sessions-updated"));
   void syncWorkoutSessionsToCloudWithRetry().catch(() => {});
 
-  const bannerMessage = allowPartial
-    ? "Workout beendet — erfasster Fortschritt wurde in Stats gespeichert."
-    : "Stark! Workout abgeschlossen ✅";
+  const bannerMessage = allowPartial ? "Workout beendet." : "Workout abgeschlossen ✅";
 
   return { ok: true, levelDelta: xpResult.levelDelta, bannerMessage };
 }

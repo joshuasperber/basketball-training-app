@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v4";
+const CACHE_NAME = "bt-app-cache-v5";
 
 const INSTALL_SHELL = ["/manifest.webmanifest", "/favicon.ico", "/icon.png", "/apple-icon.png", "/offline.html"];
 
@@ -70,6 +70,24 @@ function isRedirectResponse(response) {
   return response.status >= 300 && response.status < 400;
 }
 
+function isHtmlResponse(response) {
+  if (!response || !response.ok) return false;
+  const type = response.headers.get("content-type") || "";
+  return type.includes("text/html");
+}
+
+function isRscRequest(request) {
+  if (request.headers.get("RSC") === "1") return true;
+  const accept = request.headers.get("Accept") || "";
+  return accept.includes("text/x-component");
+}
+
+function isDocumentNavigation(request) {
+  if (request.mode === "navigate") return true;
+  const accept = request.headers.get("Accept") || "";
+  return accept.includes("text/html");
+}
+
 function isCacheableResponse(response) {
   return Boolean(response && response.ok && !isRedirectResponse(response));
 }
@@ -80,49 +98,92 @@ async function putInCache(request, response) {
   await cache.put(request, response.clone()).catch(() => undefined);
 }
 
-async function purgeRedirectEntries() {
+async function purgeBadEntries() {
   const cache = await caches.open(CACHE_NAME);
   const keys = await cache.keys();
   await Promise.all(
     keys.map(async (request) => {
       const response = await cache.match(request);
-      if (response && isRedirectResponse(response)) {
+      if (!response) return;
+      if (isRedirectResponse(response)) {
+        await cache.delete(request);
+        return;
+      }
+      if (isDocumentNavigation(request) && !isHtmlResponse(response)) {
         await cache.delete(request);
       }
     }),
   );
 }
 
-async function matchByPathname(request) {
-  const pathname = new URL(request.url).pathname;
+async function matchHtmlByPathname(pathname) {
   const cache = await caches.open(CACHE_NAME);
-
   const direct = await cache.match(pathname);
-  if (direct && !isRedirectResponse(direct)) return direct;
+  if (direct && isHtmlResponse(direct)) return direct;
 
   const keys = await cache.keys();
   for (const cachedRequest of keys) {
     if (new URL(cachedRequest.url).pathname !== pathname) continue;
     const match = await cache.match(cachedRequest);
-    if (match && !isRedirectResponse(match)) return match;
+    if (match && isHtmlResponse(match)) return match;
   }
 
   return null;
 }
 
 async function offlineFallback(pathname) {
-  const cache = await caches.open(CACHE_NAME);
-  const preferred = [pathname, "/dashboard", "/weekly-workout", "/training", "/offline.html", "/"];
+  const preferred = [pathname, "/workouts", "/training", "/dashboard", "/offline.html", "/"];
   for (const path of preferred) {
-    const match = await cache.match(path);
-    if (match && !isRedirectResponse(match)) return match;
-    const byPath = await matchByPathname(new Request(path));
-    if (byPath) return byPath;
+    const match = await matchHtmlByPathname(path);
+    if (match) return match;
   }
   return new Response(
-    "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Offline</title></head><body style=\"font-family:system-ui;padding:2rem;text-align:center\"><h1>Offline</h1><p>Bitte einmal online die App öffnen, damit alle Seiten gespeichert werden.</p><button onclick=\"location.reload()\">Erneut versuchen</button></body></html>",
+    "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Offline</title></head><body style=\"font-family:system-ui;padding:2rem;text-align:center\"><h1>Offline</h1><p>Seite noch nicht im Cache — bitte einmal online öffnen.</p><button onclick=\"location.replace('/training')\">Training</button></body></html>",
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
+}
+
+async function handleDocumentNavigation(request) {
+  const pathname = new URL(request.url).pathname;
+  const cached = await caches.match(request);
+  if (cached && isHtmlResponse(cached)) return cached;
+
+  const htmlByPath = await matchHtmlByPathname(pathname);
+  if (htmlByPath) return htmlByPath;
+
+  try {
+    const response = await fetch(request);
+    if (isHtmlResponse(response)) {
+      await putInCache(request, response.clone());
+      return response;
+    }
+    if (isRedirectResponse(response)) {
+      const fallback = await matchHtmlByPathname(pathname);
+      return fallback ?? (await offlineFallback(pathname));
+    }
+    const fallback = await matchHtmlByPathname(pathname);
+    return fallback ?? (await offlineFallback(pathname));
+  } catch {
+    const fallback = await matchHtmlByPathname(pathname);
+    return fallback ?? (await offlineFallback(pathname));
+  }
+}
+
+async function handleRscRequest(request) {
+  const cached = await caches.match(request);
+  if (cached && !isRedirectResponse(cached)) return cached;
+
+  try {
+    const response = await fetch(request);
+    if (isCacheableResponse(response)) {
+      await putInCache(request, response.clone());
+      return response;
+    }
+    return cached ?? Response.error();
+  } catch {
+    if (cached && !isRedirectResponse(cached)) return cached;
+    return Response.error();
+  }
 }
 
 async function cacheFirst(request) {
@@ -132,66 +193,47 @@ async function cacheFirst(request) {
   try {
     const response = await fetch(request);
     if (isRedirectResponse(response)) {
-      const fallback = await matchByPathname(request);
+      const fallback = await matchHtmlByPathname(new URL(request.url).pathname);
       return fallback ?? (await offlineFallback(new URL(request.url).pathname));
     }
     await putInCache(request, response);
     return response;
   } catch {
-    const fallback = await matchByPathname(request);
+    const fallback = await matchHtmlByPathname(new URL(request.url).pathname);
     return fallback ?? (await offlineFallback(new URL(request.url).pathname));
   }
 }
 
-async function staleWhileRevalidate(request) {
-  const cached = await caches.match(request);
-  const safeCached = cached && !isRedirectResponse(cached) ? cached : null;
+async function warmPath(cache, path) {
+  try {
+    const docRequest = new Request(path, { credentials: "include" });
+    const docResponse = await fetch(docRequest);
+    if (isHtmlResponse(docResponse)) await cache.put(docRequest, docResponse.clone());
 
-  const networkPromise = fetch(request)
-    .then(async (response) => {
-      if (isRedirectResponse(response)) {
-        return null;
-      }
-      await putInCache(request, response);
-      return response;
-    })
-    .catch(() => null);
-
-  if (safeCached) {
-    void networkPromise;
-    return safeCached;
+    const rscRequest = new Request(path, {
+      credentials: "include",
+      headers: {
+        RSC: "1",
+        "Next-Router-Prefetch": "1",
+        "Next-Url": path.split("?")[0] ?? path,
+      },
+    });
+    const rscResponse = await fetch(rscRequest);
+    if (isCacheableResponse(rscResponse)) await cache.put(rscRequest, rscResponse.clone());
+  } catch {
+    /* offline during warm */
   }
-
-  const network = await networkPromise;
-  if (network) return network;
-
-  const pathnameMatch = await matchByPathname(request);
-  if (pathnameMatch) return pathnameMatch;
-
-  return offlineFallback(new URL(request.url).pathname);
 }
 
-async function warmRoutesFromClient() {
+async function warmRoutesFromClient(extraPaths = []) {
   const cache = await caches.open(CACHE_NAME);
-  for (const path of WARM_ROUTES) {
-    try {
-      const docRequest = new Request(path, { credentials: "include" });
-      const docResponse = await fetch(docRequest);
-      if (isCacheableResponse(docResponse)) await cache.put(docRequest, docResponse.clone());
-
-      const rscRequest = new Request(path, {
-        credentials: "include",
-        headers: {
-          RSC: "1",
-          "Next-Router-Prefetch": "1",
-          "Next-Url": path,
-        },
-      });
-      const rscResponse = await fetch(rscRequest);
-      if (isCacheableResponse(rscResponse)) await cache.put(rscRequest, rscResponse.clone());
-    } catch {
-      /* offline during warm */
-    }
+  const seen = new Set();
+  const allPaths = [...WARM_ROUTES, ...extraPaths];
+  for (const path of allPaths) {
+    const key = path.split("?")[0] ?? path;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await warmPath(cache, path);
   }
 }
 
@@ -207,7 +249,7 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const keys = await caches.keys();
       await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
-      await purgeRedirectEntries();
+      await purgeBadEntries();
     })(),
   );
   self.clients.claim();
@@ -225,7 +267,17 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(staleWhileRevalidate(event.request));
+  if (isRscRequest(event.request)) {
+    event.respondWith(handleRscRequest(event.request));
+    return;
+  }
+
+  if (isDocumentNavigation(event.request)) {
+    event.respondWith(handleDocumentNavigation(event.request));
+    return;
+  }
+
+  event.respondWith(handleRscRequest(event.request));
 });
 
 self.addEventListener("message", (event) => {
@@ -237,7 +289,8 @@ self.addEventListener("message", (event) => {
   }
 
   if (data.type === "warm-routes") {
-    event.waitUntil(warmRoutesFromClient());
+    const paths = Array.isArray(data.payload?.paths) ? data.payload.paths : [];
+    event.waitUntil(warmRoutesFromClient(paths));
     return;
   }
 

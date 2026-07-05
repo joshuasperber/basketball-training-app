@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultExercises, type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
 import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
-import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { ensureInitialCloudSync, pushProgressToCloud } from "@/lib/progress-sync";
+import { isAppOnline } from "@/lib/app-online";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
 import { buildTrainingHref, resolveReturnTo } from "@/lib/ui-navigation-state";
 
@@ -229,7 +230,9 @@ function ExerciseExecutionPageContent() {
   }
 
   useEffect(() => {
-    void pullProgressFromCloud();
+    if (isAppOnline()) {
+      void ensureInitialCloudSync();
+    }
     const timer = window.setTimeout(() => {
       void refreshHistory();
     }, 0);
