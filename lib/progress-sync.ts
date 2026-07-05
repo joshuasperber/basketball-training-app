@@ -11,6 +11,7 @@ import { GAME_STATS_KEY } from "@/lib/game-stats";
 import { LEAGUE_STORAGE_KEY } from "@/lib/league";
 import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
+import { isAppOnline } from "@/lib/app-online";
 import { clearLocalProgressDirty, isLocalProgressDirty, markLocalProgressDirty } from "@/lib/sync-dirty";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
@@ -299,6 +300,10 @@ let pushInFlight: Promise<boolean> | null = null;
 /** Einmaliger Cloud-Pull beim App-Start — verhindert doppelte parallele Requests. */
 export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
+  if (!isAppOnline()) {
+    if (initialCloudSyncResult === undefined) initialCloudSyncResult = null;
+    return Promise.resolve(initialCloudSyncResult);
+  }
   if (initialCloudSyncResult !== undefined) {
     return Promise.resolve(initialCloudSyncResult);
   }
@@ -316,6 +321,8 @@ export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
 }
 
 export async function pullProgressFromCloud() {
+  if (!isAppOnline()) return null;
+
   const { me, accountSwitched } = await checkAuthSession();
   if (!me) return null;
 

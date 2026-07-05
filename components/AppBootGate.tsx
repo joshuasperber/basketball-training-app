@@ -3,12 +3,14 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import AppBusyOverlay from "@/components/AppBusyOverlay";
+import { isAppOnline } from "@/lib/app-online";
 import { fetchAuthMe } from "@/lib/auth-session-align";
+import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { ensureInitialCloudSync } from "@/lib/progress-sync";
 
 const HIDDEN_PREFIXES = ["/login", "/auth/"];
 
-const BOOT_TIMEOUT_MS = 9000;
+const BOOT_TIMEOUT_MS = 6000;
 
 let bootCompletedThisSession = false;
 
@@ -22,7 +24,14 @@ function waitForPaint() {
   });
 }
 
-/** Einmal pro Session — nicht bei Tab-Wechseln. */
+function finishBoot(setBooting: (value: boolean) => void) {
+  bootCompletedThisSession = true;
+  setBooting(false);
+  delete document.body.dataset.appBooting;
+  window.dispatchEvent(new Event("bt:app-boot-complete"));
+}
+
+/** Einmal pro Session — offline sofort, online mit optionalem Cloud-Sync. */
 export default function AppBootGate({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
   const hiddenRoute = isHiddenBootRoute(pathname);
@@ -51,18 +60,27 @@ export default function AppBootGate({ children }: { children: ReactNode }) {
       await waitForPaint();
       if (cancelled) return;
 
+      if (!isAppOnline()) {
+        setLabel(hasOfflineSessionHint() ? "Offline-Modus" : "Keine Verbindung");
+        setSublabel(
+          hasOfflineSessionHint()
+            ? "Dein letzter Stand wird aus dem lokalen Speicher geladen."
+            : "Bitte später erneut verbinden, um dich anzumelden.",
+        );
+        await waitForPaint();
+        if (!cancelled) finishBoot(setBooting);
+        return;
+      }
+
       setLabel("App wird geladen …");
-      setSublabel("Einen Moment — wir bereiten alles vor.");
+      setSublabel("Lokal zuerst — Cloud-Updates im Hintergrund.");
 
       const bootWork = (async () => {
         const me = await fetchAuthMe();
         if (cancelled) return;
         if (me) {
-          setLabel("Trainingsdaten werden geladen …");
-          setSublabel("Lokal zuerst — Cloud-Updates im Hintergrund.");
-          await ensureInitialCloudSync().catch(() => {
-            /* Offline oder Cloud optional */
-          });
+          setLabel("Trainingsdaten werden vorbereitet …");
+          await ensureInitialCloudSync().catch(() => undefined);
         }
         await waitForPaint();
       })();
@@ -73,9 +91,7 @@ export default function AppBootGate({ children }: { children: ReactNode }) {
 
       await Promise.race([bootWork, timeout]);
       if (cancelled) return;
-      bootCompletedThisSession = true;
-      setBooting(false);
-      delete document.body.dataset.appBooting;
+      finishBoot(setBooting);
     };
 
     void run();

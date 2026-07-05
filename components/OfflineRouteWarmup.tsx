@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { isAppOnline } from "@/lib/app-online";
 import { OFFLINE_APP_ROUTES } from "@/lib/offline-routes";
 import { hasOfflineSessionHint } from "@/lib/offline-session";
 
-const WARMUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const WARMUP_INTERVAL_MS = 30 * 60 * 1000;
 
 function postSwMessage(type: string, payload?: unknown) {
   if (!("serviceWorker" in navigator)) return;
@@ -43,7 +44,7 @@ export default function OfflineRouteWarmup() {
 
   useEffect(() => {
     const warm = (force = false) => {
-      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (!isAppOnline()) return;
       if (!hasOfflineSessionHint()) return;
 
       const now = Date.now();
@@ -66,13 +67,16 @@ export default function OfflineRouteWarmup() {
     };
 
     void warm(true);
-    const retryWarm = window.setTimeout(() => warm(true), 4000);
-
+    const retryWarm = window.setTimeout(() => warm(true), 3000);
+    const onBootComplete = () => warm(true);
     const onOnline = () => warm(true);
+
+    window.addEventListener("bt:app-boot-complete", onBootComplete);
     window.addEventListener("online", onOnline);
 
     return () => {
       window.clearTimeout(retryWarm);
+      window.removeEventListener("bt:app-boot-complete", onBootComplete);
       window.removeEventListener("online", onOnline);
     };
   }, [router]);

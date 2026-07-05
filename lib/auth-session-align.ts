@@ -9,10 +9,25 @@ export type AuthMeResponse = {
   supabaseConfigured: boolean;
 };
 
+import { isAppOnline } from "@/lib/app-online";
+
 export async function fetchAuthMe(): Promise<AuthMeResponse | null> {
-  const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "same-origin" });
-  if (!response.ok) return null;
-  return (await response.json()) as AuthMeResponse;
+  if (!isAppOnline()) return null;
+
+  try {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 4000);
+    const response = await fetch("/api/auth/me", {
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+    window.clearTimeout(timeout);
+    if (!response.ok) return null;
+    return (await response.json()) as AuthMeResponse;
+  } catch {
+    return null;
+  }
 }
 
 export async function checkAuthSession(): Promise<{ me: AuthMeResponse | null; accountSwitched: boolean }> {

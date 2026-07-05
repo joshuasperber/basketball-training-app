@@ -33,6 +33,7 @@ import Link from "next/link";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
+import { isAppOnline } from "@/lib/app-online";
 import { fetchAuthMe } from "@/lib/auth-session-align";
 import { isInitialSetupComplete } from "@/lib/onboarding-gate";
 import NumericInput from "@/components/ui/NumericInput";
@@ -438,7 +439,9 @@ export default function ProfilePage() {
     setLoading(false);
 
     try {
-    await pullProgressFromCloud();
+    if (isAppOnline()) {
+      await pullProgressFromCloud();
+    }
     const localCache = loadLocalCache();
     const latestDailyPlan = readDailyPlanMap();
     const resolvedWeekConfig = resolveWeekConfigFromStorage(localCache, latestDailyPlan);
@@ -471,7 +474,7 @@ export default function ProfilePage() {
     const username = usernameOverride ?? (setupComplete ? localCache?.profile.username ?? (typeof window !== "undefined" ? window.localStorage.getItem(PROFILE_USERNAME_KEY) : null) : null) ?? "";
 
     let data: ProfileRow | null = null;
-    if (authUserId && setupComplete) {
+    if (authUserId && setupComplete && isAppOnline()) {
       const byId = await supabase
         .from("profiles")
         .select("username, full_name, favorite_position, height_cm, weight_kg")

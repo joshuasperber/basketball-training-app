@@ -14,6 +14,7 @@ import {
 } from "@/lib/opponent-styles";
 import { buildStartLineupRecommendation, buildTeamMatchupHints } from "@/lib/matchup-hints";
 import type { TeamCoachResponse, TeamDetail, TeamRole, TeamShareLevel, TeamSummary } from "@/lib/team-types";
+import { isAppOnline } from "@/lib/app-online";
 import { fetchAuthMe } from "@/lib/auth-session-align";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
@@ -133,6 +134,14 @@ export default function TeamPage() {
   const loadDetail = useCallback(async (teamId: string) => {
     const cached = loadCachedTeamDetail(teamId);
     if (cached) setDetail(cached);
+
+    if (!isAppOnline()) {
+      if (cached) {
+        setMessage("Offline — zuletzt gespeicherte Team-Details.");
+      }
+      return;
+    }
+
     try {
       const me = await refreshAuthDiagnostics();
       const syncResult = await syncWorkoutSessionsToCloudWithRetry();

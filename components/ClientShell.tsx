@@ -8,6 +8,7 @@ import {
   markLocalProgressDirty,
   pushProgressToCloudWithRetry,
 } from "@/lib/progress-sync";
+import { isAppOnline } from "@/lib/app-online";
 import { syncWorkoutSessionsToCloud, syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
@@ -40,6 +41,7 @@ function CloudSyncBridge() {
   useEffect(() => {
     const pull = () => {
       if (document.visibilityState === "hidden") return;
+      if (!isAppOnline()) return;
       void ensureInitialCloudSync().catch(() => {
         /* Cloud optional */
       });
@@ -49,6 +51,7 @@ function CloudSyncBridge() {
       const source = (event as CustomEvent<{ source?: string }>).detail?.source;
       if (source === "remote") return;
       markLocalProgressDirty();
+      if (!isAppOnline()) return;
       if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
       planPushTimerRef.current = setTimeout(() => {
         void pushProgressToCloudWithRetry();
@@ -56,16 +59,23 @@ function CloudSyncBridge() {
     };
 
     const onSessionsUpdated = () => {
+      if (!isAppOnline()) {
+        markLocalProgressDirty();
+        return;
+      }
       void syncWorkoutSessionsToCloud();
     };
 
     const onOnline = () => {
+      if (!isAppOnline()) return;
       void syncWorkoutSessionsToCloudWithRetry().then(() =>
         pushProgressToCloudWithRetry().then(() => ensureInitialCloudSync()),
       );
     };
 
-    pull();
+    if (isAppOnline()) {
+      pull();
+    }
     window.addEventListener("focus", pull);
     window.addEventListener("online", onOnline);
     window.addEventListener("bt:sessions-updated", onSessionsUpdated);

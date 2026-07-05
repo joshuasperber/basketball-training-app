@@ -47,6 +47,20 @@ export type WorkoutSessionEntry = {
 const EXERCISE_HISTORY_KEY = "bt.exercise-history.v1";
 const WORKOUT_SESSIONS_KEY = "bt.workout-sessions.v1";
 
+function queueSessionCloudSync() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("bt:sessions-updated"));
+  void import("@/lib/app-online").then(({ isAppOnline }) => {
+    if (!isAppOnline()) {
+      void import("@/lib/sync-dirty").then(({ markLocalProgressDirty }) => markLocalProgressDirty());
+      return;
+    }
+    void import("@/lib/sync-workout-sessions").then(({ syncWorkoutSessionsToCloudWithRetry }) => {
+      void syncWorkoutSessionsToCloudWithRetry();
+    });
+  });
+}
+
 function canUseStorage() {
   return typeof window !== "undefined";
 }
@@ -102,24 +116,14 @@ export function appendWorkoutSession(entry: WorkoutSessionEntry) {
             !(session.workoutId === entry.workoutId && session.dateISO.slice(0, 10) === entryDate),
         );
   writeJson(WORKOUT_SESSIONS_KEY, [entry, ...withoutExisting].slice(0, 50));
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("bt:sessions-updated"));
-    void import("@/lib/sync-workout-sessions").then(({ syncWorkoutSessionsToCloudWithRetry }) => {
-      void syncWorkoutSessionsToCloudWithRetry();
-    });
-  }
+  queueSessionCloudSync();
 }
 
 export function updateWorkoutSession(sessionId: string, patch: Partial<Pick<WorkoutSessionEntry, "sessionNotes" | "logs">>) {
   const current = getWorkoutSessions();
   const next = current.map((session) => (session.id === sessionId ? { ...session, ...patch } : session));
   writeJson(WORKOUT_SESSIONS_KEY, next);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("bt:sessions-updated"));
-    void import("@/lib/sync-workout-sessions").then(({ syncWorkoutSessionsToCloudWithRetry }) => {
-      void syncWorkoutSessionsToCloudWithRetry();
-    });
-  }
+  queueSessionCloudSync();
 }
 
 export function updateWorkoutSessionLogNote(sessionId: string, logIndex: number, note: string) {
@@ -130,10 +134,5 @@ export function updateWorkoutSessionLogNote(sessionId: string, logIndex: number,
     return { ...session, logs };
   });
   writeJson(WORKOUT_SESSIONS_KEY, next);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("bt:sessions-updated"));
-    void import("@/lib/sync-workout-sessions").then(({ syncWorkoutSessionsToCloudWithRetry }) => {
-      void syncWorkoutSessionsToCloudWithRetry();
-    });
-  }
+  queueSessionCloudSync();
 }
