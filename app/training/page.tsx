@@ -391,6 +391,7 @@ function TrainingPageContent() {
     setNewWorkoutName("");
     setNewWorkoutExerciseIds([]);
     setNewWorkoutNotes("");
+    setCreateOpen(false);
   }
 
   async function handleAddExercise(event: React.SyntheticEvent<HTMLFormElement>) {

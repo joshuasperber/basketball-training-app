@@ -7,10 +7,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultExercises, type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
 import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
-import { ensureInitialCloudSync, pushProgressToCloud } from "@/lib/progress-sync";
-import { isAppOnline } from "@/lib/app-online";
+import { markLocalProgressDirty, pushProgressToCloud } from "@/lib/progress-sync";
+import { getPostExerciseCompletionHref } from "@/lib/offline-navigation";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
 import { buildTrainingHref, resolveReturnTo } from "@/lib/ui-navigation-state";
+import {
+  applyShootingMetricStrings,
+  completeShootingValues,
+  METRIC_LABELS,
+  shouldUseShootingInputs,
+} from "@/lib/workout-metrics";
 
 type ExerciseSet = {
   id: string;
@@ -25,7 +31,7 @@ function getNumeric(values: Partial<Record<string, string>>, key: string) {
 }
 
 function validateMetricValues(values: Partial<Record<string, string>>) {
-  const reps = getNumeric(values, "reps");
+  const reps = getNumeric(values, "reps") ?? getNumeric(values, "tries");
   const makes = getNumeric(values, "makes");
   const misses = getNumeric(values, "misses");
   const base = reps;
@@ -124,17 +130,14 @@ function ExerciseExecutionPageContent() {
   function updateSetValue(id: string, metric: string, value: string) {
     setSaved(false);
     setSets((previous) =>
-      previous.map((entry) =>
-        entry.id === id
-          ? {
-              ...entry,
-              values: {
-                ...entry.values,
-                [metric]: value,
-              },
-            }
-          : entry,
-      ),
+      previous.map((entry) => {
+        if (entry.id !== id) return entry;
+        const nextValues = { ...entry.values, [metric]: value };
+        if (exercise && shouldUseShootingInputs(exercise.metricKeys)) {
+          return { ...entry, values: applyShootingMetricStrings(nextValues) };
+        }
+        return { ...entry, values: nextValues };
+      }),
     );
   }
 
@@ -164,14 +167,23 @@ function ExerciseExecutionPageContent() {
     }> = [];
 
     sets.forEach((set) => {
-      const value = getCompletedValue(set.values);
-      const hasAnyMetric = Object.values(set.values).some((entry) => entry != null && entry.trim() !== "");
+      const normalizedValues = exercise && shouldUseShootingInputs(exercise.metricKeys)
+        ? applyShootingMetricStrings(set.values)
+        : set.values;
+      const value = getCompletedValue(normalizedValues);
+      const hasAnyMetric = Object.values(normalizedValues).some((entry) => entry != null && entry.trim() !== "");
       const isCompleted = hasAnyMetric;
       if (value === null) return;
       if (!isCompleted) return;
       hasAnyCompleted = true;
       const numericValue = value ?? 1;
       bestValue = Math.max(bestValue, numericValue);
+      const shooting = completeShootingValues({
+        reps: normalizedValues.reps,
+        tries: normalizedValues.tries,
+        makes: normalizedValues.makes,
+        misses: normalizedValues.misses,
+      });
       appendExerciseHistory({
         id: `eh-${Date.now()}-${set.id}`,
         dateISO: nowISO,
@@ -185,10 +197,10 @@ function ExerciseExecutionPageContent() {
         completedValue: numericValue,
         note: sessionNote || "",
         completed: true,
-        made: getNumeric(set.values, "makes"),
-        attempts: getNumeric(set.values, "reps") ?? getNumeric(set.values, "tries"),
-        misses: getNumeric(set.values, "misses"),
-        weightKg: getNumeric(set.values, "weight"),
+        made: shooting.reps > 0 ? shooting.makes : getNumeric(normalizedValues, "makes"),
+        attempts: shooting.reps > 0 ? shooting.reps : getNumeric(normalizedValues, "reps") ?? getNumeric(normalizedValues, "tries"),
+        misses: shooting.reps > 0 ? shooting.misses : getNumeric(normalizedValues, "misses"),
+        weightKg: getNumeric(normalizedValues, "weight"),
       });
 
     });
@@ -225,14 +237,12 @@ function ExerciseExecutionPageContent() {
 
     await refreshHistory();
     setSaved(true);
-    void pushProgressToCloud();
-    router.push(`${returnToTraining}${returnToTraining.includes("?") ? "&" : "?"}completed=exercise`);
+    markLocalProgressDirty();
+    void pushProgressToCloud(undefined, { quiet: true });
+    router.push(getPostExerciseCompletionHref(returnToTraining));
   }
 
   useEffect(() => {
-    if (isAppOnline()) {
-      void ensureInitialCloudSync();
-    }
     const timer = window.setTimeout(() => {
       void refreshHistory();
     }, 0);
@@ -285,12 +295,12 @@ function ExerciseExecutionPageContent() {
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {exercise.metricKeys.map((metric) => (
                     <div key={`${set.id}-${metric}`}>
-                      <label className="input-label">{metric}</label>
+                      <label className="input-label">{METRIC_LABELS[metric] ?? metric}</label>
                       <input
                         type="number"
                         value={set.values[metric] ?? ""}
                         onChange={(event) => updateSetValue(set.id, metric, event.target.value)}
-                        placeholder={metric}
+                        placeholder={METRIC_LABELS[metric] ?? metric}
                         className="input"
                       />
                     </div>
@@ -338,7 +348,7 @@ function ExerciseExecutionPageContent() {
 
         {saved ? (
           <p className="app-card--accent-emerald text-sm">
-            Exercise-Session gespeichert (lokal im State).
+            Exercise-Session gespeichert.
           </p>
         ) : null}
 

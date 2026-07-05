@@ -49,11 +49,18 @@ export function parseNonNegativeNumber(value?: string | null) {
   return parsed;
 }
 
-export function completeShootingValues(values: { reps?: string; makes?: string; misses?: string }) {
-  const reps = parseNonNegativeNumber(values.reps);
+function shootingRepsInput(values: { reps?: string; tries?: string }) {
+  if (values.reps?.trim()) return values.reps;
+  if (values.tries?.trim()) return values.tries;
+  return "";
+}
+
+export function completeShootingValues(values: { reps?: string; tries?: string; makes?: string; misses?: string }) {
+  const repsInput = shootingRepsInput(values);
+  const reps = parseNonNegativeNumber(repsInput);
   const makes = parseNonNegativeNumber(values.makes);
   const misses = parseNonNegativeNumber(values.misses);
-  const hasReps = Boolean(values.reps?.trim());
+  const hasReps = Boolean(repsInput.trim());
   const hasMakes = Boolean(values.makes?.trim());
   const hasMisses = Boolean(values.misses?.trim());
 
@@ -72,6 +79,29 @@ export function completeShootingValues(values: { reps?: string; makes?: string; 
   if (hasMakes) return { reps: makes, makes, misses: 0 };
   if (hasMisses) return { reps: misses, makes: 0, misses };
   return { reps: 0, makes: 0, misses: 0 };
+}
+
+/** Hält reps/makes/misses konsistent (z. B. Exercise-Sätze oder Set-Logs). */
+export function applyShootingMetricStrings(
+  values: Partial<Record<string, string>>,
+): Partial<Record<string, string>> {
+  const shooting = completeShootingValues({
+    reps: values.reps,
+    tries: values.tries,
+    makes: values.makes,
+    misses: values.misses,
+  });
+  if (shooting.reps <= 0 && !values.makes?.trim() && !values.misses?.trim() && !values.reps?.trim() && !values.tries?.trim()) {
+    return values;
+  }
+  if (shooting.reps <= 0) return values;
+  return {
+    ...values,
+    reps: String(shooting.reps),
+    tries: "",
+    makes: String(shooting.makes),
+    misses: String(shooting.misses),
+  };
 }
 
 export function syncShootingTargetStrings(targets: Partial<Record<MetricKey, string>>): Partial<Record<MetricKey, string>> {
@@ -104,7 +134,7 @@ export function normalizeExerciseShootingMetrics(exercise: Exercise): Exercise {
 
 export function validateSetLogForMetrics(log: Partial<SetLog>, metricKeys: MetricKey[]) {
   if (shouldUseShootingInputs(metricKeys)) {
-    const reps = parseNonNegativeNumber(log.reps);
+    const reps = parseNonNegativeNumber(log.reps) || parseNonNegativeNumber(log.tries);
     const makes = parseNonNegativeNumber(log.makes);
     const misses = parseNonNegativeNumber(log.misses);
     if (reps > 0) {
@@ -140,7 +170,12 @@ export function buildSessionLogFromSet(params: {
 }): WorkoutSessionLog {
   const metricKeys = normalizeMetricKeysForCategory(params.exercise.category, params.exercise.metricKeys);
   const log = params.log ?? {};
-  const shooting = completeShootingValues(log);
+  const shooting = completeShootingValues({
+    reps: log.reps,
+    tries: log.tries,
+    makes: log.makes,
+    misses: log.misses,
+  });
   const timeSeconds = parseNonNegativeNumber(log.time);
   const distanceValue = parseNonNegativeNumber(log.distance);
   const distanceUnit = (log.distanceUnit === "km" ? "km" : "m") as DistanceUnit;

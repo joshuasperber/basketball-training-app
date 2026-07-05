@@ -171,6 +171,37 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
   line-height: 1.5;
 }
 
+.page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  row-gap: 0.35rem;
+  align-items: start;
+}
+
+.page-header__main {
+  min-width: 0;
+}
+
+.page-header__actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.page-header__main .page-subtitle {
+  max-width: none;
+  padding-right: 0.25rem;
+}
+
+@media (max-width: 639px) {
+  .page-header__main .page-subtitle {
+    font-size: 0.875rem;
+    line-height: 1.4;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Cards                                                               */
 /* ------------------------------------------------------------------ */

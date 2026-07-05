@@ -14,8 +14,8 @@ export default function PageHeader({ eyebrow, eyebrowTone = "brand", title, subt
     eyebrowTone === "violet" ? "page-eyebrow page-eyebrow--violet" : "page-eyebrow page-eyebrow--brand";
 
   return (
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
+    <header className="page-header">
+      <div className="page-header__main">
         {eyebrow ? <p className={eyebrowClass}>{eyebrow}</p> : null}
         <div className="flex items-center gap-3">
           <h1 className="page-title">{title}</h1>
@@ -23,7 +23,7 @@ export default function PageHeader({ eyebrow, eyebrowTone = "brand", title, subt
         </div>
         {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="page-header__actions">{actions}</div> : null}
     </header>
   );
 }

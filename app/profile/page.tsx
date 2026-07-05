@@ -823,7 +823,7 @@ const refreshProfileAndWeekly = () => {
       <PageHeader
         eyebrow="Spielerprofil"
         title="Profil & Wochenplanung"
-        subtitle="Pflege deine Daten und plane die Woche – die Engine baut deinen Plan automatisch."
+        subtitle="Profil, Verfügbarkeit und Kalender."
         actions={
           <IconButton variant="ghost" label="Einstellungen" className="settings-gear-btn" onClick={() => setSettingsOpen(true)}>
             <GearIcon />

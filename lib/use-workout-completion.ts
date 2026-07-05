@@ -4,10 +4,11 @@ import { useCallback, useRef, type MutableRefObject } from "react";
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import type { MetricKey } from "@/lib/training-data";
 import { finishWorkoutSession, setLogHasStarted } from "@/lib/finish-workout-session";
+import { getPostWorkoutCompletionHref } from "@/lib/offline-navigation";
 import { appendRegenerationTagsAfterWorkoutComplete } from "@/lib/post-workout-regeneration";
 import type { SetLog, WorkoutPlan, WorkoutProgress } from "@/lib/workout";
 import { getDefaultWorkoutProgress } from "@/lib/workout";
-import { validateSetLogForMetrics } from "@/lib/workout-metrics";
+import { completeShootingValues, validateSetLogForMetrics } from "@/lib/workout-metrics";
 
 type AppDialogLike = {
   confirm: (options: {
@@ -36,6 +37,7 @@ type UseWorkoutCompletionOptions = {
   getCurrentLogFromProgress: (progress: WorkoutProgress) => SetLog;
   currentLogKey: string;
   currentMetricOptions: MetricKey[];
+  tracksRepsAndMakes: boolean;
   safeExerciseIndex: number;
   safeSetIndex: number;
   currentExercise: WorkoutPlan["exercises"][number] | undefined;
@@ -63,6 +65,7 @@ export function useWorkoutCompletion({
   getCurrentLogFromProgress,
   currentLogKey,
   currentMetricOptions,
+  tracksRepsAndMakes,
   safeExerciseIndex,
   safeSetIndex,
   currentExercise,
@@ -96,12 +99,33 @@ export function useWorkoutCompletion({
         setProgress(freshProgress);
       }
       if (isCatalogWorkoutRun) {
-        router.push(appendQueryParams(catalogReturnTo, { completed: "workout" }));
+        router.push(getPostWorkoutCompletionHref(true, catalogReturnTo));
         return;
       }
-      router.push("/stats");
+      router.push(getPostWorkoutCompletionHref(false));
     },
-    [appendQueryParams, catalogReturnTo, isCatalogWorkoutRun, progressRef, router, setProgress],
+    [catalogReturnTo, isCatalogWorkoutRun, progressRef, router, setProgress],
+  );
+
+  const clampShootingLog = useCallback(
+    (log: SetLog): SetLog => {
+      if (!tracksRepsAndMakes) return log;
+      const completed = completeShootingValues({
+        reps: log.reps,
+        tries: log.tries,
+        makes: log.makes,
+        misses: log.misses,
+      });
+      if (completed.reps <= 0) return log;
+      return {
+        ...log,
+        reps: String(completed.reps),
+        tries: "",
+        makes: String(completed.makes),
+        misses: String(completed.misses),
+      };
+    },
+    [tracksRepsAndMakes],
   );
 
   const completeWorkout = useCallback(
@@ -148,7 +172,7 @@ export function useWorkoutCompletion({
         navigateAfterCompletion(getDefaultWorkoutProgress(dateKey, workoutForExecution));
         return;
       }
-      router.push("/stats");
+      router.push(getPostWorkoutCompletionHref(false));
     },
     [
       dateKey,
@@ -200,7 +224,7 @@ export function useWorkoutCompletion({
       return;
     }
     if (hasSets) {
-      router.push("/stats");
+      router.push(getPostWorkoutCompletionHref(false));
     }
   }, [
     appDialog,
@@ -219,7 +243,7 @@ export function useWorkoutCompletion({
     if (!currentExercise) return;
 
     const activeProgress = activateProgressForInput(progressRef.current);
-    const activeLog = getCurrentLogFromProgress(activeProgress);
+    const activeLog = clampShootingLog(getCurrentLogFromProgress(activeProgress));
     const validationMessage = validateSetLogForMetrics(activeLog, currentMetricOptions);
     if (validationMessage) {
       setSetValidationError(validationMessage);
@@ -265,6 +289,7 @@ export function useWorkoutCompletion({
     });
   }, [
     activateProgressForInput,
+    clampShootingLog,
     completeWorkout,
     currentExercise,
     currentLogKey,

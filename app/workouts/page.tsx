@@ -56,7 +56,8 @@ import {
   validateSetLogForMetrics,
 } from "@/lib/workout-metrics";
 import { syncPausedWorkoutRegistry, isWorkoutPausedProgress } from "@/lib/paused-workouts";
-import { finishWorkoutSession, setLogHasStarted } from "@/lib/finish-workout-session";
+import { finishWorkoutSession, setLogHasStarted, type FinishWorkoutResult } from "@/lib/finish-workout-session";
+import { getPostWorkoutCompletionHref } from "@/lib/offline-navigation";
 import type { MetricKey } from "@/lib/training-data";
 import {
   DEFAULT_MANUAL_TITLE,
@@ -738,12 +739,19 @@ function WorkoutsPageContent() {
 
   const clampShootingLog = (log: SetLog): SetLog => {
     if (!tracksRepsAndMakes) return log;
-    const completed = completeShootingValues(log);
+    const completed = completeShootingValues({
+      reps: log.reps,
+      tries: log.tries,
+      makes: log.makes,
+      misses: log.misses,
+    });
+    if (completed.reps <= 0) return log;
     return {
       ...log,
-      reps: completed.reps > 0 ? String(completed.reps) : log.reps,
-      makes: completed.reps > 0 ? String(completed.makes) : log.makes,
-      misses: completed.reps > 0 ? String(completed.misses) : log.misses,
+      reps: String(completed.reps),
+      tries: "",
+      makes: String(completed.makes),
+      misses: String(completed.misses),
     };
   };
 
@@ -1154,6 +1162,41 @@ function WorkoutsPageContent() {
     };
     persistProgress(pausedProgress);
   };
+  const showWorkoutSavedFeedback = (result: FinishWorkoutResult, completedProgress: WorkoutProgress) => {
+    if (result.levelDelta && result.levelDelta > 0) {
+      window.alert(`🎉 Level-Up! +${result.levelDelta} Level`);
+    } else if (result.levelDelta && result.levelDelta < 0) {
+      window.alert(`⬇️ Level-Down: ${Math.abs(result.levelDelta)} Level verloren`);
+    }
+    const todayKey = toLocalDateKey(new Date());
+    const dailyRaw = window.localStorage.getItem("bt.daily-plan.v1");
+    const daily = dailyRaw ? (JSON.parse(dailyRaw) as Record<string, string[]>) : {};
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowKey = toLocalDateKey(tomorrow);
+    const tomorrowHasRecovery = (daily[tomorrowKey] ?? []).some((tag) => tag === "Regeneration");
+    const todayIsRecoveryOnly = completedProgress.sport === "Regeneration";
+    if (!todayIsRecoveryOnly && !tomorrowHasRecovery) {
+      const todayTags = new Set([...(daily[todayKey] ?? []), "Regeneration", "Recovery:Mobilität & Dehnung"]);
+      daily[todayKey] = Array.from(todayTags);
+      window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(daily));
+      setCompletionBanner("Stark! Workout abgeschlossen ✅ Regeneration wurde für heute hinzugefügt.");
+    } else {
+      setCompletionBanner(result.bannerMessage ?? "Stark! Workout abgeschlossen ✅");
+    }
+  };
+
+  const navigateAfterWorkoutSaved = () => {
+    if (isCatalogWorkoutRun) {
+      const freshProgress = getDefaultWorkoutProgress(dateKey, workoutForExecution);
+      progressRef.current = freshProgress;
+      setProgress(freshProgress);
+      window.localStorage.removeItem(progressStorageKey);
+      window.localStorage.removeItem(buildWorkoutStorageKey(dateKey));
+    }
+    router.push(getPostWorkoutCompletionHref(isCatalogWorkoutRun));
+  };
+
   const completeWorkout = (sourceProgress: WorkoutProgress = progressRef.current) => {
     if (!isWorkoutFullyTracked(sourceProgress)) {
       pauseWorkout(sourceProgress);
@@ -1386,40 +1429,16 @@ function WorkoutsPageContent() {
     } else if (xpResult.levelDelta < 0) {
       window.alert(`⬇️ Level-Down: ${Math.abs(xpResult.levelDelta)} Level verloren`);
     }
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowKey = toLocalDateKey(tomorrow);
-    const todayKey = toLocalDateKey(new Date());
-    const dailyRaw = window.localStorage.getItem("bt.daily-plan.v1");
-    const daily = dailyRaw ? JSON.parse(dailyRaw) as Record<string, string[]> : {};
-    const tomorrowHasRecovery = (daily[tomorrowKey] ?? []).some((tag) => tag === "Regeneration");
-    const todayIsRecoveryOnly = completedProgress.sport === "Regeneration";
-    if (!todayIsRecoveryOnly && !tomorrowHasRecovery) {
-      const todayTags = new Set([...(daily[todayKey] ?? []), "Regeneration", "Recovery:Mobilität & Dehnung"]);
-      daily[todayKey] = Array.from(todayTags);
-      window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(daily));
-      setCompletionBanner("Stark! Workout abgeschlossen ✅ Regeneration wurde für heute hinzugefügt.");
-    } else {
-      setCompletionBanner("Stark! Workout abgeschlossen ✅");
-    }
+    showWorkoutSavedFeedback({ ok: true, bannerMessage: "Stark! Workout abgeschlossen ✅" }, completedProgress);
     void syncWorkoutSessionsToCloudWithRetry().catch(() => {
       // Lokaler Abschluss ist bereits gespeichert; Netzwerkfehler beim Sync darf die UI nicht crashen.
     });
-    if (isCatalogWorkoutRun) {
-      const freshProgress = getDefaultWorkoutProgress(dateKey, workoutForExecution);
-      progressRef.current = freshProgress;
-      setProgress(freshProgress);
-      window.localStorage.removeItem(progressStorageKey);
-      window.localStorage.removeItem(buildWorkoutStorageKey(dateKey));
-      router.push("/training?completed=workout");
-      return;
-    }
-    router.push("/stats");
+    navigateAfterWorkoutSaved();
   };
 
   const finishSet = () => {
     const activeProgress = activateProgressForInput(progressRef.current);
-    const activeLog = getCurrentLogFromProgress(activeProgress);
+    const activeLog = clampShootingLog(getCurrentLogFromProgress(activeProgress));
     const validationMessage = validateSetLogForMetrics(activeLog, currentMetricOptions);
     if (validationMessage) {
       setSetValidationError(validationMessage);
@@ -1442,7 +1461,26 @@ function WorkoutsPageContent() {
         startedAtIso: undefined,
       };
       persistProgress(next);
-      completeWorkout(next);
+
+      const fullyTracked = isWorkoutFullyTracked(next);
+      if (fullyTracked) {
+        completeWorkout(next);
+        return;
+      }
+
+      const result = finishWorkoutSession({
+        progress: next,
+        workoutPlan: workoutForExecution,
+        progressStorageKey,
+        allowPartial: true,
+        isCatalogWorkoutRun,
+      });
+      if (!result.ok) {
+        setSetValidationError(result.error ?? "Workout konnte nicht gespeichert werden.");
+        return;
+      }
+      showWorkoutSavedFeedback(result, next);
+      navigateAfterWorkoutSaved();
       return;
     }
 
@@ -1525,11 +1563,11 @@ function WorkoutsPageContent() {
       setProgress(freshProgress);
       window.localStorage.removeItem(progressStorageKey);
       window.localStorage.removeItem(buildWorkoutStorageKey(dateKey));
-      router.push("/training?completed=workout");
+      router.push(getPostWorkoutCompletionHref(true));
       return;
     }
     if (hasSets) {
-      router.push("/stats");
+      router.push(getPostWorkoutCompletionHref(false));
     }
   };
   const handleWorkoutPrimaryAction = () => {
