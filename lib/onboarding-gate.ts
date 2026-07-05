@@ -16,6 +16,11 @@ export type ProfileCacheShape = {
   weekConfig?: WeekConfig;
   weeklyGoalSessions?: number;
   onboardingComplete?: boolean;
+  bodyMetrics?: {
+    wingspan_cm?: number | null;
+    standing_reach_cm?: number | null;
+    body_fat_pct?: number | null;
+  };
 };
 
 function readProfileCache(): ProfileCacheShape | null {
