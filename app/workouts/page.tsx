@@ -85,6 +85,7 @@ import {
   getActiveGymGoalForExercise,
   loadTrainingGoalsBundle,
 } from "@/lib/training-goals";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
@@ -124,6 +125,7 @@ function persistHistoryEntry(entry: CompletedWorkoutHistoryEntry) {
 }
 
 function WorkoutsPageContent() {
+  const t = useT();
   const router = useRouter();
   const appDialog = useAppDialog();
   const searchParams = useSearchParams();
@@ -1530,14 +1532,14 @@ function WorkoutsPageContent() {
     (progress.status === "in_progress" || canContinueWorkout || hasLoggedSets);
   const workoutPrimaryLabel =
     progress.status === "completed" && workoutFullyTracked
-      ? "Workout abgeschlossen"
+      ? t("workouts.ctaCompleted")
       : progress.status === "in_progress"
       ? workoutFullyTracked
-        ? "Workout abschließen"
-        : "Workout pausieren"
+        ? t("workouts.ctaFinish")
+        : t("workouts.ctaPause")
       : canContinueWorkout
-        ? "Workout fortfahren"
-        : "Workout starten";
+        ? t("workouts.ctaResume")
+        : t("workouts.ctaStart");
   const endWorkoutEarly = async () => {
     const latestProgress = progressRef.current;
     const hasSets = Object.values(latestProgress.logs).some((log) => setLogHasStarted(log));
@@ -1611,14 +1613,12 @@ function WorkoutsPageContent() {
   return (
     <main className="app-container animate-in">
       <PageHeader
-        eyebrow="Training"
-        title="Workout"
-        subtitle="Hier planst und startest du dein Training."
+        eyebrow={t("workouts.eyebrow")}
+        title={t("workouts.title")}
+        subtitle={t("workouts.subtitle")}
         actions={<Link href="/tips" className="btn btn-ghost btn-sm">Tipps &amp; Notizen</Link>}
       />
-      <p className="-mt-2 text-xs text-faint">
-        Trainingshinweis: Kein Ersatz für medizinische Beratung. Bei Schmerzen oder Verletzungen vorher ärztlich abklären.
-      </p>
+      <p className="-mt-2 text-xs text-faint">{t("workouts.medicalDisclaimer")}</p>
       <p className="mt-1 text-xs hint-success">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
       {activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball" ? (
         <section className="app-card--accent-cyan mt-3">
@@ -2167,7 +2167,7 @@ function WorkoutsPageContent() {
                   </button>
                   {canEndWorkout ? (
                     <button type="button" onClick={() => void endWorkoutEarly()} className="btn btn-outline btn-sm">
-                      Workout beenden
+                      {t("workouts.ctaEndEarly")}
                     </button>
                   ) : null}
                   <button
@@ -2175,7 +2175,7 @@ function WorkoutsPageContent() {
                     onClick={finishSet}
                     className="btn btn-emerald btn-sm"
                   >
-                    Satz abschließen
+                    {t("workouts.setComplete")}
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -2215,7 +2215,7 @@ function WorkoutsPageContent() {
 
       <div className="mt-4">
         <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm">
-          ← Zurück zum Weekly Plan
+          {t("workouts.backToWeekly")}
         </Link>
       </div>
       {showTipsReminder ? (

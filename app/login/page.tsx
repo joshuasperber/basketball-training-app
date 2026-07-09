@@ -9,6 +9,7 @@ import { buildPasswordResetConfirmUrl } from "@/lib/auth-redirect";
 import { redirectToRecoveryPageIfHashPresent } from "@/lib/auth-recovery-client";
 import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { createClient } from "@/lib/supabase";
+import { useT } from "@/lib/i18n/I18nProvider";
 import { useRouter } from "next/navigation";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
@@ -43,13 +44,14 @@ async function completeServerAuth(options: {
 export default function LoginPage() {
   const supabase = createClient();
   const router = useRouter();
+  const t = useT();
   const [mode, setMode] = useState<LoginMode>("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [busyLabel, setBusyLabel] = useState("Anmeldung läuft …");
-  const [busySublabel, setBusySublabel] = useState("Einen Moment — wir bereiten dein Dashboard vor.");
+  const [busyLabel, setBusyLabel] = useState(() => t("login.busySigningIn"));
+  const [busySublabel, setBusySublabel] = useState(() => t("login.busyPreparing"));
   const [codeSent, setCodeSent] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [acceptedLegal, setAcceptedLegal] = useState(false);
@@ -70,13 +72,13 @@ export default function LoginPage() {
       setErrorCode(params.get("error_code"));
       const reason = params.get("reason");
       if (params.get("message") === "password_updated") {
-        setMessage("Passwort wurde geändert — du kannst dich jetzt anmelden.");
+        setMessage(t("login.passwordUpdated"));
       } else if (reason === "missing_session") {
-        setMessage("Bitte melde dich an, um fortzufahren.");
+        setMessage(t("login.signInRequired"));
       } else if (reason === "session_invalid") {
-        setMessage("Deine Sitzung ist abgelaufen — bitte erneut anmelden.");
+        setMessage(t("login.sessionExpired"));
       } else if (params.get("next") && !params.get("error_code")) {
-        setMessage("Melde dich an, um zur gewünschten Seite zu gelangen.");
+        setMessage(t("login.signInToContinue"));
       }
       const next = params.get("next");
       setNextPath(next && next.startsWith("/") ? next : null);
@@ -84,7 +86,7 @@ export default function LoginPage() {
       if (savedEmail) setEmail(savedEmail);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [router]);
+  }, [router, t]);
 
   const configError = useMemo(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -114,8 +116,8 @@ export default function LoginPage() {
 
   const signInWithPassword = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setBusyLabel("Anmeldung läuft …");
-    setBusySublabel("Einen Moment — wir bereiten dein Dashboard vor.");
+    setBusyLabel(t("login.busySigningIn"));
+    setBusySublabel(t("login.busyPreparing"));
     setLoading(true);
     setMessage(null);
 
@@ -130,8 +132,8 @@ export default function LoginPage() {
         body: JSON.stringify({ email: trimmedEmail, password }),
       });
 
-      setBusyLabel("Trainingsdaten werden geladen …");
-      setBusySublabel("Dein Fortschritt wird aus der Cloud synchronisiert.");
+      setBusyLabel(t("login.busyLoadingData"));
+      setBusySublabel(t("login.busySyncing"));
 
       const redirectError = await completeServerAuth({
         response,
@@ -144,27 +146,27 @@ export default function LoginPage() {
         return;
       }
 
-      setMessage("Anmeldung erfolgreich — weiterleiten …");
+      setMessage(t("login.signInSuccess"));
     } catch {
-      setMessage("Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
+      setMessage(t("login.signInFailed"));
       setLoading(false);
     }
   };
 
   const signUpWithPassword = async () => {
-    setBusyLabel("Konto wird erstellt …");
-    setBusySublabel("Einen Moment — wir richten dein Profil ein.");
+    setBusyLabel(t("login.busyCreatingAccount"));
+    setBusySublabel(t("login.busySettingUp"));
     setLoading(true);
     setMessage(null);
 
     const trimmedEmail = email.trim();
     if (!acceptedLegal) {
-      setMessage("Bitte Nutzungsbedingungen und Datenschutz bestätigen sowie das Mindestalter von 16 Jahren.");
+      setMessage(t("login.legalRequired"));
       setLoading(false);
       return;
     }
     if (password.length < 6) {
-      setMessage("Passwort mindestens 6 Zeichen.");
+      setMessage(t("login.passwordMin"));
       setLoading(false);
       return;
     }
@@ -178,8 +180,8 @@ export default function LoginPage() {
         body: JSON.stringify({ email: trimmedEmail, password }),
       });
 
-      setBusyLabel("Trainingsdaten werden geladen …");
-      setBusySublabel("Dein Fortschritt wird aus der Cloud synchronisiert.");
+      setBusyLabel(t("login.busyLoadingData"));
+      setBusySublabel(t("login.busySyncing"));
 
       const redirectError = await completeServerAuth({
         response,
@@ -193,16 +195,16 @@ export default function LoginPage() {
         return;
       }
 
-      setMessage("Konto erstellt — weiterleiten …");
+      setMessage(t("login.signUpSuccess"));
     } catch {
-      setMessage("Registrierung fehlgeschlagen. Bitte erneut versuchen.");
+      setMessage(t("login.signUpFailed"));
       setLoading(false);
     }
   };
 
   const requestPasswordReset = async () => {
-    setBusyLabel("Reset-Link wird gesendet …");
-    setBusySublabel("Einen Moment.");
+    setBusyLabel(t("login.busySendingReset"));
+    setBusySublabel(t("login.busyMoment"));
     setLoading(true);
     setMessage(null);
 
@@ -232,13 +234,13 @@ export default function LoginPage() {
 
   const sendCode = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setBusyLabel("Code wird gesendet …");
-    setBusySublabel("Prüfe gleich dein Postfach.");
+    setBusyLabel(t("login.busySendingCode"));
+    setBusySublabel(t("login.busyCheckInbox"));
     setLoading(true);
     setMessage(null);
 
     if (!acceptedLegal) {
-      setMessage("Bitte Nutzungsbedingungen und Datenschutz bestätigen sowie das Mindestalter von 16 Jahren.");
+      setMessage(t("login.legalRequired"));
       setLoading(false);
       return;
     }
@@ -263,13 +265,13 @@ export default function LoginPage() {
 
   const verifyCode = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setBusyLabel("Code wird geprüft …");
-    setBusySublabel("Einen Moment — wir bereiten dein Dashboard vor.");
+    setBusyLabel(t("login.busyVerifyingCode"));
+    setBusySublabel(t("login.busyPreparing"));
     setLoading(true);
     setMessage(null);
 
     if (!acceptedLegal) {
-      setMessage("Bitte Nutzungsbedingungen und Datenschutz bestätigen sowie das Mindestalter von 16 Jahren.");
+      setMessage(t("login.legalRequired"));
       setLoading(false);
       return;
     }
@@ -286,8 +288,8 @@ export default function LoginPage() {
       return;
     }
 
-    setBusyLabel("Trainingsdaten werden geladen …");
-    setBusySublabel("Dein Fortschritt wird aus der Cloud synchronisiert.");
+    setBusyLabel(t("login.busyLoadingData"));
+    setBusySublabel(t("login.busySyncing"));
 
     const redirectError = await finalizeClientAuthSession(data.session, { nextPath, emailHint: email.trim() });
     if (redirectError) {
@@ -306,8 +308,8 @@ export default function LoginPage() {
             🏀
           </div>
           <div>
-            <p className="page-eyebrow">Willkommen zurück</p>
-            <h1 className="text-2xl font-extrabold tracking-tight">Anmelden</h1>
+            <p className="page-eyebrow">{t("login.eyebrow")}</p>
+            <h1 className="text-2xl font-extrabold tracking-tight">{t("login.title")}</h1>
           </div>
         </div>
 
@@ -321,7 +323,7 @@ export default function LoginPage() {
               setMessage(null);
             }}
           >
-            Passwort
+            {t("login.password")}
           </button>
           <button
             type="button"
@@ -331,14 +333,12 @@ export default function LoginPage() {
               setMessage(null);
             }}
           >
-            E-Mail-Code
+            {t("login.otp")}
           </button>
         </div>
 
         <p className="mt-3 text-sm text-muted">
-          {mode === "password"
-            ? "E-Mail + Passwort — danach direkt in die App. Neu hier? „Konto anlegen“."
-            : "Alternativ: 8-stelliger Code per E-Mail (ohne Passwort)."}
+          {mode === "password" ? t("login.passwordHint") : t("login.otpHint")}
         </p>
 
         {configError ? (
@@ -357,7 +357,7 @@ export default function LoginPage() {
           <form onSubmit={signInWithPassword} className="mt-5 space-y-3">
             <div>
               <label className="input-label" htmlFor="login-email">
-                E-Mail
+                {t("login.email")}
               </label>
               <input
                 id="login-email"
@@ -366,14 +366,14 @@ export default function LoginPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 className="input"
-                placeholder="name@beispiel.de"
+                placeholder={t("login.emailPlaceholder")}
                 autoComplete="email"
               />
             </div>
             <div>
               <div className="flex items-center justify-between gap-2">
                 <label className="input-label" htmlFor="login-password">
-                  Passwort
+                  {t("login.password")}
                 </label>
                 <button
                   type="button"
@@ -381,7 +381,7 @@ export default function LoginPage() {
                   onClick={() => void requestPasswordReset()}
                   className="text-xs text-[var(--brand-400)] hover:underline disabled:opacity-50"
                 >
-                  Passwort vergessen?
+                  {t("login.forgotPassword")}
                 </button>
               </div>
               <input
@@ -396,7 +396,7 @@ export default function LoginPage() {
               />
             </div>
             <button type="submit" disabled={loading || Boolean(configError)} className="btn btn-primary btn-block">
-              {loading ? "Anmelden…" : "Anmelden"}
+              {loading ? t("login.signingIn") : t("login.signIn")}
             </button>
             <label className="flex items-start gap-2 text-xs text-muted">
               <input
@@ -406,15 +406,16 @@ export default function LoginPage() {
                 onChange={(event) => setAcceptedLegal(event.target.checked)}
               />
               <span>
-                Ich bin mindestens 16 Jahre alt, akzeptiere die{" "}
+                {t("login.legalCheckbox")}{" "}
+                (
                 <Link href="/nutzungsbedingungen" className="text-[var(--brand-400)] underline">
-                  Nutzungsbedingungen
-                </Link>{" "}
-                und habe die{" "}
+                  {t("login.terms")}
+                </Link>
+                {" / "}
                 <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
-                  Datenschutzerklärung
-                </Link>{" "}
-                gelesen (für „Konto anlegen“ erforderlich).
+                  {t("login.privacy")}
+                </Link>
+                )
               </span>
             </label>
             <button
@@ -423,14 +424,14 @@ export default function LoginPage() {
               onClick={() => void signUpWithPassword()}
               className="btn btn-outline btn-block"
             >
-              {loading ? "…" : "Konto anlegen (Passwort)"}
+              {loading ? "…" : t("login.createAccount")}
             </button>
           </form>
         ) : !codeSent ? (
           <form onSubmit={sendCode} className="mt-5 space-y-3">
             <div>
               <label className="input-label" htmlFor="login-email-otp">
-                E-Mail
+                {t("login.email")}
               </label>
               <input
                 id="login-email-otp"
@@ -439,7 +440,7 @@ export default function LoginPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 className="input"
-                placeholder="name@beispiel.de"
+                placeholder={t("login.emailPlaceholder")}
               />
             </div>
             <label className="flex items-start gap-2 text-xs text-muted">
@@ -450,15 +451,16 @@ export default function LoginPage() {
                 onChange={(event) => setAcceptedLegal(event.target.checked)}
               />
               <span>
-                Ich bin mindestens 16 Jahre alt, akzeptiere die{" "}
+                {t("login.legalCheckboxOtp")}{" "}
+                (
                 <Link href="/nutzungsbedingungen" className="text-[var(--brand-400)] underline">
-                  Nutzungsbedingungen
-                </Link>{" "}
-                und habe die{" "}
+                  {t("login.terms")}
+                </Link>
+                {" / "}
                 <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
-                  Datenschutzerklärung
-                </Link>{" "}
-                gelesen (erforderlich für Code-Anmeldung / neues Konto).
+                  {t("login.privacy")}
+                </Link>
+                )
               </span>
             </label>
             <button
@@ -466,14 +468,14 @@ export default function LoginPage() {
               disabled={loading || Boolean(configError) || !acceptedLegal}
               className="btn btn-primary btn-block"
             >
-              {loading ? "Sende…" : "Code anfordern"}
+              {loading ? t("login.sending") : t("login.requestCode")}
             </button>
           </form>
         ) : (
           <form onSubmit={verifyCode} className="mt-5 space-y-3">
             <div>
               <label className="input-label" htmlFor="login-otp">
-                Bestätigungscode
+                {t("login.codeLabel")}
               </label>
               <input
                 id="login-otp"
@@ -493,7 +495,7 @@ export default function LoginPage() {
               disabled={loading || otpCode.length !== 8 || Boolean(configError) || !acceptedLegal}
               className="btn btn-cyan btn-block"
             >
-              {loading ? "Prüfe…" : "Code bestätigen"}
+              {loading ? t("login.checking") : t("login.verifyCode")}
             </button>
             <button
               type="button"
@@ -505,7 +507,7 @@ export default function LoginPage() {
               }}
               className="btn btn-ghost btn-block"
             >
-              Andere E-Mail verwenden
+              {t("login.otherEmail")}
             </button>
           </form>
         )}

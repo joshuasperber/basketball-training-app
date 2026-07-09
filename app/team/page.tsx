@@ -26,6 +26,7 @@ import {
   saveCachedTeamDetail,
   saveCachedTeamList,
 } from "@/lib/team-local-cache";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 type TeamTab = "overview" | "roster" | "scouting" | "advice";
 
@@ -41,6 +42,7 @@ function formToneClass(tone: "green" | "yellow" | "red") {
 }
 
 export default function TeamPage() {
+  const t = useT();
   const [teams, setTeams] = useState<TeamSummary[]>(() =>
     typeof window !== "undefined" ? (loadCachedTeamList() ?? []) : [],
   );
@@ -411,10 +413,10 @@ export default function TeamPage() {
   return (
     <main className="app-container animate-in">
       <PageHeader
-        eyebrow="Team"
+        eyebrow={t("team.eyebrow")}
         eyebrowTone="violet"
-        title="Team-Modus"
-        subtitle="Form-Ranking, Scouting und Start-Empfehlungen für dein Team."
+        title={t("team.title")}
+        subtitle={t("team.subtitle")}
       />
 
       <div className="mt-3">
@@ -445,7 +447,7 @@ export default function TeamPage() {
                   className="input"
                 />
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => void createTeam()}>
-                  Erstellen
+                  {t("team.create")}
                 </button>
               </div>
             </div>
@@ -459,7 +461,7 @@ export default function TeamPage() {
                   className="input"
                 />
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => void joinTeam()}>
-                  Beitreten
+                  {t("team.join")}
                 </button>
               </div>
             </div>
@@ -467,11 +469,11 @@ export default function TeamPage() {
         )}
       </section>
 
-      {loading ? <p className="mt-6 text-sm text-muted">Lade Teams …</p> : null}
+      {loading ? <p className="mt-6 text-sm text-muted">{t("team.loading")}</p> : null}
 
       {!loading && teams.length === 0 ? (
         <section className="mt-6 app-card">
-          <p className="text-sm text-muted">Noch kein Team — erstelle eines oder tritt per Einladung bei.</p>
+          <p className="text-sm text-muted">{t("team.empty")}</p>
         </section>
       ) : null}
 
@@ -493,12 +495,14 @@ export default function TeamPage() {
           {detail ? (
             <>
               <div className="mt-4 top-tabs">
-                {([
-                  ["overview", "Übersicht"],
-                  ["roster", "Kader"],
-                  ["scouting", "Scouting"],
-                  ["advice", "Empfehlung"],
-                ] as const).map(([id, label]) => (
+                {(
+                  [
+                    ["overview", t("team.tabOverview")],
+                    ["roster", t("team.tabRoster")],
+                    ["scouting", t("team.tabScouting")],
+                    ["advice", t("team.tabAdvice")],
+                  ] as const
+                ).map(([id, label]) => (
                   <button
                     key={id}
                     type="button"
@@ -513,11 +517,11 @@ export default function TeamPage() {
               {["owner", "captain", "coach"].includes(viewerRole) ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyInvite("player")}>
-                    Spieler einladen
+                    {t("team.invitePlayer")}
                   </button>
                   {canManageTeam ? (
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyInvite("coach")}>
-                      Trainer einladen (read-only)
+                      {t("team.inviteCoach")}
                     </button>
                   ) : null}
                 </div>

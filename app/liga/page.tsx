@@ -29,6 +29,7 @@ import {
 } from "@/lib/league";
 import { getTodayDateKey } from "@/lib/workout";
 import { loadLigaTab, persistLigaTab, type LigaTab } from "@/lib/ui-navigation-state";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 type Tab = LigaTab;
 
@@ -39,6 +40,7 @@ function formatDateLabel(dateKey: string) {
 }
 
 export default function LigaPage() {
+  const t = useT();
   const appDialog = useAppDialog();
   const [bundle, setBundle] = useState<LeagueBundle>(() => loadLeagueBundle());
   const [tab, setTab] = useState<Tab>("schedule");
@@ -205,9 +207,10 @@ export default function LigaPage() {
   return (
     <main className="app-container animate-in">
       <PageHeader
-        eyebrow="Saisonplanung"
+        eyebrow={t("liga.eyebrow")}
         eyebrowTone="brand"
-        title="Liga"
+        title={t("liga.title")}
+        subtitle={t("liga.subtitle")}
       />
 
       <div className="mt-3">
@@ -224,7 +227,7 @@ export default function LigaPage() {
         <div className="mt-3 app-card--accent-cyan flex items-center justify-between gap-2">
           <p className="text-sm text-strong">{message}</p>
           <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMessage(null)}>
-            Schließen
+            {t("common.close")}
           </button>
         </div>
       ) : null}
@@ -233,9 +236,9 @@ export default function LigaPage() {
       <div className="segmented">
         {(
           [
-            ["schedule", "Spielplan"],
-            ["opponents", "Gegner"],
-            ["season", "Saison"],
+            ["schedule", t("liga.tabSchedule")],
+            ["opponents", t("liga.tabOpponents")],
+            ["season", t("liga.tabSeason")],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -256,7 +259,7 @@ export default function LigaPage() {
           Aktive Saison: <span className="font-semibold text-strong">{activeSeason.name}</span>
         </p>
       ) : (
-        <p className="mt-3 text-sm text-muted">Noch keine Saison — starte unter „Saison“.</p>
+        <p className="mt-3 text-sm text-muted">{t("liga.emptySeason")}</p>
       )}
 
       {tab === "season" ? (
@@ -367,7 +370,7 @@ export default function LigaPage() {
             <div className="segmented-wrap">
             <div className="segmented">
               <button type="button" className={`segmented__btn ${gameKind === "game" ? "segmented__btn--active" : ""}`} aria-pressed={gameKind === "game"} onClick={() => setGameKind("game")}>
-                Spieltag
+                {t("liga.gameKindGame")}
               </button>
               <button
                 type="button"
@@ -375,7 +378,7 @@ export default function LigaPage() {
                 aria-pressed={gameKind === "game_training"}
                 onClick={() => setGameKind("game_training")}
               >
-                Spieltraining
+                {t("liga.gameKindGameTraining")}
               </button>
             </div>
             </div>
@@ -415,7 +418,8 @@ export default function LigaPage() {
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="list-card__title">
-                            {formatDateLabel(entry.date)} · {entry.kind === "game" ? "Spieltag" : "Spieltraining"}
+                            {formatDateLabel(entry.date)} ·{" "}
+                            {entry.kind === "game" ? t("liga.gameKindGame") : t("liga.gameKindGameTraining")}
                           </p>
                           <p className="list-card__meta">{opponent?.name ?? "Ohne Gegner"}</p>
                           {entry.notes ? <p className="list-card__meta">{entry.notes}</p> : null}

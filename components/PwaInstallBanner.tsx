@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n/I18nProvider";
 import {
   PWA_INSTALL_DISMISS_COOLDOWN_MS,
   PWA_INSTALL_DISMISS_KEY,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/pwa-install";
 
 export default function PwaInstallBanner() {
+  const t = useT();
   const { installed, canPromptInstall, iosHint, promptInstall } = usePwaInstall();
   const [visible, setVisible] = useState(false);
 
@@ -50,24 +52,20 @@ export default function PwaInstallBanner() {
           🏀
         </div>
         <div className="flex-1">
-          <p className="text-sm font-semibold text-strong">Zur Startseite hinzufügen</p>
+          <p className="text-sm font-semibold text-strong">{t("pwa.title")}</p>
           {iosHint ? (
-            <p className="mt-1 text-xs text-muted">
-              In Safari: Teilen-Symbol antippen → „Zum Home‑Bildschirm“.
-            </p>
+            <p className="mt-1 text-xs text-muted">{t("pwa.hintIos")}</p>
           ) : (
-            <p className="mt-1 text-xs text-muted">
-              Installiere die App für schnelleren Zugriff & Offline-Modus.
-            </p>
+            <p className="mt-1 text-xs text-muted">{t("pwa.hintAndroid")}</p>
           )}
           <div className="mt-2 flex gap-2">
             {canPromptInstall ? (
               <button type="button" onClick={() => void handleInstall()} className="btn btn-primary btn-xs">
-                Installieren
+                {t("pwa.install")}
               </button>
             ) : null}
             <button type="button" onClick={handleDismiss} className="btn btn-ghost btn-xs">
-              Später
+              {t("common.later")}
             </button>
           </div>
         </div>

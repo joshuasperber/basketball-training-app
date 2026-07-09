@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { finishPausedWorkoutEntry } from "@/lib/finish-workout-session";
 import { useAppDialog } from "@/components/ui/AppDialogProvider";
+import { useT } from "@/lib/i18n/I18nProvider";
 import {
   formatPausedWorkoutDuration,
   loadPausedWorkouts,
@@ -16,6 +17,7 @@ type PausedWorkoutsBannerProps = {
 };
 
 export default function PausedWorkoutsBanner({ className = "" }: PausedWorkoutsBannerProps) {
+  const t = useT();
   const [entries, setEntries] = useState<PausedWorkoutEntry[]>([]);
   const [endingId, setEndingId] = useState<string | null>(null);
   const appDialog = useAppDialog();
@@ -84,10 +86,8 @@ export default function PausedWorkoutsBanner({ className = "" }: PausedWorkoutsB
 
   return (
     <section className={`app-card--accent-emerald ${className}`.trim()}>
-      <p className="section-eyebrow">Pausierte Workouts</p>
-      <p className="mt-1 text-sm text-muted">
-        Fortsetzen oder beenden — erfasster Fortschritt landet in Stats (max. 2 gleichzeitig).
-      </p>
+      <p className="section-eyebrow">{t("paused.eyebrow")}</p>
+      <p className="mt-1 text-sm text-muted">{t("paused.hint")}</p>
       <ul className="mt-3 space-y-2">
         {entries.map((entry) => (
           <li key={entry.id} className="list-card">
@@ -103,7 +103,7 @@ export default function PausedWorkoutsBanner({ className = "" }: PausedWorkoutsB
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 <Link href={entry.resumeHref} className="btn btn-primary btn-xs">
-                  Fortsetzen
+                  {t("paused.resume")}
                 </Link>
                 <button
                   type="button"
@@ -111,7 +111,7 @@ export default function PausedWorkoutsBanner({ className = "" }: PausedWorkoutsB
                   disabled={endingId === entry.id}
                   className="btn btn-outline btn-xs disabled:opacity-50"
                 >
-                  {endingId === entry.id ? "Beendet…" : "Beenden"}
+                  {endingId === entry.id ? t("paused.ending") : t("paused.end")}
                 </button>
               </div>
             </div>

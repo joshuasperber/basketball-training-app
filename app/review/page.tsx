@@ -13,6 +13,7 @@ import { toLocalDateKey } from "@/lib/workout";
 import { getProgressionState } from "@/lib/level-system";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 const mesocycleLabels: Record<string, string> = {
   base: "Basis",
@@ -22,6 +23,7 @@ const mesocycleLabels: Record<string, string> = {
 };
 
 export default function ReviewPage() {
+  const t = useT();
   const appDialog = useAppDialog();
   const [bundle, setBundle] = useState(() => loadTrainingGoalsBundle());
   useEffect(() => {
@@ -59,11 +61,9 @@ export default function ReviewPage() {
   return (
     <main className="app-container animate-in">
       <header>
-        <p className="page-eyebrow">Wöchentliche Rückschau</p>
-        <h1 className="page-title">Wochen-Review</h1>
-        <p className="page-subtitle">
-          Level {level}, adaptive Gym-Ziele und Basketball-Empfehlungen aus deinen letzten Sessions.
-        </p>
+        <p className="page-eyebrow">{t("review.eyebrow")}</p>
+        <h1 className="page-title">{t("review.title")}</h1>
+        <p className="page-subtitle">{t("review.subtitle", { level })}</p>
       </header>
       <div className="mt-3">
         <TopSubTabs
@@ -122,11 +122,11 @@ export default function ReviewPage() {
 
       <section className="mt-6 app-card">
         <p className="section-eyebrow">Export &amp; Review</p>
-        <h2 className="section-title mt-1">Daten exportieren</h2>
+        <h2 className="section-title mt-1">{t("review.exportTitle")}</h2>
         <p className="mt-1 text-xs text-muted">CSV für Auswertungen, TCX für Apple Health / Strava.</p>
         <div className="mt-3 flex flex-col gap-2">
           <button type="button" onClick={() => downloadTrainingCsv()} className="btn btn-ghost btn-sm">
-            CSV Export
+            {t("review.exportCsv")}
           </button>
           <button
             type="button"
@@ -135,20 +135,20 @@ export default function ReviewPage() {
                 .filter((session) => session.workoutId !== "single-exercise-session")
                 .slice(0, 24);
               if (sessions.length === 0) {
-                void appDialog.alert({ message: "Keine Workout-Sessions zum Export vorhanden." });
+                void appDialog.alert({ message: t("review.exportEmpty") });
                 return;
               }
               downloadWorkoutSessionsTcx(`basketball-training-sessions-${toLocalDateKey(new Date())}.tcx`, sessions);
             }}
             className="btn btn-ghost btn-sm"
           >
-            TCX (Health / Strava)
+            {t("review.exportTcx")}
           </button>
         </div>
       </section>
 
       <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm mt-8">
-        ← Zurück zur Woche
+        {t("review.backToWeek")}
       </Link>
     </main>
   );

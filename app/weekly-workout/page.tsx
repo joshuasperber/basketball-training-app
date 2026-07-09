@@ -42,6 +42,7 @@ import PausedWorkoutsBanner from "@/components/PausedWorkoutsBanner";
 import TopSubTabs from "@/components/TopSubTabs";
 import WeeklyPlanAiButton from "@/components/WeeklyPlanAiButton";
 import PageHeader from "@/components/PageHeader";
+import { useT } from "@/lib/i18n/I18nProvider";
 import { buildBasketballCoachingPriorities } from "@/lib/basketball-coaching";
 import { getProgressionState } from "@/lib/level-system";
 import { loadTrainingGoalsBundle } from "@/lib/training-goals";
@@ -690,6 +691,7 @@ function selectBestWorkout(
 
 export default function WeeklyWorkoutPage() {
   const router = useRouter();
+  const t = useT();
   const [todayIndex, setTodayIndex] = useState<(typeof weekdayOrder)[number]>(
     () => new Date().getDay() as (typeof weekdayOrder)[number],
   );
@@ -1270,9 +1272,9 @@ export default function WeeklyWorkoutPage() {
   return (
     <main className="app-container animate-in">
       <PageHeader
-        eyebrow={mesocycleLabel ? `Mesozyklus · ${mesocycleLabel}` : "Wochenplan"}
-        title="Weekly Workout"
-        subtitle="Alle Tage sind direkt bearbeitbar – inklusive heute."
+        eyebrow={mesocycleLabel ? t("weekly.eyebrowMeso", { label: mesocycleLabel }) : t("weekly.eyebrow")}
+        title={t("weekly.title")}
+        subtitle={t("weekly.subtitle")}
       />
 
       <div className="weekly-subnav-row">
@@ -1459,7 +1461,7 @@ export default function WeeklyWorkoutPage() {
             >
               <header className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="section-eyebrow">{day === todayIndex ? "Heute" : dateLabel}</p>
+                  <p className="section-eyebrow">{day === todayIndex ? t("weekly.today") : dateLabel}</p>
                   <h3 className="mt-1 text-lg font-bold tracking-tight">{weekdayNames[day]}</h3>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -1473,7 +1475,7 @@ export default function WeeklyWorkoutPage() {
               </header>
 
               <p className="mt-3 text-base font-semibold text-strong">
-                {isRestDisplay ? "Frei · Kein Workout geplant" : selectedCard?.title ?? visibleSuggestedWorkout?.title ?? workout.title}
+                {isRestDisplay ? t("weekly.rest") : selectedCard?.title ?? visibleSuggestedWorkout?.title ?? workout.title}
               </p>
               {profilePlan ? (
                 <p className="mt-1 text-xs text-muted">
@@ -1574,7 +1576,7 @@ export default function WeeklyWorkoutPage() {
                         href={`/game-track?date=${manualDateKey}&context=${gameContextForCard(selectedCard)}`}
                         className="btn btn-violet btn-xs"
                       >
-                        Spiel tracken
+                        {t("weekly.ctaTrackGame")}
                       </Link>
                     ) : (
                       <>
@@ -1590,10 +1592,10 @@ export default function WeeklyWorkoutPage() {
                           }
                         >
                           {isSelectedCardCompleted
-                            ? "Workout ansehen"
+                            ? t("weekly.ctaView")
                             : selectedCardCanContinue
-                              ? "Workout fortfahren"
-                              : "Workout starten"}
+                              ? t("weekly.ctaResume")
+                              : t("weekly.ctaStart")}
                         </button>
                         <button
                           type="button"
@@ -1606,7 +1608,7 @@ export default function WeeklyWorkoutPage() {
                             })
                           }
                         >
-                          Bearbeiten
+                          {t("weekly.ctaEdit")}
                         </button>
                       </>
                     )}

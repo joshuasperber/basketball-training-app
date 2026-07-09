@@ -32,6 +32,7 @@ import {
 } from "@/lib/ui-navigation-state";
 import { toLocalDateKey } from "@/lib/workout";
 import { normalizeMetricKeysForCategory } from "@/lib/workout-metrics";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
@@ -148,6 +149,7 @@ function resolveInitialTrainingTab(tabParam: string | null): TrainingTab {
 }
 
 function TrainingPageContent() {
+  const t = useT();
   const router = useRouter();
   const appDialog = useAppDialog();
   const searchParams = useSearchParams();
@@ -706,9 +708,9 @@ function TrainingPageContent() {
         <div className="training-top">
           <div className="training-top__main">
             <div>
-              <p className="page-eyebrow">Bibliothek</p>
-              <h1 className="page-title">Training</h1>
-              <p className="page-subtitle">Workouts und Übungen verwalten, filtern und starten.</p>
+              <p className="page-eyebrow">{t("training.eyebrow")}</p>
+              <h1 className="page-title">{t("training.title")}</h1>
+              <p className="page-subtitle">{t("training.subtitle")}</p>
             </div>
             <div className="training-top__nav-row">
               <TopSubTabs
@@ -721,12 +723,12 @@ function TrainingPageContent() {
                   onChange={setCatalogSearch}
                   expanded={catalogSearchExpanded}
                   onExpandedChange={setCatalogSearchExpanded}
-                  placeholder="Übung oder Workout suchen…"
-                  ariaLabel="Katalog durchsuchen"
+                  placeholder={t("training.search")}
+                  ariaLabel={t("training.search")}
                 />
                 <IconButton
                   variant="primary"
-                  label={activeTab === "Workouts" ? "Workout hinzufügen" : "Übung hinzufügen"}
+                  label={activeTab === "Workouts" ? t("training.addWorkout") : t("training.addExercise")}
                   onClick={() => setCreateOpen(true)}
                 >
                   <PlusIcon />

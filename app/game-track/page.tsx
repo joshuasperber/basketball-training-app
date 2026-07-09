@@ -18,6 +18,7 @@ import {
   toggleOpponentStyle,
   type OpponentStyleTag,
 } from "@/lib/opponent-styles";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 function toNullableNumber(value: string) {
   const parsed = Number(value);
@@ -26,6 +27,7 @@ function toNullableNumber(value: string) {
 }
 
 export default function GameTrackPage() {
+  const t = useT();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
   const paramContext = (searchParams.get("context") === "game_training" ? "game_training" : "game") as "game" | "game_training";
@@ -160,8 +162,8 @@ export default function GameTrackPage() {
   };
 
   const modeBadge = useMemo(
-    () => (resolvedContext === "game" ? "Spieltag" : "Trainingsspiel"),
-    [resolvedContext],
+    () => (resolvedContext === "game" ? t("liga.gameKindGame") : t("liga.gameKindGameTraining")),
+    [resolvedContext, t],
   );
   useEffect(() => {
     const syncWarmups = () => setWarmupWorkouts(getWarmupWorkouts(loadWorkouts()));
@@ -187,7 +189,8 @@ export default function GameTrackPage() {
     { label: "Steals", value: steals, set: setSteals, hint: "" },
   ] as const;
 
-  const heading = resolvedContext === "game" ? "Spiel tracken" : "Trainingsspiel tracken";
+  const heading =
+    resolvedContext === "game" ? t("gameTrack.titleGame") : t("gameTrack.titleGameTraining");
 
   return (
     <main className="app-container animate-in">
@@ -443,7 +446,7 @@ export default function GameTrackPage() {
               });
             }}
           >
-            {saving ? "Speichern …" : editId ? "Änderungen speichern & synchronisieren" : "Spiel-Stats speichern & synchronisieren"}
+            {saving ? t("common.saving") : editId ? t("common.save") : t("gameTrack.save")}
           </button>
           {saved ? <p className="mt-3 text-center text-sm text-emerald-300">Gespeichert und mit dem Konto synchronisiert (falls eingeloggt).</p> : null}
         </section>

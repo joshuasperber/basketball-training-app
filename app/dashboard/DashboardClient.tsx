@@ -7,6 +7,8 @@ import SportsNewsSection from "@/components/SportsNewsSection";
 import PausedWorkoutsBanner from "@/components/PausedWorkoutsBanner";
 import PageHeader from "@/components/PageHeader";
 import CoachInsight from "@/components/CoachInsight";
+import { useT } from "@/lib/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildPlayerBadges, computeBadgeStats, type PlayerBadge } from "@/lib/badge-system";
 import { getLevelFromXp, getProgressionState } from "@/lib/level-system";
@@ -117,21 +119,22 @@ function getInitials(name: string) {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
-function getTimeGreeting(date = new Date()) {
+function getTimeGreetingKey(date = new Date()): MessageKey {
   const hour = date.getHours();
-  if (hour < 5) return "Gute Nacht";
-  if (hour < 11) return "Guten Morgen";
-  if (hour < 18) return "Hi";
-  return "Guten Abend";
+  if (hour < 5) return "dashboard.greetingNight";
+  if (hour < 11) return "dashboard.greetingMorning";
+  if (hour < 18) return "dashboard.greetingHi";
+  return "dashboard.greetingEvening";
 }
 
 export default function DashboardPage({ forceProfileSetup = false }: { forceProfileSetup?: boolean }) {
+  const t = useT();
   const [dateKey, setDateKey] = useState(() => getTodayDateKey());
-  const [headerGreeting, setHeaderGreeting] = useState(() => getTimeGreeting());
+  const [greetingKey, setGreetingKey] = useState<MessageKey>(() => getTimeGreetingKey());
 
   useEffect(() => {
     setDateKey(getTodayDateKey());
-    setHeaderGreeting(getTimeGreeting());
+    setGreetingKey(getTimeGreetingKey());
   }, []);
 
   const todayDayIndex = useMemo(
@@ -327,14 +330,14 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
     };
   }, [visibleBadges]);
 
-  const greeting = headerGreeting;
+  const greeting = t(greetingKey);
 
   return (
     <main className="app-container animate-in">
       <PageHeader
         eyebrow={weekdayLabel ? `${greeting} • ${weekdayLabel}` : greeting}
-        title={`${greeting}, ${username}`}
-        subtitle="Dein heutiger Trainingsplan auf einen Blick."
+        title={t("dashboard.titleWithName", { greeting, user: username })}
+        subtitle={t("dashboard.subtitle")}
         actions={<div className="avatar-bubble">{getInitials(username)}</div>}
       />
 
@@ -342,11 +345,9 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
 
       {forceProfileSetup ? (
         <section className="mt-5 app-card--accent-violet">
-          <p className="text-sm text-strong">
-            Vervollständige zuerst dein Profil (Name + Username), damit Weekly &amp; Auto-Plan sauber funktionieren.
-          </p>
+          <p className="text-sm text-strong">{t("dashboard.setupHint")}</p>
           <Link href="/profile?setup=1" className="btn btn-violet btn-sm mt-3">
-            Zum Profil
+            {t("dashboard.setupCta")}
           </Link>
         </section>
       ) : null}
@@ -357,9 +358,13 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           <article className="app-card--brand">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="section-eyebrow">{todayWorkoutCards.length > 1 ? "Heutige Workouts" : "Heutiges Workout"}</p>
+                <p className="section-eyebrow">
+                  {todayWorkoutCards.length > 1 ? t("dashboard.todayWorkouts") : t("dashboard.todayWorkout")}
+                </p>
                 <h2 className="mt-1 text-2xl font-extrabold tracking-tight">
-                  {todayWorkoutCards.length > 1 ? `${todayWorkoutCards.length} Einheiten geplant` : todayLabel ?? todayWorkout.title}
+                  {todayWorkoutCards.length > 1
+                    ? t("dashboard.unitsPlanned", { count: todayWorkoutCards.length })
+                    : todayLabel ?? todayWorkout.title}
                 </h2>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className="chip chip-active">{todaySport}</span>
@@ -381,10 +386,10 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
 
             <p className="mt-4 text-sm text-muted">
               {isInProgress
-                ? "Workout läuft – fortsetzen und Sätze loggen."
+                ? t("dashboard.inProgressHint")
                 : todayWorkoutCards.length > 1
-                  ? "Wähle die Einheit, die du jetzt starten möchtest."
-                  : "Bereit? Starte jetzt deine Einheit."}
+                  ? t("dashboard.pickUnitHint")
+                  : t("dashboard.readyHint")}
             </p>
 
             <GradientFadeList
@@ -405,12 +410,12 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                       </div>
                       <Link href={card.href} className={cardDone ? "btn btn-ghost btn-sm" : "btn btn-primary btn-sm"}>
                         {card.kind === "game" || card.kind === "game_training"
-                          ? "Spiel tracken"
+                          ? t("dashboard.ctaTrackGame")
                           : cardDone
-                            ? "Ansehen"
+                            ? t("dashboard.ctaView")
                             : isInProgress
-                              ? "Fortsetzen"
-                              : "Workout starten"}
+                              ? t("dashboard.ctaResume")
+                              : t("dashboard.ctaStart")}
                       </Link>
                     </div>
                   </div>
@@ -418,32 +423,28 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
               }}
             />
             <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost mt-2">
-              Weekly öffnen
+              {t("dashboard.openWeekly")}
             </Link>
           </article>
         ) : !isCompleted ? (
           <article className="app-card--accent-violet">
-            <p className="section-eyebrow">Heute</p>
-            <h2 className="mt-1 text-xl font-bold">Kein Workout geplant</h2>
-            <p className="mt-2 text-sm text-muted">
-              Schon 10–20 Minuten machen einen Unterschied. Starte eine kleine Session.
-            </p>
+            <p className="section-eyebrow">{t("dashboard.today")}</p>
+            <h2 className="mt-1 text-xl font-bold">{t("dashboard.emptyTitle")}</h2>
+            <p className="mt-2 text-sm text-muted">{t("dashboard.emptyHint")}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Link href="/workouts" className="btn btn-violet">
-                Trotzdem trainieren
+                {t("dashboard.trainAnyway")}
               </Link>
               <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost">
-                Woche planen
+                {t("dashboard.planWeek")}
               </Link>
             </div>
           </article>
         ) : (
           <article className="app-card--accent-emerald">
-            <p className="section-eyebrow">Heute</p>
-            <h2 className="mt-1 text-xl font-bold text-strong">Workout erledigt ✅</h2>
-            <p className="mt-2 text-sm text-muted">
-              Stark! Das Workout für heute wird nicht mehr im Dashboard angezeigt.
-            </p>
+            <p className="section-eyebrow">{t("dashboard.today")}</p>
+            <h2 className="mt-1 text-xl font-bold text-strong">{t("dashboard.doneTitle")}</h2>
+            <p className="mt-2 text-sm text-muted">{t("dashboard.doneHint")}</p>
           </article>
         )}
       </section>
@@ -451,11 +452,13 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       {/* Tips */}
       <section className="mt-4 app-card--accent-cyan">
         <div className="flex items-center justify-between">
-          <h3 className="section-title">Meine Notizen</h3>
-          <Link href="/tips" className="btn btn-ghost btn-xs">Öffnen</Link>
+          <h3 className="section-title">{t("dashboard.notesTitle")}</h3>
+          <Link href="/tips" className="btn btn-ghost btn-xs">
+            {t("common.open")}
+          </Link>
         </div>
         {dashboardTips.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">Keine aktiven Tipps.</p>
+          <p className="mt-2 text-sm text-muted">{t("dashboard.notesEmpty")}</p>
         ) : (
           <GradientFadeList
             className="mt-3"
@@ -475,22 +478,22 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       {/* Stats grid */}
       <section className="grid-stats mt-6">
         <article className="stat-tile">
-          <p className="stat-tile__label">Workouts · 7 Tage</p>
+          <p className="stat-tile__label">{t("dashboard.statWorkouts7d")}</p>
           <p className="stat-tile__value">{weeklyCompleted}</p>
         </article>
         <article className="stat-tile">
-          <p className="stat-tile__label">Aktuelle Streak</p>
+          <p className="stat-tile__label">{t("dashboard.statStreak")}</p>
           <p className="stat-tile__value">
             {streakDays}
-            <span className="ml-1 text-sm font-medium text-muted">Tage</span>
+            <span className="ml-1 text-sm font-medium text-muted">{t("common.days")}</span>
           </p>
         </article>
         <article className="stat-tile">
-          <p className="stat-tile__label">Plan · Woche</p>
+          <p className="stat-tile__label">{t("dashboard.statPlanWeek")}</p>
           <p className="stat-tile__value">{weeklyPlannedCount}</p>
         </article>
         <article className="stat-tile">
-          <p className="stat-tile__label">Erfüllungsquote</p>
+          <p className="stat-tile__label">{t("dashboard.statCompletion")}</p>
           <p className="stat-tile__value">
             {completionRate}
             <span className="ml-1 text-sm font-medium text-muted">%</span>
@@ -503,7 +506,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-strong">{levelPopup}</p>
             <button type="button" className="btn btn-ghost btn-xs" onClick={() => setLevelPopup(null)}>
-              Schließen
+              {t("common.close")}
             </button>
           </div>
         </div>
@@ -513,15 +516,15 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
       <section className="mt-6 app-card">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="section-eyebrow">Auszeichnungen</p>
-            <h3 className="section-title">Badges</h3>
+            <p className="section-eyebrow">{t("dashboard.badgesEyebrow")}</p>
+            <h3 className="section-title">{t("dashboard.badgesTitle")}</h3>
           </div>
           <button
             type="button"
             onClick={() => setShowAllBadges((current) => !current)}
             className="btn btn-ghost btn-xs"
           >
-            {showAllBadges ? "Nur erreichte" : "Alle Badges"}
+            {showAllBadges ? t("dashboard.badgesUnlockedOnly") : t("dashboard.badgesAll")}
           </button>
         </div>
         <div className="mt-4 space-y-4">
@@ -550,14 +553,14 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
             ) : null,
           )}
           {visibleBadges.length === 0 ? (
-            <p className="text-sm text-muted">Noch keine Badges. Starte ein Workout, um dein erstes Badge freizuschalten.</p>
+            <p className="text-sm text-muted">{t("dashboard.badgesEmpty")}</p>
           ) : null}
         </div>
       </section>
 
       {/* Quote */}
       <section className="mt-4 app-card--accent-violet">
-        <p className="section-eyebrow">Motivation des Tages</p>
+        <p className="section-eyebrow">{t("dashboard.motivation")}</p>
         <p className="mt-2 text-base italic text-strong">“{quoteOfTheDay}”</p>
       </section>
 

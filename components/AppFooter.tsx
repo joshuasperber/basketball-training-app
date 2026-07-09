@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 const LEGAL_ON_PROFILE_PREFIXES = ["/profile", "/datenschutz", "/impressum", "/nutzungsbedingungen"];
 
 export default function AppFooter() {
   const pathname = usePathname() ?? "";
+  const t = useT();
 
   if (LEGAL_ON_PROFILE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
     return null;
@@ -16,19 +18,19 @@ export default function AppFooter() {
     <footer className="border-t border-white/5 px-4 py-6 text-center text-xs text-faint">
       <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
         <Link href="/datenschutz" className="hover:text-muted">
-          Datenschutz
+          {t("privacy.linkPrivacy")}
         </Link>
         <Link href="/impressum" className="hover:text-muted">
-          Impressum
+          {t("privacy.linkImprint")}
         </Link>
         <Link href="/nutzungsbedingungen" className="hover:text-muted">
-          Nutzungsbedingungen
+          {t("privacy.linkTerms")}
         </Link>
         <Link href="/profile" className="hover:text-muted">
-          Profil
+          {t("nav.profile")}
         </Link>
       </nav>
-      <p className="mt-2">Basketball Training App · Daten lokal &amp; optional in der Cloud</p>
+      <p className="mt-2">{t("footer.tagline")}</p>
     </footer>
   );
 }

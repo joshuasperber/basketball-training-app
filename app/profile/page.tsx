@@ -835,9 +835,9 @@ const refreshProfileAndWeekly = () => {
   return (
     <main className="app-container animate-in">
       <PageHeader
-        eyebrow="Spielerprofil"
-        title="Profil & Wochenplanung"
-        subtitle="Profil, Verfügbarkeit und Kalender."
+        eyebrow={t("profile.eyebrow")}
+        title={t("profile.title")}
+        subtitle={t("profile.subtitle")}
         actionsLayout="top-right"
         actions={
           <IconButton variant="ghost" label={t("profile.settings")} className="settings-gear-btn" onClick={() => setSettingsOpen(true)}>
@@ -849,8 +849,8 @@ const refreshProfileAndWeekly = () => {
       <section className="mt-4 app-card">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="section-eyebrow">Stammdaten</p>
-            <h2 className="section-title mt-1">Spielerprofil</h2>
+            <p className="section-eyebrow">{t("profile.stammdaten")}</p>
+            <h2 className="section-title mt-1">{t("profile.stammdatenTitle")}</h2>
             <p className="text-xs text-muted">Username, Position, Körperdaten und Spielstil.</p>
           </div>
           <button
@@ -859,7 +859,7 @@ const refreshProfileAndWeekly = () => {
             className="btn btn-ghost btn-sm shrink-0"
             aria-expanded={stammdatenOpen}
           >
-            {stammdatenOpen ? "Einklappen" : "Anzeigen"}
+            {stammdatenOpen ? t("common.collapse") : t("common.show")}
           </button>
         </div>
 
@@ -991,7 +991,7 @@ const refreshProfileAndWeekly = () => {
       <section className="mt-4 app-card">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="section-eyebrow">Wochen-Verfügbarkeit</p>
+            <p className="section-eyebrow">{t("profile.availability")}</p>
             <h2 className="section-title mt-1">Grundrhythmus</h2>
             <p className="text-xs text-muted">
               Deine Basiswoche. Alltag-Änderungen machst du unten über Workout Activity.
@@ -1003,7 +1003,7 @@ const refreshProfileAndWeekly = () => {
             className="btn btn-ghost btn-sm shrink-0"
             aria-expanded={availabilityOpen}
           >
-            {availabilityOpen ? "Einklappen" : "Bearbeiten"}
+            {availabilityOpen ? t("common.collapse") : t("common.edit")}
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1142,7 +1142,7 @@ const refreshProfileAndWeekly = () => {
       <section className="mt-4 app-card">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="section-eyebrow">Kalender</p>
+            <p className="section-eyebrow">{t("profile.calendar")}</p>
             <h2 className="section-title">Workout Activity</h2>
           </div>
           <div className="flex items-center gap-2">
@@ -1330,7 +1330,7 @@ const refreshProfileAndWeekly = () => {
         }}
         className="btn btn-primary btn-block mt-4"
       >
-        {saving ? "Speichern …" : "Profil aktualisieren"}
+        {saving ? t("common.saving") : t("profile.save")}
       </button>
 
       <ProfileSettingsSheet
@@ -1341,7 +1341,7 @@ const refreshProfileAndWeekly = () => {
       />
 
       <section className="mt-4 app-card">
-        <p className="section-eyebrow">Vorschau</p>
+        <p className="section-eyebrow">{t("profile.preview")}</p>
         <h2 className="section-title mt-1">Weekly-Plan</h2>
         <p className="text-xs text-muted">Aus deiner aktuellen Konfiguration berechnet.</p>
         <ul className="mt-3 divide-y divide-white/5 text-sm">

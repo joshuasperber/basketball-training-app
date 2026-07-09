@@ -22,6 +22,7 @@ import GradientFadeList from "@/components/GradientFadeList";
 import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import PageHeader from "@/components/PageHeader";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
+import { useT } from "@/lib/i18n/I18nProvider";
 import { ensureInitialCloudSync, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
 import { countStrictTrackedSetsInLogs, countTrackedSetsInLogs, logCountsAsTrackedSet, sessionHasCompletedWork } from "@/lib/workout-session-metrics";
@@ -440,6 +441,7 @@ function resolveHistorySport(session: WorkoutSessionEntry): HistorySportBucket {
 }
 
 function StatsPageContent() {
+  const t = useT();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const detailTab: StatsDetailTab =
@@ -831,9 +833,9 @@ useEffect(() => {
   return (
     <main className="app-container animate-in">
       <PageHeader
-        eyebrow={`Hi ${username}`}
-        title="Statistiken"
-        subtitle="Workouts, Spiele und Fortschritt auf einen Blick."
+        eyebrow={t("stats.eyebrow", { user: username })}
+        title={t("stats.title")}
+        subtitle={t("stats.subtitle")}
       />
       <div className="mt-3">
         <TopSubTabs
@@ -848,9 +850,10 @@ useEffect(() => {
         <div className="segmented-wrap">
           <div className="segmented">
             {[
-              { id: "all", label: "Gesamt" },
-              { id: "monthly", label: "Monat" },
-              { id: "weekly", label: "Woche" },            ].map((option) => (
+              { id: "all", label: t("stats.rangeAll") },
+              { id: "monthly", label: t("stats.rangeMonth") },
+              { id: "weekly", label: t("stats.rangeWeek") },
+            ].map((option) => (
               <button
                 key={option.id}
                 type="button"
@@ -866,9 +869,9 @@ useEffect(() => {
         <div className="top-tabs-wrap">
           <div className="top-tabs">
             {([
-              { id: "overview", label: "Übersicht", href: "/stats?tab=overview" },
-              { id: "basketball", label: "Basketball", href: "/stats?tab=basketball" },
-              { id: "gym", label: "Gym", href: "/stats?tab=gym" },
+              { id: "overview", label: t("stats.tabOverview"), href: "/stats?tab=overview" },
+              { id: "basketball", label: t("stats.tabBasketball"), href: "/stats?tab=basketball" },
+              { id: "gym", label: t("stats.tabGym"), href: "/stats?tab=gym" },
             ] as const).map((tab) => (
               <Link
                 key={tab.id}
@@ -1386,15 +1389,18 @@ useEffect(() => {
   );
 }
 
+function StatsPageFallback() {
+  const t = useT();
+  return (
+    <main className="app-container">
+      <p className="text-sm text-muted">{t("stats.loading")}</p>
+    </main>
+  );
+}
+
 export default function StatsPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="app-container">
-          <p className="text-sm text-muted">Lade Statistiken …</p>
-        </main>
-      }
-    >
+    <Suspense fallback={<StatsPageFallback />}>
       <StatsPageContent />
     </Suspense>
   );

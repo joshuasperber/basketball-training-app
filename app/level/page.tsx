@@ -14,6 +14,7 @@ import { loadExercises } from "@/lib/training-storage";
 import { buildPlayerBadges, computeBadgeStats } from "@/lib/badge-system";
 import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
+import { useT } from "@/lib/i18n/I18nProvider";
 import { loadGameStats } from "@/lib/game-stats";
 
 type DailyStreak = { current: number; best: number };
@@ -169,6 +170,7 @@ function buildCategoryBreakdown(entries: ExercisePointEntry[]) {
 }
 
 export default function LevelPage() {
+  const t = useT();
   const [entries, setEntries] = useState<ExercisePointEntry[]>([]);
   const [globalXp, setGlobalXp] = useState(0);
   const [deloadActive, setDeloadActive] = useState(false);
@@ -281,10 +283,10 @@ export default function LevelPage() {
   return (
     <main className="app-container animate-in">
       <header>
-        <p className="page-eyebrow">Fortschritt</p>
-        <h1 className="page-title">Level</h1>
-        <p className="page-subtitle">Globales Level aus Workout-XP, darunter Skill-Punkte pro Bereich.</p>
-        <p className="mt-1 text-sm text-brand">Weiter so, {username} – jede Session zählt.</p>
+        <p className="page-eyebrow">{t("level.eyebrow")}</p>
+        <h1 className="page-title">{t("level.title")}</h1>
+        <p className="page-subtitle">{t("level.subtitle")}</p>
+        <p className="mt-1 text-sm text-brand">{t("level.encouragement", { user: username })}</p>
       </header>
       <div className="mt-3">
         <TopSubTabs
@@ -308,12 +310,12 @@ export default function LevelPage() {
       ) : null}
 
       <section className="mt-6 app-card--accent-violet">
-        <p className="section-eyebrow">Fortschritt</p>
-        <h2 className="section-title mt-1">Globales Level</h2>
+        <p className="section-eyebrow">{t("level.eyebrow")}</p>
+        <h2 className="section-title mt-1">{t("level.globalLevel")}</h2>
         <p className="mt-1 text-xs text-muted">Quelle: Workout-XP (gleiche Logik wie nach abgeschlossenen Sessions).</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="stat-tile">
-            <p className="stat-tile__label">Aktuelles Level</p>
+            <p className="stat-tile__label">{t("level.globalLevel")}</p>
             <p className="stat-tile__value">Lv. {globalLevelData.level}</p>
             <p className="stat-tile__sub">{globalLevelData.xpIntoLevel}/{getXpForNextLevel(globalLevelData.level)} XP in diesem Level</p>
             <p className="text-xs text-faint">{Math.max(0, getXpForNextLevel(globalLevelData.level) - globalLevelData.xpIntoLevel)} XP bis zum nächsten Level</p>
@@ -323,7 +325,7 @@ export default function LevelPage() {
             </div>
           </div>
           <div className="stat-tile">
-            <p className="stat-tile__label">Gesamt-XP</p>
+            <p className="stat-tile__label">{t("level.totalXp")}</p>
             <p className="stat-tile__value">{globalXp}</p>
             <p className="stat-tile__sub">Gewertete Sessions: {xpHistoryCount}</p>
             <p className={deloadActive ? "hint-warning mt-1" : "hint-success mt-1"}>
@@ -413,7 +415,7 @@ export default function LevelPage() {
         </div>
       ) : null}
       <section className="mt-4 app-card--brand">
-        <h3 className="section-title">Badges</h3>
+        <h3 className="section-title">{t("level.badges")}</h3>
         {badges.length > 0 ? (
           <GradientFadeList
             className="mt-2"
@@ -430,11 +432,11 @@ export default function LevelPage() {
             )}
           />
         ) : (
-          <p className="mt-2 text-sm text-muted">Noch keine Badges freigeschaltet.</p>
+          <p className="mt-2 text-sm text-muted">{t("level.noBadges")}</p>
         )}
         {lockedBadges.length > 0 ? (
           <div className="mt-3 space-y-2">
-            <p className="text-xs font-semibold text-muted">Als Nächstes</p>
+            <p className="text-xs font-semibold text-muted">{t("level.nextBadges")}</p>
             {lockedBadges.map((badge) => (
               <div key={`locked-${badge.id}`} className="list-card text-sm opacity-80">
                 <p className="list-card__title">
