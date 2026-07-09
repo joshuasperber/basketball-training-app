@@ -21,6 +21,7 @@ export type ProfileCacheShape = {
     standing_reach_cm?: number | null;
     body_fat_pct?: number | null;
   };
+  aiConsentAt?: string | null;
 };
 
 function readProfileCache(): ProfileCacheShape | null {

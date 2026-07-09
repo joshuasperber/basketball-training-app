@@ -1,7 +1,7 @@
 import type { OpponentStyleTag } from "@/lib/opponent-styles";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import { addManualGameForDate } from "@/lib/plan-day-actions";
-import { upsertGameStat } from "@/lib/game-stats";
+import { findGameStatByDateAndContext, upsertGameStat } from "@/lib/game-stats";
 
 export const LEAGUE_STORAGE_KEY = "bt.league.v1";
 
@@ -111,23 +111,29 @@ function opponentPrepNotes(opponent: LeagueOpponent | undefined) {
   return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
-/** Schreibt Liga-Spiel in Tagesplan + Spiel-Vorbereitung. */
+/** Schreibt Liga-Spiel in Tagesplan + Spiel-Vorbereitung (ohne bestehende Stats zu überschreiben). */
 export function syncLeagueEntryToPlan(entry: LeagueScheduleEntry, opponent?: LeagueOpponent) {
   addManualGameForDate(entry.date, entry.kind === "game_training" ? "game_training" : "game");
 
+  const context = entry.kind === "game_training" ? "game_training" : "game";
+  const existing = findGameStatByDateAndContext(entry.date, context);
   const prepNotes = [opponentPrepNotes(opponent), entry.notes?.trim()].filter(Boolean).join("\n\n");
 
   upsertGameStat({
+    id: existing?.id,
     date: entry.date,
-    context: entry.kind === "game_training" ? "game_training" : "game",
-    opponentLabel: opponent?.name?.trim() || null,
-    opponentStyles: opponent?.opponentStyles ?? [],
-    notes: prepNotes || undefined,
-    minutes: null,
-    points: null,
-    assists: null,
-    rebounds: null,
-    steals: null,
+    context,
+    opponentLabel: opponent?.name?.trim() || existing?.opponentLabel || null,
+    opponentStyles:
+      opponent && opponent.opponentStyles.length > 0
+        ? opponent.opponentStyles
+        : (existing?.opponentStyles ?? []),
+    notes: prepNotes || existing?.notes || undefined,
+    minutes: existing?.minutes ?? null,
+    points: existing?.points ?? null,
+    assists: existing?.assists ?? null,
+    rebounds: existing?.rebounds ?? null,
+    steals: existing?.steals ?? null,
   });
 
   return { ...entry, syncedAt: new Date().toISOString() };

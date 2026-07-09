@@ -19,6 +19,7 @@ import { persistWeekFromAi } from "@/lib/weekly-plan-ai-sync";
 import type { DayKey, WeekConfig } from "@/lib/planner";
 import { mergeAiWeekConfigPreservingUserMinutes } from "@/lib/week-config-merge";
 import { formatPlayerIntakeForPrompt, loadPlayerIntake } from "@/lib/coach-intake";
+import { hasAiConsent } from "@/lib/ai-consent";
 import {
   getIsoWeekKey,
   isSignificantWeekConfigChange,
@@ -211,6 +212,7 @@ export default function CoachInsight() {
 
   const syncWeeklyPlanLlm = useCallback(
     async (skipCache = false) => {
+      if (!hasAiConsent()) return;
       if (autoWeeklyRunningRef.current) return;
       autoWeeklyRunningRef.current = true;
       setPlanNote(null);
@@ -259,6 +261,10 @@ export default function CoachInsight() {
   );
 
   const fetchCoachingLlm = useCallback(async (skipCache = false) => {
+    if (!hasAiConsent()) {
+      setError("KI-Coach erfordert Einwilligung im Profil unter Datenschutz.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -299,6 +305,7 @@ export default function CoachInsight() {
   }, [fetchCoachingLlm, syncWeeklyPlanLlm]);
 
   useEffect(() => {
+    if (!hasAiConsent()) return;
     const auto = shouldAutoRunWeeklyPlanLlm();
     if (auto.run) {
       void syncWeeklyPlanLlm(false);

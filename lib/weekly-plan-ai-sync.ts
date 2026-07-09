@@ -1,5 +1,6 @@
 import { applyWeekConfigToCalendar } from "@/lib/activity-calendar";
 import { buildCoachRequestPayload } from "@/lib/coach-request-payload";
+import { hasAiConsent } from "@/lib/ai-consent";
 import { sanitizeCoachWorkoutByDay } from "@/lib/coach-workout-by-day";
 import { getIsoWeekKey, writeCoachLlmWeeklyMarkers, weekConfigSignature } from "@/lib/coach-trigger";
 import { markLocalProgressDirty, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
@@ -92,6 +93,12 @@ export async function fetchWeeklyPlanAiPreview(skipCache = false): Promise<{
   message: string;
   preview?: WeeklyPlanAiPreview;
 }> {
+  if (!hasAiConsent()) {
+    return {
+      ok: false,
+      message: "KI-Wochenplan erfordert Einwilligung im Profil unter Datenschutz.",
+    };
+  }
   try {
     const payload = buildCoachRequestPayload();
     const response = await fetch("/api/coach", {

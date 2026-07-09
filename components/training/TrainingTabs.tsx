@@ -18,6 +18,11 @@ import { METRIC_LABELS, METRICS_BY_CATEGORY } from "@/lib/workout-metrics";
 
 export type TrainingTab = "Workouts" | "Exercises";
 
+const TRAINING_TAB_LABELS: Record<TrainingTab, string> = {
+  Workouts: "Workouts",
+  Exercises: "Übungen",
+};
+
 function formatMetricTargets(exercise: Exercise) {
   if (!exercise.targetByMetric) return "-";
   return exercise.metricKeys
@@ -213,7 +218,7 @@ export function WorkoutCreateForm({
       />
       <div>
         <label className="input-label" htmlFor="new-workout-name">
-          Workout Name *
+          Workout-Name *
         </label>
         <input
           id="new-workout-name"
@@ -239,10 +244,10 @@ export function WorkoutCreateForm({
       <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
         {newWorkoutCategory === "Basketball" && newWorkoutSubcategory === "Spiel" ? (
           <p className="text-sm text-muted">
-            Für Spiel-Workouts brauchst du keine Exercises. Beim Start öffnet sich automatisch das Game-Tracking.
+            Für Spiel-Workouts brauchst du keine Übungen. Beim Start öffnet sich automatisch das Spiel-Tracking.
           </p>
         ) : createWorkoutExerciseOptions.length === 0 ? (
-          <p className="text-sm text-muted">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
+          <p className="text-sm text-muted">Keine Übungen in dieser Kategorie/Unterkategorie.</p>
         ) : (
           <GradientFadeList
             items={createWorkoutExerciseOptions}
@@ -338,7 +343,7 @@ export function WorkoutsTab({
       <section className="ui-card">
         <h2 className="ui-card__title">Workouts</h2>
         <p className="ui-card__subtitle">
-          Target-Score (pro Exercise): <span className="font-semibold text-strong">80 + Progression</span>
+          Ziel-Score (pro Übung): <span className="font-semibold text-strong">80 + Progression</span>
         </p>
 
         {!selectionReady ? (
@@ -415,7 +420,7 @@ export function WorkoutsTab({
             <input
               value={editWorkoutName}
               onChange={(event) => onEditWorkoutNameChange(event.target.value)}
-              placeholder="Workout Name"
+              placeholder="Workout-Name"
               className="input"
             />
             <textarea
@@ -428,7 +433,7 @@ export function WorkoutsTab({
 
             <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
               {editExerciseOptions.length === 0 ? (
-                <p className="text-sm text-muted">Keine Exercises in dieser Kategorie/Unterkategorie.</p>
+                <p className="text-sm text-muted">Keine Übungen in dieser Kategorie/Unterkategorie.</p>
               ) : (
                 <GradientFadeList
                   items={editExerciseOptions}
@@ -621,7 +626,7 @@ function ExerciseFormFields({
         onChange={(event) =>
           isEdit ? onEditExerciseNameChange?.(event.target.value) : onNewExerciseNameChange(event.target.value)
         }
-        placeholder="Exercise Name"
+        placeholder="Name der Übung"
         className="input"
       />
       <textarea
@@ -629,7 +634,7 @@ function ExerciseFormFields({
         onChange={(event) =>
           isEdit ? onEditExerciseNotesChange?.(event.target.value) : onNewExerciseNotesChange(event.target.value)
         }
-        placeholder="Notizen zur Exercise"
+        placeholder="Notizen zur Übung"
         rows={2}
         className="textarea"
       />
@@ -694,7 +699,7 @@ function ExerciseFormFields({
           </label>
         ) : null}
         <label className="block text-sm text-muted">
-          Anzahl Sets
+          Anzahl Sätze
           <input
             type="number"
             min={1}
@@ -776,7 +781,7 @@ function ExerciseFormFields({
       ) : null}
       {mode === "create" ? (
         <button type="submit" className="btn btn-primary btn-block">
-          Exercise hinzufügen
+          Übung hinzufügen
         </button>
       ) : null}
       {error ? <p className="text-sm text-brand">{error}</p> : null}
@@ -951,7 +956,7 @@ export function ExercisesTab({
       </section>
 
       <section className="ui-card">
-        <h2 className="ui-card__title">Exercises in Auswahl</h2>
+        <h2 className="ui-card__title">Übungen in Auswahl</h2>
         <p className="ui-card__subtitle">
           {selectionReady ? `${selectedCategory} • ${selectedSubcategory}` : "Kategorie und Unterkategorie wählen"}
         </p>
@@ -964,8 +969,8 @@ export function ExercisesTab({
             />
           ) : visibleExercises.length === 0 ? (
             <EmptyState
-              title="Keine Exercises"
-              description="Für diese Auswahl gibt es noch keine Exercises. Erstelle eine mit dem + Button."
+              title="Keine Übungen"
+              description="Für diese Auswahl gibt es noch keine Übungen. Lege eine mit dem + Button an."
             />
           ) : (
             <GradientFadeList
@@ -988,7 +993,7 @@ export function ExercisesTab({
       {editingExerciseId ? (
         <div className="modal-overlay">
           <section className="modal-panel">
-            <h3 className="section-title">Exercise bearbeiten</h3>
+            <h3 className="section-title">Übung bearbeiten</h3>
             <form className="mt-3 space-y-3" onSubmit={onUpdateExercise}>
               <ExerciseFormFields
                 {...exerciseFormSharedProps}
@@ -1053,7 +1058,7 @@ function ExerciseCard({
         {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
       </p>
       <p className="list-card__meta">
-        Dauer: {exercise.durationMin} {exercise.timeUnit === "seconds" ? "Sek" : "Min"} · Sets: {exercise.setCount ?? 1}
+        Dauer: {exercise.durationMin} {exercise.timeUnit === "seconds" ? "Sek" : "Min"} · Sätze: {exercise.setCount ?? 1}
       </p>
       <p className="list-card__meta">Ziele: {formatMetricTargets(exercise)}</p>
       {exercise.notes ? <p className="list-card__meta">{exercise.notes}</p> : null}
@@ -1061,7 +1066,7 @@ function ExerciseCard({
       <div className="list-card__actions">
         {href ? (
           <Link href={href} className="btn btn-primary btn-xs">
-            Exercise starten
+            Übung starten
           </Link>
         ) : null}
         {onEdit ? (
@@ -1399,7 +1404,7 @@ export function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
           className={`segmented__btn flex-1 ${activeTab === tab ? "segmented__btn--active" : ""}`}
           aria-pressed={activeTab === tab}
         >
-          {tab}
+          {TRAINING_TAB_LABELS[tab]}
         </button>
       ))}
     </div>

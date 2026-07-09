@@ -23,7 +23,7 @@ export default function ImpressumPage() {
           <h2 className="font-semibold text-strong">Kontakt</h2>
           <p className="mt-1">
             E-Mail:{" "}
-            <a href={`mailto:${legalConfig.operatorEmail}`} className="text-indigo-300 underline">
+            <a href={`mailto:${legalConfig.operatorEmail}`} className="text-[var(--brand-400)] underline">
               {legalConfig.operatorEmail}
             </a>
           </p>
@@ -46,6 +46,28 @@ export default function ImpressumPage() {
           <p className="mt-1">
             Die Trainings- und Coaching-Inhalte dienen der allgemeinen Fitness und ersetzen keine medizinische Beratung.
             Nutzung auf eigene Verantwortung.
+          </p>
+        </div>
+        <div>
+          <h2 className="font-semibold text-strong">Streitbeilegung / Verbraucherschlichtung</h2>
+          <p className="mt-1">
+            Wir sind nicht verpflichtet und nicht bereit, an Streitbeilegungsverfahren vor einer
+            Verbraucherschlichtungsstelle teilzunehmen.
+          </p>
+        </div>
+        <div>
+          <h2 className="font-semibold text-strong">Online-Streitbeilegung (EU)</h2>
+          <p className="mt-1">
+            Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit:{" "}
+            <a
+              href="https://ec.europa.eu/consumers/odr/"
+              className="text-[var(--brand-400)] underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              https://ec.europa.eu/consumers/odr/
+            </a>
+            . Unsere E-Mail-Adresse finden Sie oben.
           </p>
         </div>
       </section>

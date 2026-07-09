@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
+import { captureExceptionIfConsented } from "@/lib/sentry-client-init";
 
 export default function Error({
   error,
@@ -12,7 +12,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    captureExceptionIfConsented(error);
   }, [error]);
 
   return (

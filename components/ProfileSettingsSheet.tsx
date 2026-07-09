@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import AppBusyOverlay from "@/components/AppBusyOverlay";
+import LanguageSettings from "@/components/LanguageSettings";
 import Sheet from "@/components/ui/Sheet";
 import PwaInstallSection from "@/components/PwaInstallSection";
 import ProfilePrivacySection from "@/components/ProfilePrivacySection";
 import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 import { clearPlayerIntake } from "@/lib/coach-intake";
+import { useT } from "@/lib/i18n/I18nProvider";
 import { pushProgressToCloud, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
 import type { WeekConfig } from "@/lib/planner";
 
@@ -18,35 +20,31 @@ type ProfileSettingsSheetProps = {
 };
 
 export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeedback }: ProfileSettingsSheetProps) {
+  const t = useT();
   const [loggingOut, setLoggingOut] = useState(false);
-  const [busyLabel, setBusyLabel] = useState("Daten werden gespeichert …");
-  const [busySublabel, setBusySublabel] = useState("Dein Fortschritt wird in der Cloud gesichert.");
+  const [busyLabel, setBusyLabel] = useState(t("settings.savingData"));
+  const [busySublabel, setBusySublabel] = useState(t("settings.savingDataSub"));
 
   return (
     <>
       <AppBusyOverlay open={loggingOut} label={busyLabel} sublabel={busySublabel} />
-      <Sheet
-        open={open}
-        onClose={onClose}
-        title="Einstellungen"
-        description="Reminder, Coach und weitere App-Optionen."
-      >
-        <section className="app-card">
-          <p className="section-eyebrow">Coach</p>
-          <h2 className="section-title mt-1">Kennenlern-Chat</h2>
-          <p className="mt-1 text-sm text-muted">
-            Setzt Stärken, Schwächen und Rolle zurück — der Dialog erscheint beim nächsten App-Start erneut.
-          </p>
+      <Sheet open={open} onClose={onClose} title={t("settings.title")} description={t("settings.description")}>
+        <LanguageSettings />
+
+        <section className="app-card mt-4">
+          <p className="section-eyebrow">{t("settings.coach")}</p>
+          <h2 className="section-title mt-1">{t("settings.coachChat")}</h2>
+          <p className="mt-1 text-sm text-muted">{t("settings.coachChatHint")}</p>
           <button
             type="button"
             className="btn btn-ghost btn-sm mt-3"
             onClick={() => {
               clearPlayerIntake();
               void pushProgressToCloud({ playerIntake: "" });
-              onFeedback("Kennenlern-Chat zurückgesetzt.", "success");
+              onFeedback(t("settings.coachChatResetOk"), "success");
             }}
           >
-            Kennenlern-Chat erneut starten
+            {t("settings.coachChatReset")}
           </button>
         </section>
 
@@ -55,8 +53,8 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
         </div>
 
         <section className="app-card mt-4">
-          <p className="section-eyebrow">App</p>
-          <h2 className="section-title mt-1">Zum Home-Bildschirm</h2>
+          <p className="section-eyebrow">{t("settings.app")}</p>
+          <h2 className="section-title mt-1">{t("settings.homeScreen")}</h2>
           <PwaInstallSection compact />
         </section>
 
@@ -65,33 +63,31 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
         </div>
 
         <section className="app-card mt-4">
-          <p className="section-eyebrow">Session</p>
-          <h2 className="section-title mt-1">Abmelden</h2>
-          <p className="mt-1 text-sm text-muted">
-            Speichert deine Daten in der Cloud und beendet die Anmeldung auf diesem Gerät.
-          </p>
+          <p className="section-eyebrow">{t("settings.session")}</p>
+          <h2 className="section-title mt-1">{t("settings.logout")}</h2>
+          <p className="mt-1 text-sm text-muted">{t("settings.logoutHint")}</p>
           <button
             type="button"
             className="btn btn-outline btn-sm mt-3"
             disabled={loggingOut}
             onClick={async () => {
               setLoggingOut(true);
-              setBusyLabel("Daten werden gespeichert …");
-              setBusySublabel("Dein Fortschritt wird in der Cloud gesichert.");
+              setBusyLabel(t("settings.savingData"));
+              setBusySublabel(t("settings.savingDataSub"));
               try {
                 await pushProgressToCloudWithRetry();
-                setBusyLabel("Abmelden …");
-                setBusySublabel("Session wird beendet.");
+                setBusyLabel(t("settings.loggingOut"));
+                setBusySublabel(t("settings.endingSession"));
                 await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
                 onClose();
                 window.location.assign("/login");
               } catch {
                 setLoggingOut(false);
-                onFeedback("Abmelden fehlgeschlagen. Bitte erneut versuchen.", "error");
+                onFeedback(t("settings.logoutFailed"), "error");
               }
             }}
           >
-            {loggingOut ? "Abmelden …" : "Abmelden"}
+            {loggingOut ? t("settings.loggingOut") : t("settings.logout")}
           </button>
         </section>
       </Sheet>

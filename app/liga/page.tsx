@@ -161,8 +161,11 @@ export default function LigaPage() {
 
   function handleSyncEntry(entry: LeagueScheduleEntry) {
     const opponent = entry.opponentId ? opponentsById.get(entry.opponentId) : undefined;
-    syncLeagueEntryToPlan(entry, opponent);
-    refresh();
+    const synced = syncLeagueEntryToPlan(entry, opponent);
+    persist({
+      ...bundle,
+      schedule: bundle.schedule.map((item) => (item.id === entry.id ? synced : item)),
+    });
     setMessage(`${formatDateLabel(entry.date)} in den Wochenplan übernommen.`);
   }
 
@@ -211,8 +214,8 @@ export default function LigaPage() {
         <TopSubTabs
           variant="team-liga"
           items={[
-            { label: "Team", href: "/team" },
-            { label: "Liga", href: "/liga" },
+            { labelKey: "tabs.team", href: "/team" },
+            { labelKey: "tabs.liga", href: "/liga" },
           ]}
         />
       </div>
@@ -235,7 +238,13 @@ export default function LigaPage() {
             ["season", "Saison"],
           ] as const
         ).map(([id, label]) => (
-          <button key={id} type="button" className="segmented__btn" aria-pressed={tab === id} onClick={() => handleTabChange(id)}>
+          <button
+            key={id}
+            type="button"
+            className={`segmented__btn ${tab === id ? "segmented__btn--active" : ""}`}
+            aria-pressed={tab === id}
+            onClick={() => handleTabChange(id)}
+          >
             {label}
           </button>
         ))}
@@ -357,12 +366,12 @@ export default function LigaPage() {
             <input type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} className="input" />
             <div className="segmented-wrap">
             <div className="segmented">
-              <button type="button" className="segmented__btn" aria-pressed={gameKind === "game"} onClick={() => setGameKind("game")}>
+              <button type="button" className={`segmented__btn ${gameKind === "game" ? "segmented__btn--active" : ""}`} aria-pressed={gameKind === "game"} onClick={() => setGameKind("game")}>
                 Spieltag
               </button>
               <button
                 type="button"
-                className="segmented__btn"
+                className={`segmented__btn ${gameKind === "game_training" ? "segmented__btn--active" : ""}`}
                 aria-pressed={gameKind === "game_training"}
                 onClick={() => setGameKind("game_training")}
               >

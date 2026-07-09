@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  deleteTeamsOwnedByUser,
+  deleteUserGamePhotos,
+  deleteUserProgressRows,
+} from "@/lib/server/account-delete";
 import { clearSessionCookies } from "@/lib/server/session-cookies";
 import { getRequestUser, getSupabaseServiceConfig, supabaseRest } from "@/lib/server/supabase-admin";
 
@@ -14,7 +19,9 @@ export async function DELETE(request: NextRequest) {
   const config = getSupabaseServiceConfig();
   if (!config) return NextResponse.json({ error: "supabase_not_configured" }, { status: 503 });
 
-  await supabaseRest(`user_progress?user_id=eq.${user.id}`, { method: "DELETE" });
+  await deleteUserGamePhotos(user.id);
+  await deleteTeamsOwnedByUser(user.id);
+  await deleteUserProgressRows(user.id, user.email);
   await supabaseRest(`profiles?id=eq.${user.id}`, { method: "DELETE" });
   await supabaseRest(`team_members?user_id=eq.${user.id}`, { method: "DELETE" });
   await supabaseRest(`exercises?user_id=eq.${user.id}`, { method: "DELETE" });

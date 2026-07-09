@@ -22,6 +22,7 @@ import ExpandableCatalogSearch from "@/components/training/ExpandableCatalogSear
 import CatalogSearchPanel from "@/components/training/CatalogSearchPanel";
 import Sheet from "@/components/ui/Sheet";
 import IconButton, { PlusIcon } from "@/components/ui/IconButton";
+import { useAppDialog } from "@/components/ui/AppDialogProvider";
 import { addManualGameToday } from "@/lib/plan-day-actions";
 import {
   buildTrainingHref,
@@ -148,6 +149,7 @@ function resolveInitialTrainingTab(tabParam: string | null): TrainingTab {
 
 function TrainingPageContent() {
   const router = useRouter();
+  const appDialog = useAppDialog();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<TrainingTab>(() => resolveInitialTrainingTab(tabParam));
@@ -155,7 +157,7 @@ function TrainingPageContent() {
   const completedParam = searchParams.get("completed");
   const completionMessage = useMemo(() => {
     if (completedParam === "workout") return "Workout abgeschlossen ✅";
-    if (completedParam === "exercise") return "Exercise abgeschlossen ✅";
+    if (completedParam === "exercise") return "Übung abgeschlossen ✅";
     return null;
   }, [completedParam]);
 
@@ -671,7 +673,11 @@ function TrainingPageContent() {
   }
 
   async function handleDeleteSubcategory(category: Category, subcategory: string) {
-    const confirmed = window.confirm(`Soll die Unterkategorie "${subcategory}" mit ihren Übungen wirklich gelöscht werden?`);
+    const confirmed = await appDialog.confirm({
+      message: `Soll die Unterkategorie „${subcategory}" mit ihren Übungen wirklich gelöscht werden?`,
+      confirmLabel: "Löschen",
+      tone: "danger",
+    });
     if (!confirmed) return;
     const nextExercises = exercises.filter((exercise) => !(exercise.category === category && exercise.subcategory === subcategory));
     const deletedExerciseIds = new Set(
@@ -702,12 +708,12 @@ function TrainingPageContent() {
             <div>
               <p className="page-eyebrow">Bibliothek</p>
               <h1 className="page-title">Training</h1>
-              <p className="page-subtitle">Workouts und Exercises verwalten, filtern und starten.</p>
+              <p className="page-subtitle">Workouts und Übungen verwalten, filtern und starten.</p>
             </div>
             <div className="training-top__nav-row">
               <TopSubTabs
                 variant="training"
-                items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: buildTrainingHref(activeTab) }]}
+                items={[{ labelKey: "tabs.week", href: "/weekly-workout" }, { labelKey: "tabs.catalog", href: buildTrainingHref(activeTab) }]}
               />
               <div className="training-top__tools">
                 <ExpandableCatalogSearch
@@ -715,12 +721,12 @@ function TrainingPageContent() {
                   onChange={setCatalogSearch}
                   expanded={catalogSearchExpanded}
                   onExpandedChange={setCatalogSearchExpanded}
-                  placeholder="Exercise oder Workout suchen…"
+                  placeholder="Übung oder Workout suchen…"
                   ariaLabel="Katalog durchsuchen"
                 />
                 <IconButton
                   variant="primary"
-                  label={activeTab === "Workouts" ? "Workout hinzufügen" : "Exercise hinzufügen"}
+                  label={activeTab === "Workouts" ? "Workout hinzufügen" : "Übung hinzufügen"}
                   onClick={() => setCreateOpen(true)}
                 >
                   <PlusIcon />
@@ -840,7 +846,7 @@ function TrainingPageContent() {
             newExerciseVideoUrl={newExerciseVideoUrl}
             onNewExerciseVideoUrlChange={setNewExerciseVideoUrl}
             onNewExerciseVideoFile={(file) =>
-              readExerciseVideoFile(file, setNewExerciseVideoUrl, (msg) => window.alert(msg))
+              readExerciseVideoFile(file, setNewExerciseVideoUrl, (msg) => void appDialog.alert({ message: msg }))
             }
             newExerciseDurationMin={newExerciseDurationMin}
             onNewExerciseDurationMinChange={setNewExerciseDurationMin}
@@ -880,7 +886,7 @@ function TrainingPageContent() {
             editExerciseVideoUrl={editExerciseVideoUrl}
             onEditExerciseVideoUrlChange={setEditExerciseVideoUrl}
             onEditExerciseVideoFile={(file) =>
-              readExerciseVideoFile(file, setEditExerciseVideoUrl, (msg) => window.alert(msg))
+              readExerciseVideoFile(file, setEditExerciseVideoUrl, (msg) => void appDialog.alert({ message: msg }))
             }
             editExerciseDurationMin={editExerciseDurationMin}
             onEditExerciseDurationMinChange={setEditExerciseDurationMin}
@@ -915,11 +921,11 @@ function TrainingPageContent() {
         <Sheet
           open={createOpen}
           onClose={() => setCreateOpen(false)}
-          title={activeTab === "Workouts" ? "Neues Workout" : "Neue Exercise"}
+          title={activeTab === "Workouts" ? "Neues Workout" : "Neue Übung"}
           description={
             activeTab === "Workouts"
-              ? "Workout aus Kategorie, Unterkategorie und Exercises zusammenstellen."
-              : "Exercise mit Metriken, Sets und optionalen Video-Anhang anlegen."
+              ? "Workout aus Kategorie, Unterkategorie und Übungen zusammenstellen."
+              : "Übung mit Metriken, Sätzen und optionalem Video anlegen."
           }
         >
           {activeTab === "Workouts" ? (
@@ -955,7 +961,7 @@ function TrainingPageContent() {
               newExerciseVideoUrl={newExerciseVideoUrl}
               onNewExerciseVideoUrlChange={setNewExerciseVideoUrl}
               onNewExerciseVideoFile={(file) =>
-                readExerciseVideoFile(file, setNewExerciseVideoUrl, (msg) => window.alert(msg))
+                readExerciseVideoFile(file, setNewExerciseVideoUrl, (msg) => void appDialog.alert({ message: msg }))
               }
               newExerciseDurationMin={newExerciseDurationMin}
               onNewExerciseDurationMinChange={setNewExerciseDurationMin}

@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { fetchAuthMe } from "@/lib/auth-session-align";
+import { useT } from "@/lib/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 
 type NavItem = {
-  label: string;
+  labelKey: MessageKey;
   href: string;
   matches?: string[];
   icon: ReactNode;
@@ -57,23 +59,22 @@ const TeamIcon = (
 );
 
 const navItems: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: HomeIcon },
+  { labelKey: "nav.home", href: "/dashboard", icon: HomeIcon },
   {
-    label: "Train",
+    labelKey: "nav.training",
     href: WEEKLY_WORKOUT_PATH,
     matches: [WEEKLY_WORKOUT_PATH, "/Weekly-Workout", "/workouts", "/training"],
     icon: TrainingIcon,
   },
-  { label: "Team", href: "/team", matches: ["/team", "/liga"], icon: TeamIcon },
+  { labelKey: "nav.team", href: "/team", matches: ["/team", "/liga"], icon: TeamIcon },
   {
-    label: "Stats",
+    labelKey: "nav.stats",
     href: "/stats",
     matches: ["/stats", "/level", "/review"],
     icon: StatsIcon,
   },
-  { label: "Profil", href: "/profile", icon: ProfileIcon },
+  { labelKey: "nav.profile", href: "/profile", icon: ProfileIcon },
 ];
-
 function isItemActive(itemHref: string, matches: string[] | undefined, pathname: string) {
   if (pathname === itemHref) return true;
   if (!matches) return false;
@@ -81,6 +82,7 @@ function isItemActive(itemHref: string, matches: string[] | undefined, pathname:
 }
 
 export default function BottomNav({ isAuthenticated: initialAuthenticated }: { isAuthenticated: boolean }) {
+  const t = useT();
   const pathname = usePathname() ?? "";
   const [isAuthenticated, setIsAuthenticated] = useState(
     () => initialAuthenticated || (typeof window !== "undefined" && hasOfflineSessionHint()),
@@ -128,12 +130,13 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
   if (pathname.startsWith("/login")) return null;
 
   return (
-    <nav className="bottom-nav" aria-label="Hauptnavigation">
+    <nav className="bottom-nav" aria-label={t("nav.aria")}>
       <div
         className="bottom-nav__inner grid w-full max-w-[56rem] grid-cols-5 mx-auto px-0.5 pt-2 pb-2.5 gap-0"
         style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}
       >
         {navItems.map((item) => {
+          const label = t(item.labelKey);
           const isActive = isItemActive(item.href, item.matches, pathname);
           const requiresAuth = item.href !== "/dashboard";
           const isLocked =
@@ -143,8 +146,8 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
             <Link
               key={item.href}
               href={isLocked ? "/login?next=" + encodeURIComponent(item.href) : item.href}
-              title={item.label}
-              aria-label={item.label}
+              title={label}
+              aria-label={label}
               aria-disabled={isLocked}
               aria-current={isActive ? "page" : undefined}
               className={`bottom-nav__item flex min-w-0 w-full flex-col items-center justify-center gap-0.5 px-0.5 py-1.5 ${isActive ? "bottom-nav__item--active" : ""} ${
@@ -153,7 +156,7 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
             >
               {item.icon}
               <span className="bottom-nav__label block w-full truncate text-center text-[0.56rem] font-semibold leading-tight sm:text-[0.62rem]">
-                {item.label}
+                {label}
               </span>
             </Link>
           );

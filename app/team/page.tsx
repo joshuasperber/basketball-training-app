@@ -29,6 +29,13 @@ import {
 
 type TeamTab = "overview" | "roster" | "scouting" | "advice";
 
+const TEAM_ROLE_LABELS: Record<TeamRole, string> = {
+  owner: "Owner",
+  captain: "Captain",
+  player: "Spieler",
+  coach: "Trainer",
+};
+
 function formToneClass(tone: "green" | "yellow" | "red") {
   return tone === "green" ? "text-emerald-300" : tone === "red" ? "text-rose-300" : "text-amber-300";
 }
@@ -159,7 +166,7 @@ export default function TeamPage() {
         setMessage("Nicht eingeloggt — Session-Cookie fehlt. Bitte erneut anmelden.");
       } else if (!syncResult.ok) {
         setMessage(
-          `Workout-Sync fehlgeschlagen (${syncResult.error ?? syncResult.status}${syncResult.detail ? `: ${syncResult.detail.slice(0, 80)}` : ""}). Prüfe SUPABASE_SERVICE_ROLE_KEY und user_progress-Tabelle.`,
+          `Workout-Sync fehlgeschlagen. Bitte später erneut versuchen oder dich neu anmelden.`,
         );
       } else if (localCount > 0 && me.cloud.workouts14d === 0) {
         setMessage(
@@ -246,7 +253,7 @@ export default function TeamPage() {
       return;
     }
     if (response.status === 503 && json?.error === "missing_service_role") {
-      setMessage(json.message ?? "SUPABASE_SERVICE_ROLE_KEY fehlt in .env.local.");
+      setMessage("Team-Funktion vorübergehend nicht verfügbar. Bitte später erneut versuchen.");
       return;
     }
     if (!response.ok || !json?.team) {
@@ -366,7 +373,7 @@ export default function TeamPage() {
       const json = (await response.json()) as { token?: string; inviteRole?: string };
       const token = json.token;
       if (!token) {
-        setMessage("Keine Einladung verfügbar — prüfe SUPABASE_SERVICE_ROLE_KEY und teams.sql.");
+        setMessage("Keine Einladung verfügbar. Bitte später erneut versuchen.");
         return;
       }
       const link = `${window.location.origin}/team?join=${encodeURIComponent(token)}`;
@@ -414,8 +421,8 @@ export default function TeamPage() {
         <TopSubTabs
           variant="team-liga"
           items={[
-            { label: "Team", href: "/team" },
-            { label: "Liga", href: "/liga" },
+            { labelKey: "tabs.team", href: "/team" },
+            { labelKey: "tabs.liga", href: "/liga" },
           ]}
         />
       </div>
@@ -611,7 +618,7 @@ export default function TeamPage() {
                           <div>
                             <p className="font-semibold text-strong">
                               {member.displayName}{" "}
-                              <span className="text-xs font-normal text-muted">· {member.role}</span>
+                              <span className="text-xs font-normal text-muted">· {TEAM_ROLE_LABELS[member.role] ?? member.role}</span>
                             </p>
                             <p className="text-xs text-muted">
                               {member.position ?? "—"} · {member.playStyle ?? "—"} · {member.recentWorkouts} Workouts (14 T.) ·{" "}
@@ -635,7 +642,7 @@ export default function TeamPage() {
                                     className={`chip chip-sm ${member.role === role ? "chip-active" : ""}`}
                                     onClick={() => void updateMemberRole(member.userId, role)}
                                   >
-                                    {role}
+                                    {TEAM_ROLE_LABELS[role]}
                                   </button>
                                 ))}
                               </div>

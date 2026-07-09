@@ -1278,7 +1278,7 @@ export default function WeeklyWorkoutPage() {
       <div className="weekly-subnav-row">
         <TopSubTabs
           variant="training"
-          items={[{ label: "Weekly", href: "/weekly-workout" }, { label: "Training", href: "/training" }]}
+          items={[{ labelKey: "tabs.week", href: "/weekly-workout" }, { labelKey: "tabs.catalog", href: "/training" }]}
         />
         <div className="weekly-subnav-row__actions">
           <Link

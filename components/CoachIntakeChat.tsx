@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import NumericInput from "@/components/ui/NumericInput";
+import { useAppDialog } from "@/components/ui/AppDialogProvider";
+import { grantAiConsent } from "@/lib/ai-consent";
 import { type PlayerIntakeV1, savePlayerIntake } from "@/lib/coach-intake";
 
 type StepId = "welcome" | "strengths" | "weaknesses" | "focus" | "age" | "role" | "extra" | "done";
@@ -100,6 +102,7 @@ export default function CoachIntakeChat({
   embedded = false,
   variant = "dark",
 }: Props) {
+  const appDialog = useAppDialog();
   const isLight = variant === "light";
   const [stepIndex, setStepIndex] = useState(0);
   const [draft, setDraft] = useState("");
@@ -186,7 +189,7 @@ export default function CoachIntakeChat({
     if (current.input === "age") {
       const n = ageDraft;
       if (n == null || n < 6 || n > 99) {
-        window.alert("Bitte gib dein Alter als Zahl zwischen 6 und 99 ein.");
+        void appDialog.alert({ message: "Bitte gib dein Alter als Zahl zwischen 6 und 99 ein." });
         return;
       }
       setAnswers((a) => ({ ...a, age: String(n) }));
@@ -205,7 +208,7 @@ export default function CoachIntakeChat({
 
     const text = draft.trim();
     if (!text) {
-      window.alert("Bitte kurz antworten — oder nutze „Überspringen“.");
+      void appDialog.alert({ message: "Bitte kurz antworten — oder nutze „Überspringen“." });
       return;
     }
     setAnswers((a) => ({ ...a, [current.id]: text }));
@@ -311,7 +314,15 @@ export default function CoachIntakeChat({
                   </span>
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn btn-primary btn-sm disabled:opacity-50" disabled={!aiConsent} onClick={() => setStepIndex(1)}>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm disabled:opacity-50"
+                    disabled={!aiConsent}
+                    onClick={() => {
+                      void grantAiConsent();
+                      setStepIndex(1);
+                    }}
+                  >
                     Los geht&apos;s
                   </button>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={handleSkip}>

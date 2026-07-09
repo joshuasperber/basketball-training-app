@@ -142,7 +142,7 @@ export default function ManualWorkoutEditor({
             value={manualSearch}
             onChange={(event) => onSearchChange(event.target.value)}
             className="input mt-3 w-full"
-            placeholder="Exercise suchen..."
+            placeholder="Übung suchen..."
           />
           <GradientFadeList
             className="mt-3 app-card--flat"

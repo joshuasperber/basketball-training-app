@@ -32,7 +32,9 @@ import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
 import AppBootGate from "@/components/AppBootGate";
 import OfflineBanner from "@/components/OfflineBanner";
 import SyncConflictBanner from "@/components/SyncConflictBanner";
+import CookieConsentBanner from "@/components/CookieConsentBanner";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
+import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
 const PLAN_SYNC_EVENTS = ["bt:plan-updated", "bt:training-goals-updated", "bt:player-intake-updated"] as const;
 
@@ -104,17 +106,20 @@ function CloudSyncBridge() {
 export default function ClientShell({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary fallback={({ resetError }) => <CoachFallback resetError={resetError} />}>
-      <AppDialogProvider>
-        <AppBootGate>
-        <OfflineBanner />
-        <CloudSyncBridge />
-        <OfflineRouteWarmup />
-        <OfflineSessionGuard />
-        <SyncConflictBanner />
-        <OnboardingGateLauncher />
-        {children}
-        </AppBootGate>
-      </AppDialogProvider>
+      <I18nProvider>
+        <AppDialogProvider>
+          <AppBootGate>
+            <OfflineBanner />
+            <CloudSyncBridge />
+            <OfflineRouteWarmup />
+            <OfflineSessionGuard />
+            <SyncConflictBanner />
+            <OnboardingGateLauncher />
+            <CookieConsentBanner />
+            {children}
+          </AppBootGate>
+        </AppDialogProvider>
+      </I18nProvider>
     </ErrorBoundary>
   );
 }

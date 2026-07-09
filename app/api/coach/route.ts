@@ -6,6 +6,7 @@ import { sanitizeCoachWorkoutByDay } from "@/lib/coach-workout-by-day";
 import { buildTeamCoachHeuristic } from "@/lib/team-coach-heuristic";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import { checkRateLimit, rateLimitHeaders } from "@/lib/server/rate-limit";
+import { userHasAiConsent } from "@/lib/server/ai-consent";
 import { getRequestUser } from "@/lib/server/supabase-admin";
 import type { TeamMemberView } from "@/lib/team-types";
 import { type DayKey, type DayMode, type WeekConfig, getDefaultWeekConfig } from "@/lib/planner";
@@ -601,6 +602,29 @@ export async function POST(request: NextRequest) {
       });
     }
     return NextResponse.json(buildCoachHeuristicResponse(payload));
+  }
+
+  if (config) {
+    const consented = await userHasAiConsent(user);
+    if (!consented) {
+      if (payload.intent === "weekly_plan") {
+        const week = mergeWeekConfigFromPayload(payload);
+        return NextResponse.json({
+          headline: "Wochenplan (ohne KI)",
+          bullets: [
+            "KI-Coach ist deaktiviert — aktiviere ihn im Profil unter Datenschutz.",
+            "Plan aus deiner Verfügbarkeit übernommen.",
+          ],
+          weekConfig: week,
+          source: "heuristic" as const,
+          warning: "consent_required",
+        });
+      }
+      return NextResponse.json({
+        ...buildCoachHeuristicResponse(payload),
+        warning: "KI-Coach erfordert Einwilligung im Profil.",
+      });
+    }
   }
 
   const intentKey = payload.intent ?? "coaching";

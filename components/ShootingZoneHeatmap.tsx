@@ -10,11 +10,11 @@ type ZoneVisual = {
 
 const ZONE_VISUALS: ZoneVisual[] = [
   { zone: "free_throw", label: "FT", cx: 50, cy: 88, r: 6 },
-  { zone: "at_rim", label: "Rim", cx: 50, cy: 72, r: 10 },
-  { zone: "in_paint", label: "Paint", cx: 50, cy: 58, r: 12 },
+  { zone: "at_rim", label: "Korb", cx: 50, cy: 72, r: 10 },
+  { zone: "in_paint", label: "Zone", cx: 50, cy: 58, r: 12 },
   { zone: "mid_range", label: "Mid", cx: 50, cy: 42, r: 14 },
-  { zone: "corner_three", label: "C3", cx: 18, cy: 38, r: 10 },
-  { zone: "above_break_three", label: "3PT", cx: 50, cy: 22, r: 12 },
+  { zone: "corner_three", label: "Ecke", cx: 18, cy: 38, r: 10 },
+  { zone: "above_break_three", label: "3er", cx: 50, cy: 22, r: 12 },
   { zone: "other", label: "?", cx: 82, cy: 38, r: 8 },
 ];
 

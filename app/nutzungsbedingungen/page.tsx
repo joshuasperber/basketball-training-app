@@ -31,7 +31,7 @@ export default function NutzungsbedingungenPage() {
           <p className="mt-1">
             Automatisierte Empfehlungen können fehlerhaft sein. Du entscheidest selbst über Belastung und Ausführung.
             Profil- und Intake-Daten können an konfigurierte KI-Dienste (z. B. Groq/OpenAI) übermittelt werden — siehe{" "}
-            <Link href="/datenschutz" className="text-indigo-300 underline">
+            <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
               Datenschutz
             </Link>
             .
@@ -50,6 +50,24 @@ export default function NutzungsbedingungenPage() {
             Die App wird „wie besehen“ bereitgestellt. Cloud-Sync und KI-Features hängen von Drittanbietern ab und können
             ausfallen.
           </p>
+        </div>
+        <div>
+          <h2 className="font-semibold text-strong">6. Mindestalter</h2>
+          <p className="mt-1">
+            Die App richtet sich an Nutzer ab 16 Jahren. Jüngere Personen dürfen die App nur mit Zustimmung der
+            Erziehungsberechtigten nutzen. Mit Registrierung bestätigst du, dass du diese Voraussetzung erfüllst.
+          </p>
+        </div>
+        <div>
+          <h2 className="font-semibold text-strong">7. Nutzerinhalte</h2>
+          <p className="mt-1">
+            Hochgeladene Inhalte (z. B. Spiel-Fotos) bleiben dein Eigentum. Du räumst uns das Recht ein, sie zur
+            Bereitstellung der App zu speichern und dir anzuzeigen. Keine Weitergabe an Dritte zu Werbezwecken.
+          </p>
+        </div>
+        <div>
+          <h2 className="font-semibold text-strong">8. Anwendbares Recht</h2>
+          <p className="mt-1">Es gilt deutsches Recht. Gerichtsstand, soweit zulässig: Berlin.</p>
         </div>
       </section>
 

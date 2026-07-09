@@ -112,7 +112,9 @@ export function findGameStatByDateAndContext(date: string, context: GameStatEntr
 export function upsertGameStat(entry: Omit<GameStatEntry, "id" | "createdAt"> & { id?: string }) {
   const current = loadGameStats();
   const now = new Date().toISOString();
-  const existing = entry.id ? current.find((item) => item.id === entry.id) : undefined;
+  const existing =
+    (entry.id ? current.find((item) => item.id === entry.id) : undefined) ??
+    current.find((item) => item.date === entry.date && item.context === entry.context);
   const nextEntry: GameStatEntry = {
     ...existing,
     ...entry,

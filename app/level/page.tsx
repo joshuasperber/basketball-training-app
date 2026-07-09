@@ -170,6 +170,7 @@ function buildCategoryBreakdown(entries: ExercisePointEntry[]) {
 
 export default function LevelPage() {
   const [entries, setEntries] = useState<ExercisePointEntry[]>([]);
+  const [globalXp, setGlobalXp] = useState(0);
   const [deloadActive, setDeloadActive] = useState(false);
   const [xpHistoryCount, setXpHistoryCount] = useState(0);
   const [overloadRatio, setOverloadRatio] = useState(1);
@@ -179,14 +180,14 @@ export default function LevelPage() {
   const [openCategory, setOpenCategory] = useState<Category | null>(null);
   const [modalCategory, setModalCategory] = useState<Category | null>(null);
   const [username] = useState(() => {
-    if (typeof window === "undefined") return "Champion";
+    if (typeof window === "undefined") return "Spieler";
     try {
       const cached = window.localStorage.getItem("profile_cache_v4");
-      if (!cached) return "Champion";
+      if (!cached) return "Spieler";
       const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
-      return parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
+      return parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Spieler";
     } catch {
-      return "Champion";
+      return "Spieler";
     }
   });
 
@@ -199,6 +200,7 @@ export default function LevelPage() {
       const progression = getProgressionState();
       const xpHistory = getXpHistory();
       const overload = detectOverload(xpHistory);
+      setGlobalXp(progression.totalXp);
       setDeloadActive(progression.deloadActive);
       setXpHistoryCount(xpHistory.length);
       setOverloadRatio(overload.ratio);
@@ -215,7 +217,6 @@ export default function LevelPage() {
 
       if (syncResult.levelDelta > 0) setPopupMessage(`🎉 Level-Up! +${syncResult.levelDelta} Level. ${streakText}`);
       else if (syncResult.levelDelta < 0) setPopupMessage(`⬇️ Level-Down: ${Math.abs(syncResult.levelDelta)} Level verloren. ${streakText}`);
-      else setPopupMessage(`📅 Tages-Update: ${streakText}`);
     }, 0);
 
     return () => window.clearTimeout(timer);
@@ -229,25 +230,8 @@ export default function LevelPage() {
     return acc;
   }, { Basketball: 0, Gym: 0, Home: 0, Regeneration: 0 }), [categoryBreakdown]);
 
-  const weightedGlobalXp = useMemo(() => {
-    const basketballWeight = 0.525;
-    const gymWeight = 0.3;
-    const homeWeight = 0.1;
-    const regenWeight = 0.075;
-    const homeXp = categoryXpMap.Home;
-    const gymXp = categoryXpMap.Gym;
-    const homeIsLow = homeXp <= Math.max(5, gymXp * 0.1);
-    const gymBoost = homeIsLow ? 0.125 : 0;
-    return Math.round(
-      categoryXpMap.Basketball * basketballWeight +
-      categoryXpMap.Gym * (gymWeight + gymBoost) +
-      (homeIsLow ? 0 : categoryXpMap.Home * homeWeight) +
-      categoryXpMap.Regeneration * regenWeight,
-    );
-  }, [categoryXpMap]);
-
-  const weightedLevelData = useMemo(() => getLevelFromXp(weightedGlobalXp), [weightedGlobalXp]);
-  const levelProgressPercent = Math.min(100, Math.round((weightedLevelData.xpIntoLevel / Math.max(1, getXpForNextLevel(weightedLevelData.level))) * 100));
+  const globalLevelData = useMemo(() => getLevelFromXp(globalXp), [globalXp]);
+  const levelProgressPercent = Math.min(100, Math.round((globalLevelData.xpIntoLevel / Math.max(1, getXpForNextLevel(globalLevelData.level))) * 100));
   const regenMultiplier = Math.min(1.3, 1 + Math.min(250, categoryXpMap.Regeneration) / 1000);
   const latestDateByCategory = useMemo(() => {
     return entries.reduce<Partial<Record<Category, string>>>((acc, entry) => {
@@ -272,11 +256,13 @@ export default function LevelPage() {
     return Math.max(0.7, Math.min(1.4, recencyScore * 0.7 + regenScore * 0.3));
   };
 
-  const badges = useMemo(() => {
+  const badgeBundle = useMemo(() => {
     const sessions = getWorkoutSessions();
-    const stats = computeBadgeStats(sessions, weightedLevelData.level);
-    return buildPlayerBadges(stats).unlocked;
-  }, [weightedLevelData.level]);
+    const stats = computeBadgeStats(sessions, globalLevelData.level);
+    return buildPlayerBadges(stats);
+  }, [globalLevelData.level]);
+  const badges = badgeBundle.unlocked;
+  const lockedBadges = badgeBundle.locked.slice(0, 6);
   const gameStatsSummary = useMemo(() => {
     const entries = loadGameStats();
     const points = entries.reduce((sum, entry) => sum + (entry.points ?? 0), 0);
@@ -295,17 +281,17 @@ export default function LevelPage() {
   return (
     <main className="app-container animate-in">
       <header>
-        <p className="page-eyebrow">Progression</p>
+        <p className="page-eyebrow">Fortschritt</p>
         <h1 className="page-title">Level</h1>
-        <p className="page-subtitle">Globales Level oben, darunter klare Skill-Level pro Bereich und Unterkategorie.</p>
+        <p className="page-subtitle">Globales Level aus Workout-XP, darunter Skill-Punkte pro Bereich.</p>
         <p className="mt-1 text-sm text-brand">Weiter so, {username} – jede Session zählt.</p>
       </header>
       <div className="mt-3">
         <TopSubTabs
           items={[
-            { label: "Stats", href: "/stats" },
-            { label: "Level", href: "/level" },
-            { label: "Review", href: "/review" },
+            { labelKey: "tabs.stats", href: "/stats" },
+            { labelKey: "tabs.level", href: "/level" },
+            { labelKey: "tabs.review", href: "/review" },
           ]}
         />
       </div>
@@ -322,23 +308,23 @@ export default function LevelPage() {
       ) : null}
 
       <section className="mt-6 app-card--accent-violet">
-        <p className="section-eyebrow">Progression</p>
+        <p className="section-eyebrow">Fortschritt</p>
         <h2 className="section-title mt-1">Globales Level</h2>
-        <p className="mt-1 text-xs text-muted">Globales Level = alle XP aus Workouts zusammen.</p>
+        <p className="mt-1 text-xs text-muted">Quelle: Workout-XP (gleiche Logik wie nach abgeschlossenen Sessions).</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="stat-tile">
             <p className="stat-tile__label">Aktuelles Level</p>
-            <p className="stat-tile__value">Lv. {weightedLevelData.level}</p>
-            <p className="stat-tile__sub">{weightedLevelData.xpIntoLevel}/{getXpForNextLevel(weightedLevelData.level)} XP in diesem Level</p>
-            <p className="text-xs text-faint">{Math.max(0, getXpForNextLevel(weightedLevelData.level) - weightedLevelData.xpIntoLevel)} XP bis zum nächsten Level</p>
-            <p className="text-xs hint-success">XP-Multiplikator (Regeneration): x{regenMultiplier.toFixed(2)}</p>
+            <p className="stat-tile__value">Lv. {globalLevelData.level}</p>
+            <p className="stat-tile__sub">{globalLevelData.xpIntoLevel}/{getXpForNextLevel(globalLevelData.level)} XP in diesem Level</p>
+            <p className="text-xs text-faint">{Math.max(0, getXpForNextLevel(globalLevelData.level) - globalLevelData.xpIntoLevel)} XP bis zum nächsten Level</p>
+            <p className="text-xs hint-success">Skill-Hinweis Regeneration: x{regenMultiplier.toFixed(2)}</p>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--bg-muted)]">
               <div className="h-full rounded-full bg-[var(--accent-violet)]" style={{ width: `${levelProgressPercent}%` }} />
             </div>
           </div>
           <div className="stat-tile">
             <p className="stat-tile__label">Gesamt-XP</p>
-            <p className="stat-tile__value">{weightedGlobalXp}</p>
+            <p className="stat-tile__value">{globalXp}</p>
             <p className="stat-tile__sub">Gewertete Sessions: {xpHistoryCount}</p>
             <p className={deloadActive ? "hint-warning mt-1" : "hint-success mt-1"}>
               {deloadActive ? "Deload aktiv (XP-Multiplikator 0.6)." : "Normale Belastung."}
@@ -367,7 +353,16 @@ export default function LevelPage() {
             const progress = Math.min(100, Math.round((levelInfo.xpIntoLevel / Math.max(1, nextRequirement)) * 100));
             return (
               <div key={`split-${group.category}`} className="app-card--flat">
-                <button type="button" onClick={() => { setOpenCategory((cur) => cur === group.category ? null : group.category as Category); setModalCategory(group.category as Category); }} className="font-semibold text-strong text-left w-full">{group.category}</button>
+                <button
+                  type="button"
+                  onClick={() => setOpenCategory((cur) => (cur === group.category ? null : (group.category as Category)))}
+                  className="font-semibold text-strong text-left w-full"
+                >
+                  {group.category}
+                </button>
+                <button type="button" className="mt-1 text-xs text-[var(--brand-400)] underline" onClick={() => setModalCategory(group.category as Category)}>
+                  Details öffnen
+                </button>
                 <p className="text-sm text-muted">Level {levelInfo.level} • {levelInfo.xpIntoLevel}/{nextRequirement} XP • x{multiplier.toFixed(2)}</p>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--bg-muted)]">
                   <div className="h-full rounded-full bg-[var(--accent-cyan)]" style={{ width: `${progress}%` }} />
@@ -417,9 +412,9 @@ export default function LevelPage() {
           </div>
         </div>
       ) : null}
-      {badges.length > 0 ? (
-        <section className="mt-4 app-card--brand">
-          <h3 className="section-title">Badges</h3>
+      <section className="mt-4 app-card--brand">
+        <h3 className="section-title">Badges</h3>
+        {badges.length > 0 ? (
           <GradientFadeList
             className="mt-2"
             items={badges}
@@ -434,8 +429,23 @@ export default function LevelPage() {
               </div>
             )}
           />
-        </section>
-      ) : null}
+        ) : (
+          <p className="mt-2 text-sm text-muted">Noch keine Badges freigeschaltet.</p>
+        )}
+        {lockedBadges.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-semibold text-muted">Als Nächstes</p>
+            {lockedBadges.map((badge) => (
+              <div key={`locked-${badge.id}`} className="list-card text-sm opacity-80">
+                <p className="list-card__title">
+                  {badge.emoji} {badge.name} • {badge.progressText}
+                </p>
+                <p className="list-card__meta">{badge.description}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
       <section className="mt-4 app-card--accent-violet">
         <h3 className="section-title">Spiel-Level Kategorie</h3>
         <p className="mt-2 text-sm text-muted">

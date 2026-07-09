@@ -56,9 +56,9 @@ export default function CatalogSearchPanel({
       ) : (
         <div className="catalog-search-panel__sections">
           <div>
-            <h3 className="catalog-search-panel__section-title">Exercises</h3>
+            <h3 className="catalog-search-panel__section-title">Übungen</h3>
             {exercises.length === 0 ? (
-              <p className="text-sm text-muted">Keine Exercises gefunden.</p>
+              <p className="text-sm text-muted">Keine Übungen gefunden.</p>
             ) : (
               <GradientFadeList
                 items={exercises}
@@ -77,7 +77,7 @@ export default function CatalogSearchPanel({
                         href={`/exercises/${exercise.id}?returnTo=${buildReturnToQuery(buildReturnToTraining("Exercises"))}`}
                         className="btn btn-primary btn-xs"
                       >
-                        Exercise starten
+                        Übung starten
                       </Link>
                       <button type="button" onClick={() => onEditExercise(exercise)} className="btn btn-outline btn-xs">
                         Bearbeiten

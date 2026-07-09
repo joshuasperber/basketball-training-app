@@ -462,8 +462,7 @@ function StatsPageContent() {
     basketballHistory: false,
     gymHistory: false,
   });
-  const [username, setUsername] = useState("Champion");
-  const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>(() =>
+  const [username, setUsername] = useState("Spieler");  const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>(() =>
     typeof window !== "undefined" ? loadGameStats() : [],
   );
   const [sessionNotesDraft, setSessionNotesDraft] = useState("");
@@ -479,8 +478,7 @@ useEffect(() => {
       const parsed = JSON.parse(cached) as {
         profile?: { username?: string | null; full_name?: string | null; favorite_position?: string | null };
       };
-      const nextName = parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Champion";
-      const timer = window.setTimeout(() => {
+      const nextName = parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Spieler";      const timer = window.setTimeout(() => {
         setUsername(nextName);
       }, 0);
       return () => window.clearTimeout(timer);
@@ -676,7 +674,7 @@ useEffect(() => {
     );
     const exercises = basketballSessions.reduce((sum, session) => sum + countUniqueExercisesInSession(session), 0);
     const minutes = Math.round(
-      basketballSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? session.logs.length * 240), 0) / 60,
+      basketballSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? Math.max(session.logs.length, 1) * 90), 0) / 60,
     );
     return { workouts: basketballSessions.length, exercises, sets, reps, minutes };
   }, [basketballSessions, exerciseLookupForSplit]);
@@ -694,7 +692,7 @@ useEffect(() => {
     );
     const exercises = gymSessions.reduce((sum, session) => sum + countUniqueExercisesInSession(session), 0);
     const minutes = Math.round(
-      gymSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? session.logs.length * 240), 0) / 60,
+      gymSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? Math.max(session.logs.length, 1) * 90), 0) / 60,
     );
     const volume = gymSessions.reduce(
       (sum, session) =>
@@ -774,7 +772,7 @@ useEffect(() => {
   }, [filteredSessions]);
 
   const totalMinutesTrained = Math.round(
-    filteredSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? session.logs.length * 240), 0) / 60,
+    filteredSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? Math.max(session.logs.length, 1) * 90), 0) / 60,
   );
   const filteredGameStats = useMemo(() => {
     if (range === "all") return gameStats;
@@ -840,9 +838,9 @@ useEffect(() => {
       <div className="mt-3">
         <TopSubTabs
           items={[
-            { label: "Stats", href: "/stats" },
-            { label: "Level", href: "/level" },
-            { label: "Review", href: "/review" },
+            { labelKey: "tabs.stats", href: "/stats" },
+            { labelKey: "tabs.level", href: "/level" },
+            { labelKey: "tabs.review", href: "/review" },
           ]}
         />
       </div>
@@ -850,10 +848,9 @@ useEffect(() => {
         <div className="segmented-wrap">
           <div className="segmented">
             {[
-              { id: "all", label: "All Time" },
-              { id: "monthly", label: "Monthly" },
-              { id: "weekly", label: "Weekly" },
-            ].map((option) => (
+              { id: "all", label: "Gesamt" },
+              { id: "monthly", label: "Monat" },
+              { id: "weekly", label: "Woche" },            ].map((option) => (
               <button
                 key={option.id}
                 type="button"

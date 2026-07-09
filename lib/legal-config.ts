@@ -6,15 +6,17 @@ export const legalConfig = {
   /** z. B. "Max Mustermann" oder Firmenname */
   operatorName: "Joshua Sperber",
   /** Straße, PLZ Ort */
-  operatorAddress: "Pufendorfstraße 6a, 10247 Berlin, Germany",
+  operatorAddress: "Pufendorfstraße 6a, 10247 Berlin, Deutschland",
   /** Kontakt-E-Mail */
   operatorEmail: "Joshua.sperber@web.de",
   /** Optional: Telefon */
-  operatorPhone: "+49 115259655035" as string | undefined,
+  operatorPhone: "+49 152 59655035" as string | undefined,
   /** Optional: USt-IdNr. / Register */
   operatorRegister: "" as string | undefined,
   /** Verantwortlich für Inhalte (§ 18 MStV), falls abweichend */
   contentResponsible: "Joshua Sperber" as string | undefined,
+  /** Stand der Datenschutzerklärung */
+  privacyPolicyDate: "Juli 2026",
 };
 
 export function isLegalConfigComplete() {

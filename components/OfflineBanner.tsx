@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 export default function OfflineBanner() {
+  const t = useT();
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
@@ -25,7 +27,7 @@ export default function OfflineBanner() {
       className="sticky top-0 z-50 border-b border-amber-500/40 bg-amber-500/15 px-4 py-2 text-center text-xs font-medium text-amber-900 dark:text-amber-100"
       role="status"
     >
-      Offline — Änderungen werden lokal gespeichert und beim nächsten Online-Status synchronisiert.
+      {t("offline.banner")}
     </div>
   );
 }

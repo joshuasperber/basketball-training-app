@@ -1,4 +1,4 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
 
 ## Getting Started
 
@@ -11,12 +11,15 @@ npm run dev
 
 ## Roadmap, Grenzen & Datenverhalten
 
-### Hoher Aufwand (bewusst nicht umgesetzt)
+### Umgesetzt (mit bekannten Limits)
 
-Diese Bereiche würden eigene Architektur-, Datenbank- und UI-Arbeit erfordern und sind im aktuellen Stand **nicht** im Produkt enthalten:
+- **Team-Modus:** Teams erstellen/beitreten, Rollen (owner/captain/player/coach), Freigabe-Stufen, Scouting und Team-Coach. Kein vollständiges gemeinsames Wochenplan-Editing für alle Spieler:innen.
+- **Shooting-Zonen / Heatmap:** Zone-Splits und Heatmap in Stats vorhanden; Klassifikation aus Übungsnamen ist heuristisch und oft unvollständig.
 
-- **Trainings-Partner-Modus** über Supabase (Teams, Einladungs-/Sharing-Tokens, Row Level Security), sodass mehrere Spieler:innen eines Teams Pläne teilen können.
-- **Shot-Map / Heatmap** und eine deutlich tiefere Auswertung von Game-Stats (z. B. Wurfquoten pro Zone) inklusive stärkerer Verzahnung mit dem Game-Korrelations-Dashboard.
+### Bewusst noch offen / hoher Aufwand
+
+- **Gemeinsamer Team-Wochenplan** mit feingranularer RLS und Live-Sharing über Geräte hinweg.
+- **Tiefere Game-Heatmap** direkt aus Spiel-Tracking (nicht nur Training-Heuristik), eng mit Korrelations-Dashboard verzahnt.
 
 ### RPE, Dauer und Coach-Daten (aktuelles Verhalten)
 
@@ -24,8 +27,8 @@ Diese Bereiche würden eigene Architektur-, Datenbank- und UI-Arbeit erfordern u
 
 **Ältere Sessions** enthalten diese Felder oft noch nicht. Dann erscheint RPE (und die abgeleiteten Auswertungen) erst, wenn du die betreffenden Workouts **neu abschließt** bzw. die Daten erneut erfasst werden — **nur neu abgeschlossene** Workouts füllen die Felder zuverlässig automatisch.
 
-### Hoher Impact, hoher Aufwand (Vision / nächste große Schritte)
+### Vision / nächste große Schritte
 
-- **Trainings-Partner-Modus:** Mehrere Spieler:innen eines Teams teilen einen Plan (z. B. read-only für Teammitglieder); Eltern oder Trainer:innen sehen den Fortschritt. Technisch: Team-Tabelle in Supabase, Sharing-Tokens, RLS.
-- **Game-Stats:** Aus dem heutigen Aggregat (Punkte, Assists, …) weiter zu **Wurfquoten pro Zone** und einer **Heatmap** — eng mit dem bestehenden Game-Stats-/Korrelations-Dashboard verbunden.
-- **KI-generierter Wochenplan auf Knopfdruck:** Analog zum Coach-Flow, aber das LLM liefert einen **vollständigen Weekly-Plan-Vorschlag**, den du mit einem Klick übernehmen kannst. Natürlicher Anknüpfungspunkt: die bestehende **`/api/coach`-Route** und die Wochenplan-/Profil-Datenstrukturen.
+- **Trainings-Partner-Modus vertiefen:** Eltern/Trainer:innen sehen Fortschritt read-only; gemeinsamer Plan.
+- **Game-Stats:** Wurfquoten pro Zone aus Spiel-Tracking + stärkere Heatmap.
+- **KI-generierter Wochenplan auf Knopfdruck:** Vollständigen Weekly-Plan-Vorschlag übernehmen (Anknüpfung: `/api/coach`).

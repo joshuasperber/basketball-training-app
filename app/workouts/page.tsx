@@ -88,6 +88,15 @@ import {
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
+function getAccumulatedElapsedSeconds(workoutProgress: WorkoutProgress, nowIso = new Date().toISOString()) {
+  const base = workoutProgress.elapsedSeconds ?? 0;
+  if (workoutProgress.status === "in_progress" && workoutProgress.startedAtIso) {
+    const delta = Math.max(0, Math.round((Date.parse(nowIso) - Date.parse(workoutProgress.startedAtIso)) / 1000));
+    return base + delta;
+  }
+  return base;
+}
+
 function loadHistory(): CompletedWorkoutHistoryEntry[] {
   const rawHistory = window.localStorage.getItem(WORKOUT_HISTORY_KEY);
   if (!rawHistory) return [];
@@ -363,12 +372,13 @@ function WorkoutsPageContent() {
       const current = progressRef.current;
       if (current.status !== "in_progress") return;
 
+      const nowIso = new Date().toISOString();
       const paused: WorkoutProgress = {
         ...current,
         status: "not_started",
         startedAtIso: undefined,
         endedAtIso: undefined,
-        elapsedSeconds: undefined,
+        elapsedSeconds: getAccumulatedElapsedSeconds(current, nowIso),
       };
 
       progressRef.current = paused;
@@ -646,8 +656,8 @@ function WorkoutsPageContent() {
       ...workoutProgress,
       status: "in_progress",
       endedAtIso: undefined,
-      startedAtIso: undefined,
-      elapsedSeconds: undefined,
+      startedAtIso: new Date().toISOString(),
+      elapsedSeconds: workoutProgress.elapsedSeconds ?? 0,
     };
   };
 
@@ -1145,18 +1155,19 @@ function WorkoutsPageContent() {
       ...progressRef.current,
       status: "in_progress",
       endedAtIso: undefined,
-      startedAtIso: undefined,
-      elapsedSeconds: undefined,
+      startedAtIso: new Date().toISOString(),
+      elapsedSeconds: progressRef.current.elapsedSeconds ?? 0,
     });
     if (activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball") {
       setShowTipsReminder(true);
     }
   };
   const pauseWorkout = (sourceProgress: WorkoutProgress = progressRef.current) => {
+    const nowIso = new Date().toISOString();
     const pausedProgress: WorkoutProgress = {
       ...sourceProgress,
       status: "not_started",
-      elapsedSeconds: undefined,
+      elapsedSeconds: getAccumulatedElapsedSeconds(sourceProgress, nowIso),
       startedAtIso: undefined,
       endedAtIso: undefined,
     };
@@ -1164,9 +1175,9 @@ function WorkoutsPageContent() {
   };
   const showWorkoutSavedFeedback = (result: FinishWorkoutResult, completedProgress: WorkoutProgress) => {
     if (result.levelDelta && result.levelDelta > 0) {
-      window.alert(`🎉 Level-Up! +${result.levelDelta} Level`);
+      void appDialog.alert({ message: `🎉 Level-Up! +${result.levelDelta} Level` });
     } else if (result.levelDelta && result.levelDelta < 0) {
-      window.alert(`⬇️ Level-Down: ${Math.abs(result.levelDelta)} Level verloren`);
+      void appDialog.alert({ message: `⬇️ Level-Down: ${Math.abs(result.levelDelta)} Level verloren` });
     }
     const todayKey = toLocalDateKey(new Date());
     const dailyRaw = window.localStorage.getItem("bt.daily-plan.v1");
@@ -1200,6 +1211,7 @@ function WorkoutsPageContent() {
   const completeWorkout = (sourceProgress: WorkoutProgress = progressRef.current) => {
     if (!isWorkoutFullyTracked(sourceProgress)) {
       pauseWorkout(sourceProgress);
+      setSetValidationError("Noch nicht alle Sätze erfasst — Workout pausiert. Bitte fehlende Sätze nachtragen oder später fortsetzen.");
       return;
     }
     const runStartedAtIso = sourceProgress.startedAtIso ?? sourceProgress.endedAtIso ?? new Date().toISOString();
@@ -1425,9 +1437,9 @@ function WorkoutsPageContent() {
     });
 
     if (xpResult.levelDelta > 0) {
-      window.alert(`🎉 Level-Up! +${xpResult.levelDelta} Level`);
+      void appDialog.alert({ message: `🎉 Level-Up! +${xpResult.levelDelta} Level` });
     } else if (xpResult.levelDelta < 0) {
-      window.alert(`⬇️ Level-Down: ${Math.abs(xpResult.levelDelta)} Level verloren`);
+      void appDialog.alert({ message: `⬇️ Level-Down: ${Math.abs(xpResult.levelDelta)} Level verloren` });
     }
     showWorkoutSavedFeedback({ ok: true, bannerMessage: "Stark! Workout abgeschlossen ✅" }, completedProgress);
     void syncWorkoutSessionsToCloudWithRetry().catch(() => {
@@ -1766,7 +1778,7 @@ function WorkoutsPageContent() {
               value={manualSearch}
               onChange={(event) => setManualSearch(event.target.value)}
               className="input mt-3 w-full"
-              placeholder="Exercise suchen..."
+              placeholder="Übung suchen..."
             />
             <GradientFadeList
               className="mt-3 app-card--flat p-2"
@@ -1886,7 +1898,7 @@ function WorkoutsPageContent() {
           {currentExercise ? (
             <article className="list-card">
               <p className="text-xs uppercase tracking-wide text-muted">
-                Exercise {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
+                Übung {safeExerciseIndex + 1}/{workoutForExecution.exercises.length}
               </p>
               <h3 className="mt-1 text-xl font-semibold">{currentExercise.name}</h3>
               {currentExerciseMeta?.videoUrl ?
@@ -2195,7 +2207,7 @@ function WorkoutsPageContent() {
             </article>
           ) : (
             <p className="text-sm text-faint">
-              {isRestDay ? "Keine Zeit aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
+              {isRestDay ? "Keine Zeit aktiv – heute ist kein Training geplant." : "Keine Übung im Workout gefunden."}
             </p>
           )}
         </section>

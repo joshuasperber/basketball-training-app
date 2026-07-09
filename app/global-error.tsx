@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import * as Sentry from "@sentry/nextjs";
+import { captureExceptionIfConsented } from "@/lib/sentry-client-init";
 
 export default function GlobalError({
   error,
@@ -11,7 +11,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    captureExceptionIfConsented(error);
   }, [error]);
 
   return (

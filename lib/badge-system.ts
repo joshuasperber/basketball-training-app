@@ -1,4 +1,5 @@
 import type { WorkoutSessionEntry } from "@/lib/session-storage";
+import { loadGameStats } from "@/lib/game-stats";
 
 export type BadgeCategory = "Allgemein" | "Basketball" | "Gym" | "Home";
 
@@ -78,10 +79,15 @@ export function computeBadgeStats(sessions: WorkoutSessionEntry[], level: number
 
   const allTimeMinutes = sessions.reduce((sum, session) => sum + getSessionMinutes(session), 0);
   const weeklyMinutes = weeklySessions.reduce((sum, session) => sum + getSessionMinutes(session), 0);
-  const threePointersMade = sessions.reduce(
-    (sum, session) => sum + session.logs.reduce((acc, log) => acc + Math.max(0, log.made ?? 0), 0),
-    0,
-  );
+  const threePointersMade = sessions.reduce((sum, session) => {
+    return (
+      sum +
+      session.logs.reduce((acc, log) => {
+        if (log.shotZone === "three_pointer") return acc + Math.max(0, log.made ?? 0);
+        return acc;
+      }, 0)
+    );
+  }, 0);
 
   return {
     level,
@@ -97,10 +103,11 @@ export function computeBadgeStats(sessions: WorkoutSessionEntry[], level: number
     basketballSubcategoryCounts: countBySubcategory(sessions, "Basketball"),
     gymSubcategoryCounts: countBySubcategory(sessions, "Gym"),
     homeSubcategoryCounts: countBySubcategory(sessions, "Home"),
-    gameSessions: sessions.filter((session) => {
-      const sub = (session.workoutSubcategory ?? "").toLowerCase();
-      return sub === "spiel" || sub === "spieltraining";
-    }).length,
+    gameSessions:
+      sessions.filter((session) => {
+        const sub = (session.workoutSubcategory ?? "").toLowerCase();
+        return sub === "spiel" || sub === "spieltraining";
+      }).length + loadGameStats().length,
     recoveryWorkouts: sessions.filter((session) => session.workoutCategory === "Regeneration").length,
   };
 }
@@ -374,5 +381,6 @@ export function buildPlayerBadges(stats: BadgeStats) {
   return {
     all: badges,
     unlocked: badges.filter((badge) => badge.unlocked),
+    locked: badges.filter((badge) => !badge.unlocked),
   };
 }

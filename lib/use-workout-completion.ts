@@ -132,6 +132,9 @@ export function useWorkoutCompletion({
     (sourceProgress: WorkoutProgress = progressRef.current) => {
       if (!isWorkoutFullyTracked(sourceProgress)) {
         pauseWorkout(sourceProgress);
+        setSetValidationError(
+          "Noch nicht alle Sätze erfasst — Workout pausiert. Bitte fehlende Sätze nachtragen oder später fortsetzen.",
+        );
         return;
       }
 

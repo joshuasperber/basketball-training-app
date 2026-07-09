@@ -177,7 +177,11 @@ export default function WorkoutReminderSettings({ weekConfig }: { weekConfig: We
       <p className="section-eyebrow">Reminder</p>
       <h2 className="section-title mt-1">Trainings-Erinnerung</h2>
       <p className="text-xs text-muted">
-        An aktiven Tagen bekommst du eine Browser-Notification.
+        An aktiven Tagen bekommst du eine Browser-Notification. Details in der{" "}
+        <a href="/datenschutz" className="text-[var(--brand-400)] underline">
+          Datenschutzerklärung
+        </a>
+        .
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

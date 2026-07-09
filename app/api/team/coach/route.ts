@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { userHasAiConsent } from "@/lib/server/ai-consent";
 import { getRequestUser, supabaseRest } from "@/lib/server/supabase-admin";
 import { buildMemberViewFromProgress } from "@/lib/server/team-progress";
 import { applyShareLevelToMemberView } from "@/lib/server/team-member-view";
@@ -119,6 +120,15 @@ export async function POST(request: NextRequest) {
   }
 
   const heuristic = buildTeamCoachHeuristic({ members, opponentName, opponentStyles });
+
+  const consented = await userHasAiConsent(user);
+  if (!consented) {
+    return NextResponse.json({
+      ...heuristic,
+      warning: "KI-Team-Coach erfordert Einwilligung im Profil.",
+    });
+  }
+
   const rosterJson = JSON.stringify(
     members.map((member) => ({
       name: member.displayName,

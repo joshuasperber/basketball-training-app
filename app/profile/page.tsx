@@ -38,9 +38,11 @@ import { fetchAuthMe } from "@/lib/auth-session-align";
 import { isInitialSetupComplete } from "@/lib/onboarding-gate";
 import NumericInput from "@/components/ui/NumericInput";
 import PageHeader from "@/components/PageHeader";
+import { useAppDialog } from "@/components/ui/AppDialogProvider";
 import ProfileSettingsSheet from "@/components/ProfileSettingsSheet";
 import ViewportToast from "@/components/ViewportToast";
 import IconButton, { GearIcon } from "@/components/ui/IconButton";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 const PROFILE_USERNAME_KEY = "profile_username";
 const PROFILE_LOCAL_CACHE_KEY = "profile_cache_v4";
@@ -351,6 +353,8 @@ function profileFeedbackClass(tone: ProfileFeedbackTone) {
 }
 
 export default function ProfilePage() {
+  const t = useT();
+  const appDialog = useAppDialog();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; tone: ProfileFeedbackTone } | null>(null);
@@ -594,13 +598,13 @@ export default function ProfilePage() {
       const currentLevel = Math.max(1, progression.level ?? 1);
       const previousSeen = Number(window.localStorage.getItem(LAST_SEEN_LEVEL_KEY) ?? "1");
       if (currentLevel > previousSeen) {
-        window.alert(`🎉 Globales Level-Up! Du bist jetzt Level ${currentLevel}.`);
+        void appDialog.alert({ message: `🎉 Globales Level-Up! Du bist jetzt Level ${currentLevel}.` });
       }
       window.localStorage.setItem(LAST_SEEN_LEVEL_KEY, String(currentLevel));
     } catch {
       // noop
     }
-  }, [completedDates]);
+  }, [appDialog, completedDates]);
 
   useEffect(() => {
     const refresh = () => {
@@ -836,7 +840,7 @@ const refreshProfileAndWeekly = () => {
         subtitle="Profil, Verfügbarkeit und Kalender."
         actionsLayout="top-right"
         actions={
-          <IconButton variant="ghost" label="Einstellungen" className="settings-gear-btn" onClick={() => setSettingsOpen(true)}>
+          <IconButton variant="ghost" label={t("profile.settings")} className="settings-gear-btn" onClick={() => setSettingsOpen(true)}>
             <GearIcon />
           </IconButton>
         }

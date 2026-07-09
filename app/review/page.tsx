@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import BasketballCoachingCard from "@/components/BasketballCoachingCard";
 import TopSubTabs from "@/components/TopSubTabs";
+import { useAppDialog } from "@/components/ui/AppDialogProvider";
 import { buildBasketballCoachingPlan } from "@/lib/basketball-coaching";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 import { downloadTrainingCsv } from "@/lib/export-training-csv";
@@ -21,6 +22,7 @@ const mesocycleLabels: Record<string, string> = {
 };
 
 export default function ReviewPage() {
+  const appDialog = useAppDialog();
   const [bundle, setBundle] = useState(() => loadTrainingGoalsBundle());
   useEffect(() => {
     const tick = () => setBundle(loadTrainingGoalsBundle());
@@ -66,9 +68,9 @@ export default function ReviewPage() {
       <div className="mt-3">
         <TopSubTabs
           items={[
-            { label: "Stats", href: "/stats" },
-            { label: "Level", href: "/level" },
-            { label: "Review", href: "/review" },
+            { labelKey: "tabs.stats", href: "/stats" },
+            { labelKey: "tabs.level", href: "/level" },
+            { labelKey: "tabs.review", href: "/review" },
           ]}
         />
       </div>
@@ -133,7 +135,7 @@ export default function ReviewPage() {
                 .filter((session) => session.workoutId !== "single-exercise-session")
                 .slice(0, 24);
               if (sessions.length === 0) {
-                window.alert("Keine Workout-Sessions zum Export vorhanden.");
+                void appDialog.alert({ message: "Keine Workout-Sessions zum Export vorhanden." });
                 return;
               }
               downloadWorkoutSessionsTcx(`basketball-training-sessions-${toLocalDateKey(new Date())}.tcx`, sessions);
@@ -146,7 +148,7 @@ export default function ReviewPage() {
       </section>
 
       <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm mt-8">
-        ← Zurück zu Weekly
+        ← Zurück zur Woche
       </Link>
     </main>
   );

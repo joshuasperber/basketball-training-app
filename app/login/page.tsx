@@ -1,6 +1,7 @@
 "use client";
 
 import { SyntheticEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AppBusyOverlay from "@/components/AppBusyOverlay";
 import { friendlyAuthErrorMessage } from "@/lib/auth-messages";
 import { alignLocalAuthAfterServerSession, finalizeClientAuthSession } from "@/lib/auth-finalize-client";
@@ -51,6 +52,7 @@ export default function LoginPage() {
   const [busySublabel, setBusySublabel] = useState("Einen Moment — wir bereiten dein Dashboard vor.");
   const [codeSent, setCodeSent] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [nextPath, setNextPath] = useState<string | null>(null);
 
@@ -118,6 +120,7 @@ export default function LoginPage() {
     setMessage(null);
 
     const trimmedEmail = email.trim();
+
     try {
       window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmedEmail);
       const response = await fetch("/api/auth/sign-in", {
@@ -155,6 +158,11 @@ export default function LoginPage() {
     setMessage(null);
 
     const trimmedEmail = email.trim();
+    if (!acceptedLegal) {
+      setMessage("Bitte Nutzungsbedingungen und Datenschutz bestätigen sowie das Mindestalter von 16 Jahren.");
+      setLoading(false);
+      return;
+    }
     if (password.length < 6) {
       setMessage("Passwort mindestens 6 Zeichen.");
       setLoading(false);
@@ -229,6 +237,12 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
 
+    if (!acceptedLegal) {
+      setMessage("Bitte Nutzungsbedingungen und Datenschutz bestätigen sowie das Mindestalter von 16 Jahren.");
+      setLoading(false);
+      return;
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: undefined },
@@ -253,6 +267,12 @@ export default function LoginPage() {
     setBusySublabel("Einen Moment — wir bereiten dein Dashboard vor.");
     setLoading(true);
     setMessage(null);
+
+    if (!acceptedLegal) {
+      setMessage("Bitte Nutzungsbedingungen und Datenschutz bestätigen sowie das Mindestalter von 16 Jahren.");
+      setLoading(false);
+      return;
+    }
 
     const { data, error } = await supabase.auth.verifyOtp({
       email,
@@ -286,7 +306,7 @@ export default function LoginPage() {
             🏀
           </div>
           <div>
-            <p className="page-eyebrow">Welcome back</p>
+            <p className="page-eyebrow">Willkommen zurück</p>
             <h1 className="text-2xl font-extrabold tracking-tight">Anmelden</h1>
           </div>
         </div>
@@ -346,7 +366,7 @@ export default function LoginPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 className="input"
-                placeholder="you@example.com"
+                placeholder="name@beispiel.de"
                 autoComplete="email"
               />
             </div>
@@ -378,9 +398,28 @@ export default function LoginPage() {
             <button type="submit" disabled={loading || Boolean(configError)} className="btn btn-primary btn-block">
               {loading ? "Anmelden…" : "Anmelden"}
             </button>
+            <label className="flex items-start gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={acceptedLegal}
+                onChange={(event) => setAcceptedLegal(event.target.checked)}
+              />
+              <span>
+                Ich bin mindestens 16 Jahre alt, akzeptiere die{" "}
+                <Link href="/nutzungsbedingungen" className="text-[var(--brand-400)] underline">
+                  Nutzungsbedingungen
+                </Link>{" "}
+                und habe die{" "}
+                <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
+                  Datenschutzerklärung
+                </Link>{" "}
+                gelesen (für „Konto anlegen“ erforderlich).
+              </span>
+            </label>
             <button
               type="button"
-              disabled={loading || Boolean(configError)}
+              disabled={loading || Boolean(configError) || !acceptedLegal}
               onClick={() => void signUpWithPassword()}
               className="btn btn-outline btn-block"
             >
@@ -400,10 +439,33 @@ export default function LoginPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 className="input"
-                placeholder="you@example.com"
+                placeholder="name@beispiel.de"
               />
             </div>
-            <button type="submit" disabled={loading || Boolean(configError)} className="btn btn-primary btn-block">
+            <label className="flex items-start gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={acceptedLegal}
+                onChange={(event) => setAcceptedLegal(event.target.checked)}
+              />
+              <span>
+                Ich bin mindestens 16 Jahre alt, akzeptiere die{" "}
+                <Link href="/nutzungsbedingungen" className="text-[var(--brand-400)] underline">
+                  Nutzungsbedingungen
+                </Link>{" "}
+                und habe die{" "}
+                <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
+                  Datenschutzerklärung
+                </Link>{" "}
+                gelesen (erforderlich für Code-Anmeldung / neues Konto).
+              </span>
+            </label>
+            <button
+              type="submit"
+              disabled={loading || Boolean(configError) || !acceptedLegal}
+              className="btn btn-primary btn-block"
+            >
               {loading ? "Sende…" : "Code anfordern"}
             </button>
           </form>
@@ -428,7 +490,7 @@ export default function LoginPage() {
             </div>
             <button
               type="submit"
-              disabled={loading || otpCode.length !== 8 || Boolean(configError)}
+              disabled={loading || otpCode.length !== 8 || Boolean(configError) || !acceptedLegal}
               className="btn btn-cyan btn-block"
             >
               {loading ? "Prüfe…" : "Code bestätigen"}

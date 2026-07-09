@@ -121,7 +121,7 @@ export default function WorkoutExecutionPanel({
       {currentExercise ? (
         <article className="list-card">
           <p className="text-xs uppercase tracking-wide text-muted">
-            Exercise {safeExerciseIndex + 1}/{workout.exercises.length}
+            Übung {safeExerciseIndex + 1}/{workout.exercises.length}
           </p>
           <h3 className="mt-1 text-xl font-semibold">{currentExercise.name}</h3>
           {currentExerciseMeta?.videoUrl ? (
@@ -418,7 +418,7 @@ export default function WorkoutExecutionPanel({
         </article>
       ) : (
         <p className="text-sm text-faint">
-          {isRestDay ? "Keine Zeit aktiv – heute ist kein Training geplant." : "Keine Exercise im Workout gefunden."}
+          {isRestDay ? "Keine Zeit aktiv – heute ist kein Training geplant." : "Keine Übung im Workout gefunden."}
         </p>
       )}
     </section>
