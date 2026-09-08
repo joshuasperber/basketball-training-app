@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import TopSubTabs from "@/components/TopSubTabs";
 import PageHeader from "@/components/PageHeader";
@@ -13,6 +12,7 @@ import {
   type OpponentStyleTag,
 } from "@/lib/opponent-styles";
 import {
+  createEmptyLeagueBundle,
   createId,
   getActiveSeason,
   loadLeagueBundle,
@@ -42,7 +42,7 @@ function formatDateLabel(dateKey: string) {
 export default function LigaPage() {
   const t = useT();
   const appDialog = useAppDialog();
-  const [bundle, setBundle] = useState<LeagueBundle>(() => loadLeagueBundle());
+  const [bundle, setBundle] = useState<LeagueBundle>(() => createEmptyLeagueBundle());
   const [tab, setTab] = useState<Tab>("schedule");
   const [seasonName, setSeasonName] = useState("");
   const [seasonNotes, setSeasonNotes] = useState("");
@@ -72,6 +72,7 @@ export default function LigaPage() {
 
   useEffect(() => {
     const onUpdate = () => refresh();
+    refresh();
     window.addEventListener("bt:league-updated", onUpdate);
     return () => window.removeEventListener("bt:league-updated", onUpdate);
   }, [refresh]);

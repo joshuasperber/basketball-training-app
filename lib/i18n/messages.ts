@@ -252,6 +252,9 @@ const de = {
   "stats.tabBasketball": "Basketball",
   "stats.tabGym": "Gym",
   "stats.loading": "Statistiken werden geladen …",
+  "stats.filterArea": "Bereich",
+  "stats.filterPeriod": "Zeitraum",
+  "stats.filterActivity": "Aktivität",
 
   "level.eyebrow": "Fortschritt",
   "level.title": "Level",
@@ -562,6 +565,9 @@ const en: Record<MessageKey, string> = {
   "stats.tabBasketball": "Basketball",
   "stats.tabGym": "Gym",
   "stats.loading": "Loading statistics…",
+  "stats.filterArea": "Section",
+  "stats.filterPeriod": "Time range",
+  "stats.filterActivity": "Activity",
 
   "level.eyebrow": "Progress",
   "level.title": "Level",

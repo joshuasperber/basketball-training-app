@@ -355,6 +355,7 @@ function profileFeedbackClass(tone: ProfileFeedbackTone) {
 export default function ProfilePage() {
   const t = useT();
   const appDialog = useAppDialog();
+  const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; tone: ProfileFeedbackTone } | null>(null);
@@ -362,6 +363,10 @@ export default function ProfilePage() {
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [stammdatenOpen, setStammdatenOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   const showProfileFeedback = useCallback((text: string, tone: ProfileFeedbackTone = "info") => {
     if (feedbackTimerRef.current != null) {
@@ -832,6 +837,22 @@ const refreshProfileAndWeekly = () => {
     return true;
   }, [bodyMetrics, playStyle, profile, showProfileFeedback, weekConfig, weeklyGoalSessions]);
 
+  if (!hydrated) {
+    return (
+      <main className="app-container animate-in">
+        <PageHeader
+          eyebrow={t("profile.eyebrow")}
+          title={t("profile.title")}
+          subtitle={t("profile.subtitle")}
+          actionsLayout="top-right"
+        />
+        <section className="mt-4 app-card">
+          <p className="text-sm text-muted">Profil wird geladen…</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-container animate-in">
       <PageHeader
@@ -1145,12 +1166,12 @@ const refreshProfileAndWeekly = () => {
             <p className="section-eyebrow">{t("profile.calendar")}</p>
             <h2 className="section-title">Workout Activity</h2>
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="btn btn-ghost btn-xs">◀</button>
+          <div className="calendar-month-nav">
+            <button type="button" onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="btn btn-ghost btn-xs" aria-label="Vorheriger Monat">◀</button>
             <span className="text-sm font-semibold text-strong">
               {currentMonth.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}
             </span>
-            <button type="button" onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="btn btn-ghost btn-xs">▶</button>
+            <button type="button" onClick={() => setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="btn btn-ghost btn-xs" aria-label="Nächster Monat">▶</button>
           </div>
         </div>
 
@@ -1159,37 +1180,31 @@ const refreshProfileAndWeekly = () => {
         </div>
         <div className="mt-1.5 grid grid-cols-7 gap-1.5">
           {monthCells.map((cell, index) => {
-            if (!cell) return <div key={`empty-${index}`} className="h-12 rounded-lg bg-[var(--bg-muted)]" />;
+            if (!cell) return <div key={`empty-${index}`} className="calendar-day calendar-day--empty" />;
             const key = toLocalDateKey(cell);
             const isToday = key === todayKey;
             const isSelected = key === selectedDateKey;
             const trained = completedDates.has(key);
             const hasPlannedTags = (dailyPlanMap[key] ?? []).length > 0;
+            const dayClass = [
+              "calendar-day",
+              isToday ? "calendar-day--today" : "",
+              isSelected ? "calendar-day--selected" : "",
+              trained ? "calendar-day--done" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => setSelectedDateKey(key)}
-                className={`relative rounded-lg border text-sm font-semibold transition ${
-                  isSelected
-                    ? `border-[var(--brand-500)] bg-[var(--brand-soft)] text-strong shadow-[0_0_0_2px_rgba(255,107,0,0.15)] ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300 z-10" : "h-12"}`
-                    : trained
-                      ? `border-emerald-300 bg-emerald-50 text-emerald-800 ${isToday ? "h-16 scale-[1.08] ring-2 ring-cyan-300 z-10" : "h-12"}`
-                      : isToday
-                        ? "h-16 scale-[1.08] z-10 border-cyan-400 bg-cyan-50 text-strong ring-2 ring-cyan-200"
-                        : "h-12 border-[var(--surface-border)] bg-white text-strong hover:bg-[var(--bg-muted)]"
-                }`}
+                className={dayClass}
               >
-                {isToday ? (
-                  <span className="absolute left-1/2 top-1 -translate-x-1/2 rounded-full bg-cyan-500 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-white">
-                    Heute
-                  </span>
-                ) : null}
-                <span className={isToday ? "mt-3 block text-lg font-black" : ""}>{cell.getDate()}</span>
-                {trained ? <span className="block text-[9px] opacity-80">✓</span> : null}
-                {hasPlannedTags ? (
-                  <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-[var(--brand-500)]" />
-                ) : null}
+                {isToday ? <span className="calendar-day__badge">Heute</span> : null}
+                <span>{cell.getDate()}</span>
+                {trained ? <span className="calendar-day__check">✓</span> : null}
+                {hasPlannedTags ? <span className="calendar-day__dot" /> : null}
               </button>
             );
           })}

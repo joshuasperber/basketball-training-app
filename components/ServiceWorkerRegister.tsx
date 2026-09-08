@@ -6,6 +6,15 @@ export default function ServiceWorkerRegister() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
+    if (process.env.NODE_ENV !== "production") {
+      // Turbopack verwendet in der Entwicklung stabile Chunk-URLs. Ein alter
+      // Service Worker darf deshalb keine Client-Bundles aus dem Cache liefern.
+      void navigator.serviceWorker.getRegistrations().then((registrations) =>
+        Promise.all(registrations.map((registration) => registration.unregister())),
+      );
+      return;
+    }
+
     let reloadScheduled = false;
 
     const scheduleReloadForNewWorker = () => {

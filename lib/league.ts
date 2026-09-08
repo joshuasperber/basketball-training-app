@@ -45,7 +45,7 @@ export type LeagueBundle = {
   schedule: LeagueScheduleEntry[];
 };
 
-function emptyBundle(): LeagueBundle {
+export function createEmptyLeagueBundle(): LeagueBundle {
   return { activeSeasonId: null, seasons: [], opponents: [], schedule: [] };
 }
 
@@ -54,9 +54,9 @@ function canUseStorage() {
 }
 
 export function loadLeagueBundle(): LeagueBundle {
-  if (!canUseStorage()) return emptyBundle();
+  if (!canUseStorage()) return createEmptyLeagueBundle();
   const raw = window.localStorage.getItem(LEAGUE_STORAGE_KEY);
-  if (!raw) return emptyBundle();
+  if (!raw) return createEmptyLeagueBundle();
   try {
     const parsed = JSON.parse(raw) as LeagueBundle;
     return {
@@ -71,7 +71,7 @@ export function loadLeagueBundle(): LeagueBundle {
       schedule: Array.isArray(parsed.schedule) ? parsed.schedule : [],
     };
   } catch {
-    return emptyBundle();
+    return createEmptyLeagueBundle();
   }
 }
 

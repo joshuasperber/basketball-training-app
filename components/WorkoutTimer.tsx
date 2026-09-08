@@ -16,23 +16,25 @@ function formatDuration(totalSeconds: number) {
 }
 
 export default function WorkoutTimer({ startedAtIso, lastSetCompletedAtIso, status }: WorkoutTimerProps) {
-  const [now, setNow] = useState(() => Date.now());
+  // Zeitabhängige Werte erst nach der Hydration einsetzen.
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     if (status !== "in_progress") return;
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [status]);
 
   const totalElapsed = useMemo(() => {
-    if (!startedAtIso) return 0;
+    if (!startedAtIso || now == null) return 0;
     const startedAt = Date.parse(startedAtIso);
     if (!Number.isFinite(startedAt)) return 0;
     return Math.floor((now - startedAt) / 1000);
   }, [now, startedAtIso]);
 
   const restElapsed = useMemo(() => {
-    if (!lastSetCompletedAtIso || status !== "in_progress") return 0;
+    if (!lastSetCompletedAtIso || status !== "in_progress" || now == null) return 0;
     const lastSet = Date.parse(lastSetCompletedAtIso);
     if (!Number.isFinite(lastSet)) return 0;
     return Math.max(0, Math.floor((now - lastSet) / 1000));

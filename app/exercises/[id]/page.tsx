@@ -11,6 +11,7 @@ import { markLocalProgressDirty, pushProgressToCloud } from "@/lib/progress-sync
 import { getPostExerciseCompletionHref } from "@/lib/offline-navigation";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
 import { buildTrainingHref, resolveReturnTo } from "@/lib/ui-navigation-state";
+import { DigitField } from "@/components/ui/NumericInput";
 import {
   applyShootingMetricStrings,
   completeShootingValues,
@@ -132,11 +133,7 @@ function ExerciseExecutionPageContent() {
     setSets((previous) =>
       previous.map((entry) => {
         if (entry.id !== id) return entry;
-        const nextValues = { ...entry.values, [metric]: value };
-        if (exercise && shouldUseShootingInputs(exercise.metricKeys)) {
-          return { ...entry, values: applyShootingMetricStrings(nextValues) };
-        }
-        return { ...entry, values: nextValues };
+        return { ...entry, values: { ...entry.values, [metric]: value } };
       }),
     );
   }
@@ -296,10 +293,10 @@ function ExerciseExecutionPageContent() {
                   {exercise.metricKeys.map((metric) => (
                     <div key={`${set.id}-${metric}`}>
                       <label className="input-label">{METRIC_LABELS[metric] ?? metric}</label>
-                      <input
-                        type="number"
+                      <DigitField
+                        allowDecimal={metric === "weight" || metric === "time" || metric === "distance"}
                         value={set.values[metric] ?? ""}
-                        onChange={(event) => updateSetValue(set.id, metric, event.target.value)}
+                        onValueChange={(value) => updateSetValue(set.id, metric, value)}
                         placeholder={METRIC_LABELS[metric] ?? metric}
                         className="input"
                       />

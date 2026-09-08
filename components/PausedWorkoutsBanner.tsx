@@ -6,7 +6,6 @@ import { finishPausedWorkoutEntry } from "@/lib/finish-workout-session";
 import { useAppDialog } from "@/components/ui/AppDialogProvider";
 import { useT } from "@/lib/i18n/I18nProvider";
 import {
-  formatPausedWorkoutDuration,
   loadPausedWorkouts,
   refreshPausedWorkoutsRegistry,
   type PausedWorkoutEntry,
@@ -96,9 +95,6 @@ export default function PausedWorkoutsBanner({ className = "" }: PausedWorkoutsB
                 <p className="font-semibold text-strong">{entry.progress.title}</p>
                 <p className="mt-0.5 text-xs text-faint">
                   {entry.progress.sport} · {entry.progress.subcategory}
-                  {(entry.progress.elapsedSeconds ?? 0) > 0
-                    ? ` · ${formatPausedWorkoutDuration(entry.progress.elapsedSeconds ?? 0)}`
-                    : null}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">

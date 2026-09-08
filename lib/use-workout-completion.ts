@@ -60,7 +60,6 @@ export function useWorkoutCompletion({
   persistProgress,
   activateProgressForInput,
   pauseWorkout,
-  getAccumulatedElapsedSeconds,
   isWorkoutFullyTracked,
   getCurrentLogFromProgress,
   currentLogKey,
@@ -258,37 +257,34 @@ export function useWorkoutCompletion({
     const updatedLogs = { ...activeProgress.logs, [currentLogKey]: updatedLog };
     const isLastSetInExercise = safeSetIndex === currentExercise.sets.length - 1;
     const isLastExercise = safeExerciseIndex === workoutForExecution.exercises.length - 1;
+    const next: WorkoutProgress = {
+      ...activeProgress,
+      logs: updatedLogs,
+      status: "in_progress",
+    };
 
-    if (isLastExercise && isLastSetInExercise) {
-      const next: WorkoutProgress = {
-        ...activeProgress,
-        logs: updatedLogs,
-        status: "completed",
-        endedAtIso: nowIso,
-        elapsedSeconds: getAccumulatedElapsedSeconds(activeProgress, nowIso),
-        startedAtIso: undefined,
-      };
-      persistProgress(next);
+    if (isWorkoutFullyTracked(next)) {
       completeWorkout(next);
+      return;
+    }
+
+    if (isLastSetInExercise && isLastExercise) {
+      persistProgress(next);
       return;
     }
 
     if (isLastSetInExercise) {
       persistProgress({
-        ...activeProgress,
-        logs: updatedLogs,
+        ...next,
         exerciseIndex: safeExerciseIndex + 1,
         setIndex: 0,
-        status: "in_progress",
       });
       return;
     }
 
     persistProgress({
-      ...activeProgress,
-      logs: updatedLogs,
+      ...next,
       setIndex: safeSetIndex + 1,
-      status: "in_progress",
     });
   }, [
     activateProgressForInput,
@@ -297,8 +293,8 @@ export function useWorkoutCompletion({
     currentExercise,
     currentLogKey,
     currentMetricOptions,
-    getAccumulatedElapsedSeconds,
     getCurrentLogFromProgress,
+    isWorkoutFullyTracked,
     persistProgress,
     progressRef,
     safeExerciseIndex,

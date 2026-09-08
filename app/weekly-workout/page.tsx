@@ -692,12 +692,23 @@ function selectBestWorkout(
 export default function WeeklyWorkoutPage() {
   const router = useRouter();
   const t = useT();
+  const [creationNotice, setCreationNotice] = useState<string | null>(null);
   const [todayIndex, setTodayIndex] = useState<(typeof weekdayOrder)[number]>(
     () => new Date().getDay() as (typeof weekdayOrder)[number],
   );
 
   useEffect(() => {
     setTodayIndex(new Date().getDay() as (typeof weekdayOrder)[number]);
+  }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("created") !== "training") return;
+    setCreationNotice("Training hinzugefügt.");
+    url.searchParams.delete("created");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    const timer = window.setTimeout(() => setCreationNotice(null), 3500);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const orderedDays = useMemo(
@@ -1276,6 +1287,15 @@ export default function WeeklyWorkoutPage() {
         title={t("weekly.title")}
         subtitle={t("weekly.subtitle")}
       />
+
+      {creationNotice ? (
+        <div className="alert-success mt-3 flex items-center justify-between gap-2" role="status">
+          <span>{creationNotice}</span>
+          <button type="button" onClick={() => setCreationNotice(null)} className="btn btn-ghost btn-xs" aria-label="Meldung schließen">
+            ×
+          </button>
+        </div>
+      ) : null}
 
       <div className="weekly-subnav-row">
         <TopSubTabs

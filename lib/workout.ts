@@ -297,6 +297,53 @@ export const getTodayDateKey = () => toLocalDateKey(new Date());
 export const buildSetLogKey = (exerciseIndex: number, setIndex: number) =>
   `${exerciseIndex}-${setIndex}`;
 
+export type WorkoutExerciseStatus = "not_started" | "in_progress" | "completed";
+
+/** Ein Satz ist erst nach der bewussten Abschlussaktion abgeschlossen. */
+export function isWorkoutSetCompleted(log: Partial<SetLog> | undefined) {
+  return Boolean(log?.completed === true || log?.completedAtIso);
+}
+
+function hasWorkoutSetStarted(log: Partial<SetLog> | undefined) {
+  if (!log) return false;
+  return Boolean(
+    log.reps?.trim() ||
+      log.tries?.trim() ||
+      log.weight?.trim() ||
+      log.makes?.trim() ||
+      log.misses?.trim() ||
+      log.time?.trim() ||
+      log.distance?.trim() ||
+      log.points?.trim() ||
+      log.note?.trim() ||
+      log.rpe?.trim() ||
+      isWorkoutSetCompleted(log),
+  );
+}
+
+export function getWorkoutExerciseStatus(
+  workout: WorkoutPlan,
+  progress: WorkoutProgress,
+  exerciseIndex: number,
+): WorkoutExerciseStatus {
+  const exercise = workout.exercises[exerciseIndex];
+  if (!exercise || exercise.sets.length === 0) return "not_started";
+
+  const logs = exercise.sets.map((_, setIndex) => progress.logs[buildSetLogKey(exerciseIndex, setIndex)]);
+  if (logs.every(isWorkoutSetCompleted)) return "completed";
+  if (logs.some(hasWorkoutSetStarted)) return "in_progress";
+  return "not_started";
+}
+
+export function isWorkoutProgressFullyCompleted(workout: WorkoutPlan, progress: WorkoutProgress) {
+  return (
+    workout.exercises.length > 0 &&
+    workout.exercises.every(
+      (_, exerciseIndex) => getWorkoutExerciseStatus(workout, progress, exerciseIndex) === "completed",
+    )
+  );
+}
+
 export const getDefaultWorkoutProgress = (
   date: string,
   workout: WorkoutPlan,

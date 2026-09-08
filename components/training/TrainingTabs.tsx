@@ -13,6 +13,7 @@ import {
 import type { DrillCatalogFilters } from "@/lib/drill-catalog-filters";
 import { countActiveDrillFilters } from "@/lib/drill-catalog-filters";
 import FilterClearButton from "@/components/ui/FilterClearButton";
+import { DigitField } from "@/components/ui/NumericInput";
 import { buildReturnToQuery, buildReturnToTraining } from "@/lib/ui-navigation-state";
 import { METRIC_LABELS, METRICS_BY_CATEGORY } from "@/lib/workout-metrics";
 
@@ -177,7 +178,9 @@ export type WorkoutCreateFormProps = Pick<
   | "onNewWorkoutNotesChange"
   | "onCreateWorkout"
   | "availableExercises"
->;
+> & {
+  error?: string | null;
+};
 
 export function WorkoutCreateForm({
   categories,
@@ -195,6 +198,7 @@ export function WorkoutCreateForm({
   onNewWorkoutNotesChange,
   onCreateWorkout,
   availableExercises,
+  error,
 }: WorkoutCreateFormProps) {
   const selectedExercises = useMemo(
     () => availableExercises.filter((exercise) => selectedExerciseIds.includes(exercise.id)),
@@ -203,7 +207,26 @@ export function WorkoutCreateForm({
   const selectedWorkoutMinutes = useMemo(() => calculateWorkoutMinutes(selectedExercises), [selectedExercises]);
 
   return (
-    <form id="new-workout-form" className="space-y-3" onSubmit={onCreateWorkout}>
+    <form id="new-workout-form" className="space-y-3" onSubmit={onCreateWorkout} noValidate>
+      {error ? (
+        <p id="new-workout-error" className="alert-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div>
+        <label className="input-label" htmlFor="new-workout-name">
+          Workout-Name *
+        </label>
+        <input
+          id="new-workout-name"
+          value={newWorkoutName}
+          onChange={(event) => onNewWorkoutNameChange(event.target.value)}
+          placeholder="z. B. Shooting Fokus"
+          className={`input ${error ? "input--error" : ""}`}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? "new-workout-error" : undefined}
+        />
+      </div>
       <FilterSection
         title="Kategorie"
         options={categories}
@@ -216,18 +239,6 @@ export function WorkoutCreateForm({
         selectedValue={newWorkoutSubcategory}
         onSelect={onNewWorkoutSubcategoryChange}
       />
-      <div>
-        <label className="input-label" htmlFor="new-workout-name">
-          Workout-Name *
-        </label>
-        <input
-          id="new-workout-name"
-          value={newWorkoutName}
-          onChange={(event) => onNewWorkoutNameChange(event.target.value)}
-          placeholder="z. B. Shooting Fokus"
-          className="input"
-        />
-      </div>
       <div>
         <label className="input-label" htmlFor="new-workout-notes">
           Notizen
@@ -511,7 +522,7 @@ export type ExerciseCreateFormProps = Pick<
 
 export function ExerciseCreateForm(props: ExerciseCreateFormProps) {
   return (
-    <form id="new-exercise-form" className="space-y-3" onSubmit={props.onCreateExercise}>
+    <form id="new-exercise-form" className="space-y-3" onSubmit={props.onCreateExercise} noValidate>
       <ExerciseFormFields {...props} mode="create" />
     </form>
   );
@@ -607,8 +618,26 @@ function ExerciseFormFields({
   const setTargets = isEdit ? (editExerciseSetTargets ?? newExerciseSetTargets) : newExerciseSetTargets;
   const error = isEdit ? editExerciseError : newExerciseError;
 
+  const nameMissing = Boolean(error && /name|namen/i.test(error));
+
   return (
     <>
+      {error ? (
+        <p id={mode === "create" ? "new-exercise-error" : "edit-exercise-error"} className="alert-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <input
+        id={isEdit ? "edit-exercise-name" : "new-exercise-name"}
+        value={isEdit ? editExerciseName : newExerciseName}
+        onChange={(event) =>
+          isEdit ? onEditExerciseNameChange?.(event.target.value) : onNewExerciseNameChange(event.target.value)
+        }
+        placeholder="Name der Übung"
+        className={`input ${nameMissing ? "input--error" : ""}`}
+        aria-invalid={nameMissing}
+        aria-describedby={error ? (mode === "create" ? "new-exercise-error" : "edit-exercise-error") : undefined}
+      />
       <FilterSection
         title="Kategorie"
         options={categories}
@@ -620,14 +649,6 @@ function ExerciseFormFields({
         options={subcategories[category]}
         selectedValue={isEdit ? (editExerciseSubcategory ?? newExerciseSubcategory) : newExerciseSubcategory}
         onSelect={isEdit ? onEditExerciseSubcategoryChange! : onNewExerciseSubcategoryChange}
-      />
-      <input
-        value={isEdit ? editExerciseName : newExerciseName}
-        onChange={(event) =>
-          isEdit ? onEditExerciseNameChange?.(event.target.value) : onNewExerciseNameChange(event.target.value)
-        }
-        placeholder="Name der Übung"
-        className="input"
       />
       <textarea
         value={isEdit ? editExerciseNotes : newExerciseNotes}
@@ -667,15 +688,13 @@ function ExerciseFormFields({
       </div>
       <label className="block text-sm text-muted">
         Zeit (Dauer)
-        <input
-          type="number"
-          min={1}
-          value={isEdit ? editExerciseDurationMin : newExerciseDurationMin}
-          onChange={(event) =>
-            isEdit
-              ? onEditExerciseDurationMinChange?.(event.target.value)
-              : onNewExerciseDurationMinChange(event.target.value)
-          }
+        <DigitField
+          allowDecimal
+          value={(isEdit ? editExerciseDurationMin : newExerciseDurationMin) ?? ""}
+          onValueChange={(next) => {
+            if (isEdit) onEditExerciseDurationMinChange?.(next);
+            else onNewExerciseDurationMinChange(next);
+          }}
           placeholder="z. B. 12"
           className="input mt-1"
         />
@@ -700,13 +719,13 @@ function ExerciseFormFields({
         ) : null}
         <label className="block text-sm text-muted">
           Anzahl Sätze
-          <input
-            type="number"
-            min={1}
+          <DigitField
             value={setCount}
-            onChange={(event) =>
-              isEdit ? onEditExerciseSetCountChange?.(event.target.value) : onNewExerciseSetCountChange(event.target.value)
-            }
+            onValueChange={(next) => {
+              if (isEdit) onEditExerciseSetCountChange?.(next);
+              else onNewExerciseSetCountChange(next);
+            }}
+            placeholder="1"
             className="input mt-1"
           />
         </label>
@@ -734,15 +753,14 @@ function ExerciseFormFields({
       {metrics.length > 0 ? (
         <div className="grid gap-2 sm:grid-cols-2">
           {metrics.map((metric) => (
-            <input
+            <DigitField
               key={metric}
-              type="number"
+              allowDecimal
               value={(isEdit ? editExerciseTargets : newExerciseTargets)?.[metric] ?? ""}
-              onChange={(event) =>
-                isEdit
-                  ? onEditExerciseTargetChange?.(metric, event.target.value)
-                  : onNewExerciseTargetChange(metric, event.target.value)
-              }
+              onValueChange={(next) => {
+                if (isEdit) onEditExerciseTargetChange?.(metric, next);
+                else onNewExerciseTargetChange(metric, next);
+              }}
               placeholder={`Ziel ${METRIC_LABELS[metric]}`}
               className="input"
             />
@@ -759,20 +777,19 @@ function ExerciseFormFields({
               <div key={`set-goal-${setIndex}`} className="w-full rounded-lg border border-[var(--surface-border)] p-2">
                 <p className="text-xs text-brand">Satz {setIndex + 1}</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {metrics.map((metric) => (
-                    <input
+                    {metrics.map((metric) => (
+                    <DigitField
                       key={`set-${setIndex}-${metric}`}
-                      type="number"
+                      allowDecimal
                       value={setTargetRow[metric] ?? ""}
-                      onChange={(event) =>
-                        isEdit
-                          ? onEditExerciseSetTargetChange?.(setIndex, metric, event.target.value)
-                          : onNewExerciseSetTargetChange(setIndex, metric, event.target.value)
-                      }
+                      onValueChange={(next) => {
+                        if (isEdit) onEditExerciseSetTargetChange?.(setIndex, metric, next);
+                        else onNewExerciseSetTargetChange(setIndex, metric, next);
+                      }}
                       placeholder={`${METRIC_LABELS[metric]} (Satz ${setIndex + 1})`}
                       className="input"
                     />
-                  ))}
+                    ))}
                 </div>
               </div>
             ))}
@@ -784,7 +801,6 @@ function ExerciseFormFields({
           Übung hinzufügen
         </button>
       ) : null}
-      {error ? <p className="text-sm text-brand">{error}</p> : null}
     </>
   );
 }

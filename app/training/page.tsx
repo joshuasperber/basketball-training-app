@@ -24,6 +24,7 @@ import Sheet from "@/components/ui/Sheet";
 import IconButton, { PlusIcon } from "@/components/ui/IconButton";
 import { useAppDialog } from "@/components/ui/AppDialogProvider";
 import { addManualGameToday } from "@/lib/plan-day-actions";
+import { canonicalizeWarmupWorkout } from "@/lib/warmup-workouts";
 import {
   buildTrainingHref,
   getTrainingTabFromParam,
@@ -148,6 +149,22 @@ function resolveInitialTrainingTab(tabParam: string | null): TrainingTab {
   return getTrainingTabFromParam(tabParam) ?? loadTrainingTab() ?? "Workouts";
 }
 
+function scrollFormIssueIntoView(errorId: string, fieldId: string) {
+  window.requestAnimationFrame(() => {
+    const errorEl = document.getElementById(errorId);
+    const sheetBody = errorEl?.closest(".sheet-body");
+    if (errorEl && sheetBody instanceof HTMLElement) {
+      sheetBody.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      errorEl?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    const field = document.getElementById(fieldId);
+    if (field instanceof HTMLInputElement) {
+      field.focus({ preventScroll: true });
+    }
+  });
+}
+
 function TrainingPageContent() {
   const t = useT();
   const router = useRouter();
@@ -156,6 +173,8 @@ function TrainingPageContent() {
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<TrainingTab>(() => resolveInitialTrainingTab(tabParam));
   const [createOpen, setCreateOpen] = useState(false);
+  const [catalogNotice, setCatalogNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [newWorkoutError, setNewWorkoutError] = useState<string | null>(null);
   const completedParam = searchParams.get("completed");
   const completionMessage = useMemo(() => {
     if (completedParam === "workout") return "Workout abgeschlossen ✅";
@@ -175,6 +194,12 @@ function TrainingPageContent() {
       );
     }
   }, [tabParam, completedParam, router]);
+
+  useEffect(() => {
+    if (!catalogNotice || catalogNotice.tone !== "success") return;
+    const timer = window.setTimeout(() => setCatalogNotice(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [catalogNotice]);
 
   useEffect(() => {
     if (!completedParam) return;
@@ -211,6 +236,11 @@ function TrainingPageContent() {
   const [exercises, setExercises] = useState<Exercise[]>(() => loadExercises());
   const [workouts, setWorkouts] = useState<Workout[]>(() => loadWorkouts());
 
+  const catalogWorkouts = useMemo(
+    () => workouts.map(canonicalizeWarmupWorkout),
+    [workouts],
+  );
+
   const [newWorkoutName, setNewWorkoutName] = useState("");
   const [newWorkoutExerciseIds, setNewWorkoutExerciseIds] = useState<string[]>([]);
   const [newWorkoutCategory, setNewWorkoutCategory] = useState<Category>("Basketball");
@@ -231,6 +261,18 @@ function TrainingPageContent() {
   const [newExerciseError, setNewExerciseError] = useState<string | null>(null);
   const [subcategoriesByCategory, setSubcategoriesByCategory] = useState<SubcategoryMap>(() => buildInitialSubcategoryMap());
   const [customSubcategoriesLoaded, setCustomSubcategoriesLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    if (newWorkoutError) {
+      scrollFormIssueIntoView("new-workout-error", "new-workout-name");
+      return;
+    }
+    if (newExerciseError) {
+      const focusName = /name|namen/i.test(newExerciseError);
+      scrollFormIssueIntoView("new-exercise-error", focusName ? "new-exercise-name" : "new-exercise-error");
+    }
+  }, [createOpen, newWorkoutError, newExerciseError]);
 
   const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
   const [editWorkoutName, setEditWorkoutName] = useState("");
@@ -279,17 +321,19 @@ function TrainingPageContent() {
 
   const workoutsForSelection = useMemo(() => {
     if (!workoutSelectionReady) return [];
-    return workouts.filter(
+    return catalogWorkouts.filter(
       (workout) => workout.category === workoutCategory && workout.subcategory === workoutSubcategory,
     );
-  }, [workouts, workoutCategory, workoutSubcategory, workoutSelectionReady]);
+  }, [catalogWorkouts, workoutCategory, workoutSubcategory, workoutSelectionReady]);
 
   const workoutExerciseOptions = useMemo(
     () =>
       exercises.filter(
         (exercise) =>
           exercise.category === newWorkoutCategory &&
-          (newWorkoutSubcategory === "Komplett" || exercise.subcategory === newWorkoutSubcategory),
+          (newWorkoutSubcategory === "Komplett" ||
+            newWorkoutSubcategory === "Warm-Up" ||
+            exercise.subcategory === newWorkoutSubcategory),
       ),
     [exercises, newWorkoutCategory, newWorkoutSubcategory],
   );
@@ -305,13 +349,13 @@ function TrainingPageContent() {
   }, [exercises, catalogSearch, drillFilters]);
 
   const catalogSearchWorkouts = useMemo(() => {
-    return rankByFuzzySearch(workouts, catalogSearch, (workout) => [
+    return rankByFuzzySearch(catalogWorkouts, catalogSearch, (workout) => [
       workout.name,
       workout.category,
       workout.subcategory,
       workout.notes,
     ]).map((entry) => entry.item);
-  }, [workouts, catalogSearch]);
+  }, [catalogWorkouts, catalogSearch]);
 
   const exercisesForSelection = useMemo(() => {
     if (!exerciseSelectionReady) return [];
@@ -369,7 +413,10 @@ function TrainingPageContent() {
     event.preventDefault();
 
     const normalizedName = newWorkoutName.trim();
-    if (!normalizedName) return;
+    if (!normalizedName) {
+      setNewWorkoutError("Bitte gib dem Workout einen Namen.");
+      return;
+    }
 
     const nextLevel =
       workouts.filter(
@@ -395,14 +442,19 @@ function TrainingPageContent() {
     setNewWorkoutName("");
     setNewWorkoutExerciseIds([]);
     setNewWorkoutNotes("");
+    setNewWorkoutError(null);
     setCreateOpen(false);
+    setCatalogNotice({ tone: "success", message: `Workout „${normalizedName}“ hinzugefügt` });
   }
 
   async function handleAddExercise(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const normalizedName = newExerciseName.trim();
-        if (!normalizedName) return;
+    if (!normalizedName) {
+      setNewExerciseError("Bitte gib einen Übungsnamen ein — ohne Namen kann die Übung nicht gespeichert werden.");
+      return;
+    }
 
     const normalizedMetrics = normalizeMetricKeysForCategory(newExerciseCategory, newExerciseMetrics);
     const validationError = validateMetricTargets(newExerciseCategory, normalizedMetrics, newExerciseTargets);
@@ -456,6 +508,8 @@ function TrainingPageContent() {
     setNewExerciseTargets({});
     setNewExerciseSetTargets([{}]);
     setNewExerciseError(null);
+    setCreateOpen(false);
+    setCatalogNotice({ tone: "success", message: `Übung „${normalizedName}“ hinzugefügt` });
   }
 
   function startEditWorkout(workout: Workout) {
@@ -729,29 +783,29 @@ function TrainingPageContent() {
                 <IconButton
                   variant="primary"
                   label={activeTab === "Workouts" ? t("training.addWorkout") : t("training.addExercise")}
-                  onClick={() => setCreateOpen(true)}
+                  onClick={() => {
+                    setNewWorkoutError(null);
+                    setNewExerciseError(null);
+                    setCreateOpen(true);
+                  }}
                 >
                   <PlusIcon />
                 </IconButton>
               </div>
             </div>
-            <div className="training-top__nav-row">
+            <div className="training-top__nav-row training-top__nav-row--tabs">
               <TabSwitcher activeTab={activeTab} onTabChange={handleTabChange} />
               <div className="training-top__game-actions">
-                <button
-                  type="button"
-                  className="btn btn-outline btn-xs shrink-0"
-                  onClick={() => startGameToday("game")}
-                >
-                  Spieltag starten
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-xs shrink-0"
-                  onClick={() => startGameToday("game_training")}
-                >
-                  Spieltraining starten
-                </button>
+                <div>
+                  <button type="button" className="btn btn-outline btn-xs btn-block" onClick={() => startGameToday("game")}>
+                    Spieltag starten
+                  </button>
+                </div>
+                <div>
+                  <button type="button" className="btn btn-outline btn-xs btn-block" onClick={() => startGameToday("game_training")}>
+                    Spieltraining starten
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -761,6 +815,15 @@ function TrainingPageContent() {
           <div className="alert-success flex items-center justify-between gap-2">
             <span>{completionMessage}</span>
             <button type="button" onClick={() => router.replace(buildTrainingHref(activeTab))} className="btn btn-ghost btn-xs">
+              ×
+            </button>
+          </div>
+        ) : null}
+
+        {catalogNotice ? (
+          <div className={`${catalogNotice.tone === "success" ? "alert-success" : "alert-error"} flex items-center justify-between gap-2`}>
+            <span>{catalogNotice.message}</span>
+            <button type="button" onClick={() => setCatalogNotice(null)} className="btn btn-ghost btn-xs">
               ×
             </button>
           </div>
@@ -922,7 +985,11 @@ function TrainingPageContent() {
 
         <Sheet
           open={createOpen}
-          onClose={() => setCreateOpen(false)}
+          onClose={() => {
+            setCreateOpen(false);
+            setNewWorkoutError(null);
+            setNewExerciseError(null);
+          }}
           title={activeTab === "Workouts" ? "Neues Workout" : "Neue Übung"}
           description={
             activeTab === "Workouts"
@@ -936,7 +1003,10 @@ function TrainingPageContent() {
               subcategories={subcategoriesByCategory}
               createWorkoutExerciseOptions={workoutExerciseOptions}
               newWorkoutName={newWorkoutName}
-              onNewWorkoutNameChange={setNewWorkoutName}
+              onNewWorkoutNameChange={(value) => {
+                setNewWorkoutName(value);
+                if (newWorkoutError) setNewWorkoutError(null);
+              }}
               selectedExerciseIds={newWorkoutExerciseIds}
               onSelectedExerciseIdsChange={setNewWorkoutExerciseIds}
               newWorkoutCategory={newWorkoutCategory}
@@ -947,13 +1017,17 @@ function TrainingPageContent() {
               onNewWorkoutNotesChange={setNewWorkoutNotes}
               onCreateWorkout={handleAddWorkout}
               availableExercises={exercises}
+              error={newWorkoutError}
             />
           ) : (
             <ExerciseCreateForm
               categories={categories}
               subcategories={subcategoriesByCategory}
               newExerciseName={newExerciseName}
-              onNewExerciseNameChange={setNewExerciseName}
+              onNewExerciseNameChange={(value) => {
+                setNewExerciseName(value);
+                if (newExerciseError) setNewExerciseError(null);
+              }}
               newExerciseCategory={newExerciseCategory}
               onNewExerciseCategoryChange={handleNewExerciseCategoryChange}
               newExerciseSubcategory={newExerciseSubcategory}

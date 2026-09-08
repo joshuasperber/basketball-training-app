@@ -84,13 +84,16 @@ function isItemActive(itemHref: string, matches: string[] | undefined, pathname:
 export default function BottomNav({ isAuthenticated: initialAuthenticated }: { isAuthenticated: boolean }) {
   const t = useT();
   const pathname = usePathname() ?? "";
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => initialAuthenticated || (typeof window !== "undefined" && hasOfflineSessionHint()),
-  );
-  const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && !navigator.onLine);
+  // Der erste Client-Render muss exakt dem serverseitigen Cookie-Snapshot entsprechen.
+  const [isAuthenticated, setIsAuthenticated] = useState(initialAuthenticated);
+  const [offline, setOffline] = useState(false);
 
   useEffect(() => {
-    const syncOffline = () => setOffline(typeof navigator !== "undefined" && !navigator.onLine);
+    const syncOffline = () => {
+      const nextOffline = !navigator.onLine;
+      setOffline(nextOffline);
+      if (nextOffline && hasOfflineSessionHint()) setIsAuthenticated(true);
+    };
     syncOffline();
     window.addEventListener("online", syncOffline);
     window.addEventListener("offline", syncOffline);

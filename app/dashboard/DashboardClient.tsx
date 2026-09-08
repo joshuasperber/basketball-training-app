@@ -18,7 +18,7 @@ import {
   buildWorkoutStorageKey,
   getDefaultWorkoutProgress,
   getTodayDateKey,
-  getTodayWorkoutPlan,
+  getWorkoutPlanForDay,
   getWeekdayName,
   parseWorkoutProgress,
 } from "@/lib/workout";
@@ -127,21 +127,35 @@ function getTimeGreetingKey(date = new Date()): MessageKey {
   return "dashboard.greetingEvening";
 }
 
-export default function DashboardPage({ forceProfileSetup = false }: { forceProfileSetup?: boolean }) {
+type DashboardPageProps = {
+  forceProfileSetup?: boolean;
+  initialDateKey: string;
+  initialDayIndex: number;
+  initialGreetingKey: MessageKey;
+};
+
+export default function DashboardPage({
+  forceProfileSetup = false,
+  initialDateKey,
+  initialDayIndex,
+  initialGreetingKey,
+}: DashboardPageProps) {
   const t = useT();
-  const [dateKey, setDateKey] = useState(() => getTodayDateKey());
-  const [greetingKey, setGreetingKey] = useState<MessageKey>(() => getTimeGreetingKey());
+  const [dateKey, setDateKey] = useState(initialDateKey);
+  const [greetingKey, setGreetingKey] = useState<MessageKey>(initialGreetingKey);
+  const [todayWorkout, setTodayWorkout] = useState(() => getWorkoutPlanForDay(initialDayIndex));
 
   useEffect(() => {
+    const localNow = new Date();
     setDateKey(getTodayDateKey());
-    setGreetingKey(getTimeGreetingKey());
+    setGreetingKey(getTimeGreetingKey(localNow));
+    setTodayWorkout(getWorkoutPlanForDay(localNow.getDay()));
   }, []);
 
   const todayDayIndex = useMemo(
     () => (dateKey ? new Date(`${dateKey}T12:00:00`).getDay() : 0),
     [dateKey],
   );
-  const todayWorkout = useMemo(() => getTodayWorkoutPlan(), []);
   const weekdayLabel = useMemo(
     () => (dateKey ? getWeekdayName(new Date(`${dateKey}T12:00:00`)) : ""),
     [dateKey],
@@ -535,6 +549,7 @@ export default function DashboardPage({ forceProfileSetup = false }: { forceProf
                 <GradientFadeList
                   className="mb-2"
                   items={badgeSections[section]}
+                  previewRows={1}
                   listClassName="flex flex-wrap gap-2"
                   getKey={(badge) => badge.id}
                   renderItem={(badge) => (

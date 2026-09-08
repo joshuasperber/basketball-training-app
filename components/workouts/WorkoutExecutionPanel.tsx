@@ -1,9 +1,11 @@
 "use client";
 
 import GradientFadeList from "@/components/GradientFadeList";
+import { DigitField } from "@/components/ui/NumericInput";
 import type { Exercise, MetricKey } from "@/lib/training-data";
 import { formatGymGoalSummary } from "@/lib/training-goals";
 import type { SetLog, WorkoutExercise, WorkoutPlan, WorkoutProgress } from "@/lib/workout";
+import { calculateShootingMissesInput } from "@/lib/workout-metrics";
 
 type GymGoalHint =
   | { kind: "injury" }
@@ -172,11 +174,11 @@ export default function WorkoutExecutionPanel({
             {currentMetricOptions.includes("weight") ? (
               <label className="text-sm text-muted">
                 Gewicht (kg)
-                <input
+                <DigitField
+                  allowDecimal
                   value={currentLog.weight}
-                  onChange={(event) => onUpdateLog("weight", event.target.value)}
+                  onValueChange={(value) => onUpdateLog("weight", value)}
                   className="input mt-1"
-                  inputMode="decimal"
                 />
               </label>
             ) : null}
@@ -185,56 +187,46 @@ export default function WorkoutExecutionPanel({
               <>
                 <label className="text-sm text-muted">
                   Reps
-                  <input
+                  <DigitField
                     value={currentLog.reps || currentLog.tries || ""}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      const reps = parseNonNegative(value);
-                      const makes = parseNonNegative(currentLog.makes);
-                      const misses = reps > 0 && makes > 0 ? String(Math.max(0, reps - makes)) : currentLog.misses;
-                      onPatchLog({ reps: value, tries: "", misses });
-                    }}
+                    onValueChange={(value) =>
+                      onPatchLog({
+                        reps: value,
+                        tries: "",
+                        misses: calculateShootingMissesInput(value, currentLog.makes),
+                      })
+                    }
                     className="input mt-1"
-                    inputMode="numeric"
-                    placeholder="z. B. 40"
                   />
                 </label>
                 <label className="text-sm text-muted">
                   Makes
-                  <input
+                  <DigitField
                     value={currentLog.makes ?? ""}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      const total = shootingRepsTotal;
-                      const makes = parseNonNegative(value);
-                      const misses = total > 0 ? String(Math.max(0, total - makes)) : currentLog.misses;
-                      onPatchLog({ makes: value, misses });
-                    }}
+                    onValueChange={(value) =>
+                      onPatchLog({
+                        makes: value,
+                        misses: calculateShootingMissesInput(currentLog.reps || currentLog.tries, value),
+                      })
+                    }
                     className="input mt-1"
-                    inputMode="numeric"
-                    placeholder="z. B. 36"
+                    placeholder=""
                   />
                 </label>
                 <label className="text-sm text-muted">
                   Misses
                   <div className="mt-1 flex gap-2">
-                    <input
+                    <DigitField
                       value={currentLog.misses ?? ""}
-                      onChange={(event) => {
-                        const value = event.target.value;
+                      onValueChange={(value) => {
                         const reps = shootingRepsTotal;
                         const misses = parseNonNegative(value);
-                        if (reps > 0 && misses > reps) {
+                        if (value !== "" && reps > 0 && misses > reps) {
                           onSetValidationError("Misses dürfen nicht größer als Reps sein.");
                         }
-                        onPatchLog({
-                          misses: value,
-                          makes: reps > 0 ? String(Math.max(0, reps - misses)) : currentLog.makes,
-                        });
+                        onPatchLog({ misses: value });
                       }}
                       className="input"
-                      inputMode="numeric"
-                      placeholder={`Auto: ${Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))}`}
                     />
                     <button
                       type="button"
@@ -255,11 +247,10 @@ export default function WorkoutExecutionPanel({
             ) : currentMetricOptions.includes("reps") ? (
               <label className="text-sm text-muted">
                 Reps
-                <input
+                <DigitField
                   value={currentLog.reps}
-                  onChange={(event) => onUpdateLog("reps", event.target.value)}
+                  onValueChange={(value) => onUpdateLog("reps", value)}
                   className="input mt-1"
-                  inputMode="numeric"
                 />
               </label>
             ) : null}
@@ -267,11 +258,11 @@ export default function WorkoutExecutionPanel({
             {currentMetricOptions.includes("time") ? (
               <label className="text-sm text-muted">
                 Zeit ({currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."})
-                <input
+                <DigitField
+                  allowDecimal
                   value={currentLog.time ?? ""}
-                  onChange={(event) => onUpdateLog("time", event.target.value)}
+                  onValueChange={(value) => onUpdateLog("time", value)}
                   className="input mt-1"
-                  inputMode="decimal"
                 />
               </label>
             ) : null}
@@ -280,11 +271,11 @@ export default function WorkoutExecutionPanel({
               <label className="text-sm text-muted">
                 Distanz
                 <div className="mt-1 flex gap-2">
-                  <input
+                  <DigitField
+                    allowDecimal
                     value={currentLog.distance ?? ""}
-                    onChange={(event) => onUpdateLog("distance", event.target.value)}
+                    onValueChange={(value) => onUpdateLog("distance", value)}
                     className="input"
-                    inputMode="decimal"
                   />
                   <select
                     value={currentLog.distanceUnit ?? "m"}
@@ -301,11 +292,10 @@ export default function WorkoutExecutionPanel({
             {currentMetricOptions.includes("points") ? (
               <label className="text-sm text-muted">
                 Punkte (optional, zählt nicht als Reps)
-                <input
+                <DigitField
                   value={currentLog.points ?? ""}
-                  onChange={(event) => onUpdateLog("points", event.target.value)}
+                  onValueChange={(value) => onUpdateLog("points", value)}
                   className="input mt-1"
-                  inputMode="numeric"
                 />
               </label>
             ) : null}

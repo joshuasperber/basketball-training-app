@@ -9,9 +9,15 @@ describe("buildShootingZoneStatsBundle", () => {
       {
         id: "g1",
         date: "2026-06-01",
-        opponent: "Test",
+        context: "game",
+        opponentLabel: "Test",
+        minutes: null,
         points: 10,
+        assists: null,
+        rebounds: null,
+        steals: null,
         shootingSplits: [{ zone: "corner_three", makes: 2, attempts: 5 }],
+        createdAt: "2026-06-01T12:00:00.000Z",
       },
     ];
     const sessions: WorkoutSessionEntry[] = [];

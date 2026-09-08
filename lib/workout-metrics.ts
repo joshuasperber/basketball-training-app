@@ -43,10 +43,26 @@ export function shouldUseShootingInputs(metricKeys: MetricKey[]) {
   return metricKeys.some((metric) => SHOOTING_METRICS.includes(metric));
 }
 
+/** Leerer/ungültiger Wert zählt als 0 (null = 0). */
 export function parseNonNegativeNumber(value?: string | null) {
   const parsed = Number(value ?? "");
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return parsed;
+}
+
+/** Erlaubt leeres Feld; sonst nur Ziffern. `null` = Eingabe verwerfen. */
+export function acceptOptionalDigitString(next: string): string | null {
+  if (next === "") return "";
+  if (!/^\d+$/.test(next)) return null;
+  return next;
+}
+
+/** Berechnet Misses live, sobald Reps und Makes vollständig eingegeben sind. */
+export function calculateShootingMissesInput(repsInput?: string, makesInput?: string) {
+  if (!repsInput?.trim() || !makesInput?.trim()) return "";
+  const reps = parseNonNegativeNumber(repsInput);
+  const makes = parseNonNegativeNumber(makesInput);
+  return String(Math.max(0, reps - makes));
 }
 
 function shootingRepsInput(values: { reps?: string; tries?: string }) {

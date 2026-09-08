@@ -838,7 +838,9 @@ useEffect(() => {
         subtitle={t("stats.subtitle")}
       />
       <div className="mt-3">
+        <p className="filter-stack__label">{t("stats.filterArea")}</p>
         <TopSubTabs
+          className="filter-stack__control filter-stack__control--area"
           items={[
             { labelKey: "tabs.stats", href: "/stats" },
             { labelKey: "tabs.level", href: "/level" },
@@ -846,41 +848,47 @@ useEffect(() => {
           ]}
         />
       </div>
-      <div className="stats-controls-stack mt-2">
-        <div className="segmented-wrap">
-          <div className="segmented">
-            {[
-              { id: "all", label: t("stats.rangeAll") },
-              { id: "monthly", label: t("stats.rangeMonth") },
-              { id: "weekly", label: t("stats.rangeWeek") },
-            ].map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setRange(option.id as StatsRange)}
-                className={`segmented__btn ${range === option.id ? "segmented__btn--active" : ""}`}
-                aria-pressed={range === option.id}
-              >
-                {option.label}
-              </button>
-            ))}
+      <div className="stats-controls-stack mt-3">
+        <div>
+          <p className="filter-stack__label">{t("stats.filterPeriod")}</p>
+          <div className="segmented-wrap filter-stack__control filter-stack__control--period">
+            <div className="segmented segmented--stretch">
+              {[
+                { id: "all", label: t("stats.rangeAll") },
+                { id: "monthly", label: t("stats.rangeMonth") },
+                { id: "weekly", label: t("stats.rangeWeek") },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setRange(option.id as StatsRange)}
+                  className={`segmented__btn ${range === option.id ? "segmented__btn--active" : ""}`}
+                  aria-pressed={range === option.id}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-        <div className="top-tabs-wrap">
-          <div className="top-tabs">
-            {([
-              { id: "overview", label: t("stats.tabOverview"), href: "/stats?tab=overview" },
-              { id: "basketball", label: t("stats.tabBasketball"), href: "/stats?tab=basketball" },
-              { id: "gym", label: t("stats.tabGym"), href: "/stats?tab=gym" },
-            ] as const).map((tab) => (
-              <Link
-                key={tab.id}
-                href={tab.href}
-                className={`top-tabs__btn ${detailTab === tab.id ? "top-tabs__btn--active" : ""}`}
-              >
-                {tab.label}
-              </Link>
-            ))}
+        <div>
+          <p className="filter-stack__label">{t("stats.filterActivity")}</p>
+          <div className="top-tabs-wrap filter-stack__control">
+            <div className="top-tabs top-tabs--stretch">
+              {([
+                { id: "overview", label: t("stats.tabOverview"), href: "/stats?tab=overview" },
+                { id: "basketball", label: t("stats.tabBasketball"), href: "/stats?tab=basketball" },
+                { id: "gym", label: t("stats.tabGym"), href: "/stats?tab=gym" },
+              ] as const).map((tab) => (
+                <Link
+                  key={tab.id}
+                  href={tab.href}
+                  className={`top-tabs__btn ${detailTab === tab.id ? "top-tabs__btn--active" : ""}`}
+                >
+                  {tab.label}
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </div>

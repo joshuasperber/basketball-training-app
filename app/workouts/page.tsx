@@ -20,7 +20,9 @@ import {
   getDefaultWorkoutProgress,
   getDateForWeekday,
   getTodayWorkoutPlan,
+  getWorkoutExerciseStatus,
   getWorkoutPlanForDay,
+  isWorkoutProgressFullyCompleted,
   parseSetRpe,
   parseWorkoutProgress,
   toLocalDateKey,
@@ -32,6 +34,7 @@ import {
   HIDE_ALL_AUTO_WORKOUTS_ID,
   dayHasRegenerationCoverage,
   hideAutoWorkoutCardForDate,
+  readDailyPlanMap,
   readManualDayDisabledMap,
   writeManualDayDisabledMap,
 } from "@/lib/activity-calendar";
@@ -49,6 +52,7 @@ import { getTipsForWorkoutContext, loadPerformanceTips, type PerformanceTip } fr
 import { countTrackedSetsInLogs } from "@/lib/workout-session-metrics";
 import {
   buildSessionLogFromSet,
+  calculateShootingMissesInput,
   completeShootingValues,
   normalizeMetricKeysForCategory,
   repCountFromSessionLog,
@@ -56,6 +60,7 @@ import {
   validateSetLogForMetrics,
 } from "@/lib/workout-metrics";
 import { syncPausedWorkoutRegistry, isWorkoutPausedProgress } from "@/lib/paused-workouts";
+import { DigitField } from "@/components/ui/NumericInput";
 import { finishWorkoutSession, setLogHasStarted, type FinishWorkoutResult } from "@/lib/finish-workout-session";
 import { getPostWorkoutCompletionHref } from "@/lib/offline-navigation";
 import type { MetricKey } from "@/lib/training-data";
@@ -86,6 +91,7 @@ import {
   loadTrainingGoalsBundle,
 } from "@/lib/training-goals";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { getWarmupWorkouts } from "@/lib/warmup-workouts";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
@@ -148,6 +154,36 @@ function WorkoutsPageContent() {
   const workoutOptions = useMemo(() => Object.values(WEEKLY_WORKOUT_PLAN), []);
   const trainingWorkouts = useMemo(() => loadWorkouts(), []);
   const trainingExercises = useMemo(() => loadExercises(), []);
+  const [isGameContextDay, setIsGameContextDay] = useState(false);
+  const warmupWorkoutOptions = useMemo(
+    () =>
+      getWarmupWorkouts(trainingWorkouts)
+        .map<WorkoutPlan>((workout) => {
+          const groupedExercises = buildGroupedExercisesByFamily({
+            exerciseIds: workout.exerciseIds,
+            category: workout.category,
+            subcategory: workout.subcategory,
+            exercises: trainingExercises,
+          });
+          return {
+            id: workout.id,
+            title: workout.name,
+            sport: "Basketball",
+            subcategory: "Warm-Up",
+            durationMin: roundWorkoutMinutes(
+              groupedExercises.reduce((sum, exercise) => sum + Math.max(0, exercise.durationMin), 0),
+            ),
+            exercises: groupedExercises.map((exercise) => ({
+              exerciseId: exercise.id,
+              name: exercise.name,
+              sets: buildExerciseSets(exercise),
+            })),
+          };
+        })
+        .filter((workout) => workout.exercises.length > 0),
+    [trainingExercises, trainingWorkouts],
+  );
+  const selectableWorkoutOptions = isGameContextDay ? warmupWorkoutOptions : workoutOptions;
   const [manualWorkout, setManualWorkout] = useState<WorkoutPlan | null>(null);
   const [manualTitle, setManualTitle] = useState("");
   const [manualCategory, setManualCategory] = useState<"Basketball" | "Gym" | "Home" | "Regeneration">("Basketball");
@@ -159,7 +195,7 @@ function WorkoutsPageContent() {
   const [selectedManualExerciseIds, setSelectedManualExerciseIds] = useState<string[]>([]);
   const [manualStorageVersion, setManualStorageVersion] = useState(0);
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
-  const [isClientReady, setIsClientReady] = useState(() => typeof window !== "undefined");
+  const [isClientReady, setIsClientReady] = useState(false);
   const [completionBanner, setCompletionBanner] = useState<string | null>(null);
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
   const [pendingManualEntry, setPendingManualEntry] = useState<ManualDayWorkout | null>(null);
@@ -181,6 +217,23 @@ function WorkoutsPageContent() {
 
   useEffect(() => {
     setIsClientReady(true);
+  }, []);
+
+  useEffect(() => {
+    const syncGameContext = () => {
+      const tags = readDailyPlanMap()[dateKey] ?? [];
+      setIsGameContextDay(tags.includes("Spieltag") || tags.includes("Spieltraining"));
+    };
+    syncGameContext();
+    window.addEventListener("bt:plan-updated", syncGameContext);
+    window.addEventListener("storage", syncGameContext);
+    return () => {
+      window.removeEventListener("bt:plan-updated", syncGameContext);
+      window.removeEventListener("storage", syncGameContext);
+    };
+  }, [dateKey]);
+
+  useEffect(() => {
     void ensureInitialCloudSync();
   }, []);
 
@@ -337,10 +390,16 @@ function WorkoutsPageContent() {
 
   const selectedOverrideWorkout = useMemo(() => {
     if (!overrideWorkoutId) return null;
-    return workoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
-  }, [overrideWorkoutId, workoutOptions]);
+    return selectableWorkoutOptions.find((workout) => workout.id === overrideWorkoutId) ?? null;
+  }, [overrideWorkoutId, selectableWorkoutOptions]);
 
-  const activeWorkoutBase = customWorkoutFromCatalog ?? autoWorkoutFromWeekly ?? manualWorkout ?? selectedOverrideWorkout ?? defaultWorkout;
+  const activeWorkoutBase =
+    customWorkoutFromCatalog ??
+    autoWorkoutFromWeekly ??
+    manualWorkout ??
+    selectedOverrideWorkout ??
+    (isGameContextDay ? selectableWorkoutOptions[0] : null) ??
+    defaultWorkout;
   const isCatalogWorkoutRun = Boolean(customWorkoutFromCatalog && workoutIdParam && !autoWorkoutParam && !workoutPayloadIdParam && !manualWorkoutIdParam);
 
   useEffect(() => {
@@ -726,17 +785,11 @@ function WorkoutsPageContent() {
     return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || log.completed === true || Boolean(log.completedAtIso);
   };
 
-  const getExerciseStatus = (exerciseIndex: number, workoutProgress: WorkoutProgress = progress): "not_started" | "in_progress" | "completed" => {
-    const exercise = workoutForExecution.exercises[exerciseIndex];
-    const startedSets = exercise.sets.filter((_, setIndex) => hasSetStarted(exerciseIndex, setIndex, workoutProgress)).length;
-    if (startedSets <= 0) return "not_started";
-    if (startedSets >= exercise.sets.length) return "completed";
-    return "in_progress";
-  };
+  const getExerciseStatus = (exerciseIndex: number, workoutProgress: WorkoutProgress = progress) =>
+    getWorkoutExerciseStatus(workoutForExecution, workoutProgress, exerciseIndex);
 
   const isWorkoutFullyTracked = (workoutProgress: WorkoutProgress = progress) =>
-    workoutForExecution.exercises.length > 0 &&
-    workoutForExecution.exercises.every((_, exerciseIndex) => getExerciseStatus(exerciseIndex, workoutProgress) === "completed");
+    isWorkoutProgressFullyCompleted(workoutForExecution, workoutProgress);
 
   const jumpToExercise = (exerciseIndex: number) => {
     const exercise = workoutForExecution.exercises[exerciseIndex];
@@ -771,15 +824,11 @@ function WorkoutsPageContent() {
     setSetValidationError(null);
     const activeProgress = activateProgressForInput(progressRef.current);
     const activeLog = getCurrentLogFromProgress(activeProgress);
-    const nextLog = clampShootingLog({
-      ...activeLog,
-      [field]: value,
-    });
     persistProgress({
       ...activeProgress,
       logs: {
         ...activeProgress.logs,
-        [currentLogKey]: nextLog,
+        [currentLogKey]: { ...activeLog, [field]: value },
       },
     });
   };
@@ -788,15 +837,11 @@ function WorkoutsPageContent() {
     setSetValidationError(null);
     const activeProgress = activateProgressForInput(progressRef.current);
     const activeLog = getCurrentLogFromProgress(activeProgress);
-    const nextLog = clampShootingLog({
-      ...activeLog,
-      ...patch,
-    });
     persistProgress({
       ...activeProgress,
       logs: {
         ...activeProgress.logs,
-        [currentLogKey]: nextLog,
+        [currentLogKey]: { ...activeLog, ...patch },
       },
     });
   };
@@ -961,6 +1006,7 @@ function WorkoutsPageContent() {
     loadSavedManualWorkout(entry, false);
 
     if (startImmediately) {
+      setCompletionBanner("Training hinzugefügt.");
       const plan = buildManualWorkoutPlan(entry);
       if (plan) {
         setManualWorkout(plan);
@@ -969,7 +1015,7 @@ function WorkoutsPageContent() {
       return;
     }
 
-    router.push(WEEKLY_WORKOUT_PATH);
+    router.push(`${WEEKLY_WORKOUT_PATH}?created=training`);
   };
   const saveManualWorkoutForDay = (startImmediately: boolean) => {
     const isBasketball = manualCategory === "Basketball";
@@ -1464,61 +1510,46 @@ function WorkoutsPageContent() {
     const updatedLogs = { ...activeProgress.logs, [currentLogKey]: updatedLog };
     const isLastSetInExercise = safeSetIndex === currentExercise.sets.length - 1;
     const isLastExercise = safeExerciseIndex === workoutForExecution.exercises.length - 1;
+    const next: WorkoutProgress = {
+      ...activeProgress,
+      logs: updatedLogs,
+      status: "in_progress",
+    };
 
-    if (isLastExercise && isLastSetInExercise) {
-      const next: WorkoutProgress = {
-        ...activeProgress,
-        logs: updatedLogs,
-        status: "completed",
-        endedAtIso: nowIso,
-        elapsedSeconds: undefined,
-        startedAtIso: undefined,
-      };
-      persistProgress(next);
+    if (isWorkoutFullyTracked(next)) {
+      completeWorkout(next);
+      return;
+    }
 
-      const fullyTracked = isWorkoutFullyTracked(next);
-      if (fullyTracked) {
-        completeWorkout(next);
-        return;
-      }
-
-      const result = finishWorkoutSession({
-        progress: next,
-        workoutPlan: workoutForExecution,
-        progressStorageKey,
-        allowPartial: true,
-        isCatalogWorkoutRun,
+    if (isLastSetInExercise && isLastExercise) {
+      const firstIncomplete = workoutForExecution.exercises.findIndex(
+        (_, exerciseIndex) => getExerciseStatus(exerciseIndex, next) !== "completed",
+      );
+      persistProgress({
+        ...next,
+        exerciseIndex: firstIncomplete >= 0 ? firstIncomplete : safeExerciseIndex,
+        setIndex: 0,
       });
-      if (!result.ok) {
-        setSetValidationError(result.error ?? "Workout konnte nicht gespeichert werden.");
-        return;
-      }
-      showWorkoutSavedFeedback(result, next);
-      navigateAfterWorkoutSaved();
       return;
     }
 
     if (isLastSetInExercise) {
       persistProgress({
-        ...activeProgress,
-        logs: updatedLogs,
+        ...next,
         exerciseIndex: safeExerciseIndex + 1,
         setIndex: 0,
-        status: "in_progress",
       });
       return;
     }
 
     persistProgress({
-      ...activeProgress,
-      logs: updatedLogs,
+      ...next,
       setIndex: safeSetIndex + 1,
-      status: "in_progress",
     });
   };
 
   if (!isClientReady) {
-    return <main className="app-container">Workouts werden geladen…</main>;
+    return <WorkoutsPageFallback />;
   }
 
   const workoutFullyTracked = isWorkoutFullyTracked();
@@ -1615,33 +1646,28 @@ function WorkoutsPageContent() {
       <PageHeader
         eyebrow={t("workouts.eyebrow")}
         title={t("workouts.title")}
-        subtitle={t("workouts.subtitle")}
         actions={<Link href="/tips" className="btn btn-ghost btn-sm">Tipps &amp; Notizen</Link>}
+        actionsLayout="top-right"
       />
-      <p className="-mt-2 text-xs text-faint">{t("workouts.medicalDisclaimer")}</p>
-      <p className="mt-1 text-xs hint-success">XP-Multiplikator steigt durch Regeneration (gedeckelt).</p>
-      {activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball" ? (
-        <section className="app-card--accent-cyan mt-3">
-          <p className="section-eyebrow">Aktive Fokus-Tipps</p>
-          <PerformanceTipsAccordion tips={activePerformanceTips} basketballMode={currentBasketballMode} className="mt-2" />
-        </section>
-      ) : null}
       {manualParam !== "1" ? (
 
-      <section className="mt-6 ui-card">
-        <h2 className="text-xl font-semibold">{workoutForExecution.title}</h2>
-        <p className="mt-1 text-sm text-muted">Sport: {workoutForExecution.sport}</p>
-        <p className="mt-1 text-sm text-muted">Unterkategorie: {workoutForExecution.subcategory}</p>
-        {workoutNotes ? <p className="mt-1 text-sm text-faint">Notiz: {workoutNotes}</p> : null}
+      <section className="mt-4 ui-card">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-xl font-semibold">{workoutForExecution.title}</h2>
+          <div className="flex flex-wrap gap-1.5">
+            <span className="chip chip-active">{workoutForExecution.sport}</span>
+            <span className="chip">{workoutForExecution.subcategory}</span>
+          </div>
+        </div>
 
         {effectiveDay === todayDayIndex && !manualWorkout && !workoutIdParam && !autoWorkoutParam && !manualWorkoutIdParam && manualParam !== "1" ? (
           <label className="mt-3 block text-sm text-muted">
-            Heutiges Workout manuell wählen
+            {isGameContextDay ? "Warm-Up für Spieltag/Spieltraining wählen" : "Heutiges Workout manuell wählen"}
             <select
-              value={selectedOverrideWorkout?.id ?? defaultWorkout.id}
+              value={selectedOverrideWorkout?.id ?? (isGameContextDay ? selectableWorkoutOptions[0]?.id ?? "" : defaultWorkout.id)}
               onChange={(event) => {
                 const nextWorkoutId = event.target.value;
-                const nextIsDefault = nextWorkoutId === defaultWorkout.id;
+                const nextIsDefault = !isGameContextDay && nextWorkoutId === defaultWorkout.id;
                 const nextOverride = nextIsDefault ? null : nextWorkoutId;
                 setOverrideWorkoutId(nextOverride);
                 if (nextOverride) {
@@ -1650,20 +1676,22 @@ function WorkoutsPageContent() {
                   window.localStorage.removeItem(overrideStorageKey);
                 }
                 const nextWorkout =
-                  workoutOptions.find((workout) => workout.id === nextWorkoutId) ?? defaultWorkout;
+                  selectableWorkoutOptions.find((workout) => workout.id === nextWorkoutId) ?? defaultWorkout;
                 persistProgress(getDefaultWorkoutProgress(dateKey, nextWorkout));
               }}
               className="select mt-1"
+              disabled={selectableWorkoutOptions.length === 0}
             >
-              {workoutOptions.map((workout) => (
-                <option key={workout.id} value={workout.id}>
-                  {workout.title} ({workout.sport} • {workout.subcategory})
-                </option>
-              ))}
+              {selectableWorkoutOptions.length === 0 ? (
+                <option value="">Kein Warm-Up-Workout vorhanden</option>
+              ) : (
+                selectableWorkoutOptions.map((workout) => (
+                  <option key={workout.id} value={workout.id}>
+                    {workout.title} ({workout.sport} • {workout.subcategory})
+                  </option>
+                ))
+              )}
             </select>
-            <p className="mt-1 text-xs text-faint">
-              Bei Änderung wird das heutige Protokoll zurückgesetzt und neue Zukunfts-Vorschläge angepasst.
-            </p>
           </label>
         ) : null}
         {effectiveDay === todayDayIndex && manualWorkout ? (
@@ -1851,7 +1879,7 @@ function WorkoutsPageContent() {
         </section>
       ) : null}
       {completionBanner ? (
-        <section className="app-card--accent-cyan mt-4">
+        <section className={`${completionBanner === "Training hinzugefügt." ? "app-card--accent-emerald" : "app-card--accent-cyan"} mt-4`}>
           <p className="text-sm text-strong">{completionBanner}</p>
         </section>
       ) : null}
@@ -1955,11 +1983,11 @@ function WorkoutsPageContent() {
                 {currentMetricOptions.includes("weight") ? (
                   <label className="text-sm text-muted">
                     Gewicht (kg)
-                    <input
+                    <DigitField
+                      allowDecimal
                       value={currentLog.weight}
-                      onChange={(event) => updateCurrentLog("weight", event.target.value)}
+                      onValueChange={(value) => updateCurrentLog("weight", value)}
                       className="input mt-1"
-                      inputMode="decimal"
                     />
                   </label>
                 ) : null}
@@ -1968,57 +1996,51 @@ function WorkoutsPageContent() {
                   <>
                     <label className="text-sm text-muted">
                       Reps
-                      <input
+                      <DigitField
                         value={currentLog.reps || currentLog.tries || ""}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          const reps = parseNonNegative(value);
-                          const makes = parseNonNegative(currentLog.makes);
-                          const misses =
-                            reps > 0 && makes > 0 ? String(Math.max(0, reps - makes)) : currentLog.misses;
-                          patchCurrentLog({ reps: value, tries: "", misses });
-                        }}
+                        onValueChange={(value) =>
+                          patchCurrentLog({
+                            reps: value,
+                            tries: "",
+                            misses: calculateShootingMissesInput(value, currentLog.makes),
+                          })
+                        }
                         className="input mt-1"
-                        inputMode="numeric"
-                        placeholder="z. B. 40"
+                        placeholder=""
                       />
                     </label>
                     <label className="text-sm text-muted">
                       Makes
-                      <input
+                      <DigitField
                         value={currentLog.makes ?? ""}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          const total = shootingRepsTotal;
-                          const makes = parseNonNegative(value);
-                          const misses = total > 0 ? String(Math.max(0, total - makes)) : currentLog.misses;
-                          patchCurrentLog({ makes: value, misses });
-                        }}
+                        onValueChange={(value) =>
+                          patchCurrentLog({
+                            makes: value,
+                            misses: calculateShootingMissesInput(
+                              currentLog.reps || currentLog.tries,
+                              value,
+                            ),
+                          })
+                        }
                         className="input mt-1"
-                        inputMode="numeric"
-                        placeholder="z. B. 36"
+                        placeholder=""
                       />
                     </label>
                     <label className="text-sm text-muted">
                       Misses
                       <div className="mt-1 flex gap-2">
-                        <input
+                        <DigitField
                           value={currentLog.misses ?? ""}
-                          onChange={(event) => {
-                            const value = event.target.value;
+                          onValueChange={(value) => {
                             const reps = shootingRepsTotal;
                             const misses = parseNonNegative(value);
-                            if (reps > 0 && misses > reps) {
+                            if (value !== "" && reps > 0 && misses > reps) {
                               setSetValidationError("Misses dürfen nicht größer als Reps sein.");
                             }
-                            patchCurrentLog({
-                              misses: value,
-                              makes: reps > 0 ? String(Math.max(0, reps - misses)) : currentLog.makes,
-                            });
+                            patchCurrentLog({ misses: value });
                           }}
                           className="input"
-                          inputMode="numeric"
-                          placeholder={`Auto: ${Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))}`}
+                          placeholder=""
                         />
                         <button
                           type="button"
@@ -2039,11 +2061,10 @@ function WorkoutsPageContent() {
                 ) : currentMetricOptions.includes("reps") ? (
                   <label className="text-sm text-muted">
                     Reps
-                    <input
+                    <DigitField
                       value={currentLog.reps}
-                      onChange={(event) => updateCurrentLog("reps", event.target.value)}
+                      onValueChange={(value) => updateCurrentLog("reps", value)}
                       className="input mt-1"
-                      inputMode="numeric"
                     />
                   </label>
                 ) : null}
@@ -2051,11 +2072,11 @@ function WorkoutsPageContent() {
                 {currentMetricOptions.includes("time") ? (
                   <label className="text-sm text-muted">
                     Zeit ({currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."})
-                    <input
+                    <DigitField
+                      allowDecimal
                       value={currentLog.time ?? ""}
-                      onChange={(event) => updateCurrentLog("time", event.target.value)}
+                      onValueChange={(value) => updateCurrentLog("time", value)}
                       className="input mt-1"
-                      inputMode="decimal"
                     />
                   </label>
                 ) : null}
@@ -2064,11 +2085,11 @@ function WorkoutsPageContent() {
                   <label className="text-sm text-muted">
                     Distanz
                     <div className="mt-1 flex gap-2">
-                      <input
+                      <DigitField
+                        allowDecimal
                         value={currentLog.distance ?? ""}
-                        onChange={(event) => updateCurrentLog("distance", event.target.value)}
+                        onValueChange={(value) => updateCurrentLog("distance", value)}
                         className="input"
-                        inputMode="decimal"
                       />
                       <select
                         value={currentLog.distanceUnit ?? "m"}
@@ -2085,11 +2106,10 @@ function WorkoutsPageContent() {
                 {currentMetricOptions.includes("points") ? (
                   <label className="text-sm text-muted">
                     Punkte (optional, zählt nicht als Reps)
-                    <input
+                    <DigitField
                       value={currentLog.points ?? ""}
-                      onChange={(event) => updateCurrentLog("points", event.target.value)}
+                      onValueChange={(value) => updateCurrentLog("points", value)}
                       className="input mt-1"
-                      inputMode="numeric"
                     />
                   </label>
                 ) : null}
@@ -2213,6 +2233,17 @@ function WorkoutsPageContent() {
         </section>
       ) : null}
 
+      {manualParam !== "1" && activePerformanceTips.length > 0 && workoutForExecution.sport === "Basketball" ? (
+        <section className="app-card--accent-cyan mt-4">
+          <p className="section-eyebrow">Aktive Fokus-Tipps</p>
+          <PerformanceTipsAccordion tips={activePerformanceTips} basketballMode={currentBasketballMode} className="mt-2" />
+        </section>
+      ) : null}
+
+      {manualParam !== "1" && workoutNotes ? (
+        <p className="mt-3 text-xs text-faint">Workout-Notiz: {workoutNotes}</p>
+      ) : null}
+
       <div className="mt-4">
         <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm">
           {t("workouts.backToWeekly")}
@@ -2301,13 +2332,32 @@ function WorkoutsPageContent() {
           </div>
         </div>
       ) : null}
+      <p className="mt-6 text-[11px] leading-relaxed text-faint">{t("workouts.medicalDisclaimer")}</p>
+    </main>
+  );
+}
+
+function WorkoutsPageFallback() {
+  return (
+    <main className="app-container animate-in">
+      <PageHeader
+        eyebrow="Training"
+        title="Workout"
+        actions={
+          <Link href="/tips" className="btn btn-ghost btn-sm">
+            Tipps &amp; Notizen
+          </Link>
+        }
+        actionsLayout="top-right"
+      />
+      <p className="mt-4 text-sm text-muted">Workouts werden geladen…</p>
     </main>
   );
 }
 
 export default function WorkoutsPage() {
   return (
-    <Suspense fallback={<main className="app-container">Workouts werden geladen…</main>}>
+    <Suspense fallback={<WorkoutsPageFallback />}>
       <WorkoutsPageContent />
     </Suspense>
   );

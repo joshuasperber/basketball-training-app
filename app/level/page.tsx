@@ -289,7 +289,9 @@ export default function LevelPage() {
         <p className="mt-1 text-sm text-brand">{t("level.encouragement", { user: username })}</p>
       </header>
       <div className="mt-3">
+        <p className="filter-stack__label">{t("stats.filterArea")}</p>
         <TopSubTabs
+          className="filter-stack__control filter-stack__control--area"
           items={[
             { labelKey: "tabs.stats", href: "/stats" },
             { labelKey: "tabs.level", href: "/level" },

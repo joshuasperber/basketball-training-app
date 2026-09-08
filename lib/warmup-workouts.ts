@@ -14,3 +14,9 @@ export function isWarmupWorkout(workout: Workout) {
 export function getWarmupWorkouts(workouts: Workout[]) {
   return workouts.filter(isWarmupWorkout);
 }
+
+/** Vereinheitlicht erkannte Warm-up-Workouts für Katalog und Spielvorbereitung. */
+export function canonicalizeWarmupWorkout(workout: Workout): Workout {
+  if (!isWarmupWorkout(workout) || workout.subcategory === "Warm-Up") return workout;
+  return { ...workout, subcategory: "Warm-Up" };
+}
