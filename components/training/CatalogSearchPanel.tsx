@@ -29,7 +29,6 @@ export default function CatalogSearchPanel({
   query,
   exercises,
   workouts,
-  availableExercises,
   onEditExercise,
   onEditWorkout,
   onClose,

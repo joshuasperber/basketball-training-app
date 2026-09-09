@@ -47,7 +47,6 @@ export async function deleteAccountAndLocalData(): Promise<{ ok: boolean; messag
   if (typeof window !== "undefined") {
     window.localStorage.clear();
     window.sessionStorage.clear();
-    window.location.href = "/login";
   }
 
   return { ok: true, message: "Konto und lokale Daten wurden gelöscht." };

@@ -15,7 +15,7 @@ import {
 } from "@/lib/training-data";
 import { matchesDrillCatalogFilters, DEFAULT_DRILL_FILTERS, type DrillCatalogFilters } from "@/lib/drill-catalog-filters";
 import { rankByFuzzySearch } from "@/lib/fuzzy-search";
-import { loadExercises, loadWorkouts, persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
+import { persistTrainingData, syncTrainingDataFromServer } from "@/lib/training-storage";
 import { ExercisesTab, TabSwitcher, type TrainingTab, WorkoutsTab, WorkoutCreateForm, ExerciseCreateForm } from "@/components/training/TrainingTabs";
 import TopSubTabs from "@/components/TopSubTabs";
 import ExpandableCatalogSearch from "@/components/training/ExpandableCatalogSearch";
@@ -233,8 +233,8 @@ function TrainingPageContent() {
   const [workoutSelectionReady, setWorkoutSelectionReady] = useState(false);
   const [exerciseSelectionReady, setExerciseSelectionReady] = useState(false);
 
-  const [exercises, setExercises] = useState<Exercise[]>(() => loadExercises());
-  const [workouts, setWorkouts] = useState<Workout[]>(() => loadWorkouts());
+  const [exercises, setExercises] = useState<Exercise[]>(() => defaultExercises.map((exercise) => ({ ...exercise })));
+  const [workouts, setWorkouts] = useState<Workout[]>(() => defaultWorkouts.map((workout) => ({ ...workout })));
 
   const catalogWorkouts = useMemo(
     () => workouts.map(canonicalizeWarmupWorkout),

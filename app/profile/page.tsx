@@ -29,7 +29,6 @@ import {
   writeManualPlanOverrides,
 } from "@/lib/activity-calendar";
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
-import Link from "next/link";
 import { loadExercises } from "@/lib/training-storage";
 import { exerciseSubcategoriesByCategory } from "@/lib/training-data";
 import { pullProgressFromCloud, pushProgressToCloud } from "@/lib/progress-sync";
@@ -743,21 +742,6 @@ export default function ProfilePage() {
 
   const applyRecoverySubtag = (tag: RecoveryTag) => {
     updateSelectedDatePlan(["Regeneration", `Recovery:${tag}` as PlannedWorkoutTag]);
-  };
-const refreshProfileAndWeekly = () => {
-    const latestDailyPlan = readDailyPlanMap();
-    setDailyPlanMap(latestDailyPlan);
-    setCompletedDates(getCompletedWorkoutDateSet());
-    const nextWeekConfig = { ...weekConfig };
-    Object.keys(latestDailyPlan).forEach((dateKey) => {
-      const tags = latestDailyPlan[dateKey] ?? [];
-      const date = new Date(`${dateKey}T00:00:00`);
-      const dayMap: Record<number, DayKey> = { 0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday" };
-      const dayKey = dayMap[date.getDay()];
-      nextWeekConfig[dayKey] = mapTagToDayConfig(tags);
-    });
-    setWeekConfig(nextWeekConfig);
-    showProfileFeedback("Profil & Weekly Plan wurden aktualisiert.", "success");
   };
   const persistProfileToSupabase = useCallback(async () => {
     const username = (profile.username ?? "").trim().toLowerCase();

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ModernTimeInput from "@/components/ui/ModernTimeInput";
 import type { DayKey, WeekConfig } from "@/lib/planner";
 
 type ReminderPrefs = {
@@ -185,21 +186,13 @@ export default function WorkoutReminderSettings({ weekConfig }: { weekConfig: We
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-strong">
-          <span>Uhrzeit</span>
-          <input
-            type="time"
-            value={prefs.time}
-            onChange={(event) => handleTimeChange(event.target.value)}
-            className="input w-28"
-          />
-        </label>
+        <ModernTimeInput value={prefs.time} onChange={handleTimeChange} label="Uhrzeit" className="w-40" controlClassName="app-unified-control" />
         {prefs.enabled && permission === "granted" ? (
-          <button type="button" onClick={handleDisable} className="btn btn-ghost btn-sm">
+          <button type="button" onClick={handleDisable} className="btn btn-ghost self-end">
             Deaktivieren
           </button>
         ) : (
-          <button type="button" onClick={() => void handleEnable()} className="btn btn-primary btn-sm">
+          <button type="button" onClick={() => void handleEnable()} className="btn btn-primary self-end">
             Aktivieren
           </button>
         )}

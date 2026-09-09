@@ -1,5 +1,5 @@
 export type TrainingTab = "Workouts" | "Exercises";
-export type LigaTab = "schedule" | "opponents" | "season";
+export type LigaTab = "schedule" | "standings" | "teams" | "players" | "season";
 export type TeamDetailTab = "overview" | "roster" | "scouting" | "advice";
 
 const UI_NAV_STATE_KEY = "bt.ui-navigation.v1";

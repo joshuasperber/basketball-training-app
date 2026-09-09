@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ShowMoreList from "@/components/ShowMoreList";
+import ModernDateInput from "@/components/ui/ModernDateInput";
 import {
   aggregateGameStatTotals,
   filterGameStats,
@@ -68,17 +69,11 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Gegner, Turnier, Datum …"
-            className="input mt-1"
+            className="input mt-1 app-unified-control"
           />
         </label>
-        <label className="block">
-          <span className="input-label">Von (Datum)</span>
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input mt-1" />
-        </label>
-        <label className="block">
-          <span className="input-label">Bis (Datum)</span>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input mt-1" />
-        </label>
+        <ModernDateInput value={dateFrom} onChange={setDateFrom} label="Von (Datum)" controlClassName="app-unified-control" />
+        <ModernDateInput value={dateTo} onChange={setDateTo} label="Bis (Datum)" controlClassName="app-unified-control" />
       </div>
 
       <div className="segmented-wrap mt-3">

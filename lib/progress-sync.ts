@@ -413,7 +413,6 @@ async function pushProgressToCloudOnce(
   overrides?: Partial<RemoteProgress>,
   options?: PushOptions,
 ): Promise<boolean> {
-  const quiet = options?.quiet ?? true;
   const forceOverwrite = options?.forceOverwrite ?? false;
   const { me, accountSwitched } = await checkAuthSession();
   if (!me) return false;

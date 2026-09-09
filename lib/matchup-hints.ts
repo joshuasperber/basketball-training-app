@@ -189,7 +189,7 @@ export function buildStartLineupRecommendation(roster: PlayerMatchupProfile[]): 
   pickNext((player) => isGuard(normalizePosition(player.position)) || isWing(normalizePosition(player.position)));
   pickNext((player) => isWing(normalizePosition(player.position)));
   pickNext((player) => isBig(normalizePosition(player.position)));
-  pickNext((player) => true);
+  pickNext(() => true);
 
   while (picked.length < 5) {
     const candidate = sorted.find((player) => !used.has(player.displayName));

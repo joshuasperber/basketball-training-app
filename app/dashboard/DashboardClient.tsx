@@ -328,8 +328,8 @@ export default function DashboardPage({
   }, [weeklyCompleted, weeklyPlannedCount]);
 
   const isCompleted = useMemo(
-    () => todayWorkoutIds.length > 0 && todayWorkoutIds.every((id) => isWorkoutIdCompletedOnDate(dateKey, id)),
-    [completedTodayIds, dateKey, todayWorkoutIds],
+    () => todayWorkoutIds.length > 0 && todayWorkoutIds.every((id) => completedTodayIds.has(id)),
+    [completedTodayIds, todayWorkoutIds],
   );
   const isInProgress =
     !isCompleted && progress.status === "in_progress" && progress.date === dateKey;

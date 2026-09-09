@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import AppBusyOverlay from "@/components/AppBusyOverlay";
 import LanguageSettings from "@/components/LanguageSettings";
 import Sheet from "@/components/ui/Sheet";
@@ -11,6 +12,7 @@ import { clearPlayerIntake } from "@/lib/coach-intake";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { pushProgressToCloud, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
 import type { WeekConfig } from "@/lib/planner";
+import PasswordChangeSettings from "@/components/PasswordChangeSettings";
 
 type ProfileSettingsSheetProps = {
   open: boolean;
@@ -21,6 +23,7 @@ type ProfileSettingsSheetProps = {
 
 export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeedback }: ProfileSettingsSheetProps) {
   const t = useT();
+  const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [busyLabel, setBusyLabel] = useState(t("settings.savingData"));
   const [busySublabel, setBusySublabel] = useState(t("settings.savingDataSub"));
@@ -30,6 +33,8 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
       <AppBusyOverlay open={loggingOut} label={busyLabel} sublabel={busySublabel} />
       <Sheet open={open} onClose={onClose} title={t("settings.title")} description={t("settings.description")}>
         <LanguageSettings />
+
+        <PasswordChangeSettings onFeedback={onFeedback} />
 
         <section className="app-card mt-4">
           <p className="section-eyebrow">{t("settings.coach")}</p>
@@ -80,7 +85,7 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
                 setBusySublabel(t("settings.endingSession"));
                 await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
                 onClose();
-                window.location.assign("/login");
+                router.replace("/login");
               } catch {
                 setLoggingOut(false);
                 onFeedback(t("settings.logoutFailed"), "error");

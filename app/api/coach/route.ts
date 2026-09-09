@@ -11,7 +11,7 @@ import { getRequestUser } from "@/lib/server/supabase-admin";
 import type { TeamMemberView } from "@/lib/team-types";
 import { type DayKey, type DayMode, type WeekConfig, getDefaultWeekConfig } from "@/lib/planner";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 type CoachContextItem = {
   date: string;
@@ -224,72 +224,6 @@ async function fetchChatCompletionJson(
     choices?: { message?: { content?: string } }[];
   };
   return json.choices?.[0]?.message?.content ?? "";
-}
-
-async function runWeeklyPlanCombined(
-  payload: CoachPayload,
-  config: NonNullable<ReturnType<typeof resolveLlmConfig>>,
-  merged: WeekConfig,
-): Promise<{
-  headline: string;
-  bullets: string[];
-  weekConfig: WeekConfig;
-  coachWorkoutByDay: Partial<Record<DayKey, string>> | undefined;
-}> {
-  const profile = payload.profile ?? {};
-  const coachNote = (payload.coachNote ?? "").trim().slice(0, 400);
-  const intakeSummary = (payload.playerIntakeSummary ?? "").trim().slice(0, 900);
-  const availabilityLine = payload.weekAvailability
-    ? Object.entries(payload.weekAvailability)
-        .map(([day, cfg]) => `${day}=${cfg.mode}(${cfg.minutes}m)`)
-        .join(", ")
-    : JSON.stringify(merged);
-  const training14Json = JSON.stringify(payload.recentTraining14d ?? []).slice(0, 1200);
-  const countsJson = JSON.stringify(payload.subcategoryCounts14d ?? {}).slice(0, 400);
-  const catalogJson = JSON.stringify(payload.workoutCatalog ?? []).slice(0, 2200);
-  const sessionsJson = JSON.stringify(payload.recentSessions ?? []).slice(0, 700);
-  const gamesJson = JSON.stringify(payload.recentGames ?? []).slice(0, 350);
-
-  const user = `Erstelle Wochenplan als JSON (Du-Form in bullets).
-Pos ${payload.position ?? "?"} | Stil ${payload.playStyle ?? "?"} | L${payload.level ?? "?"} | ${payload.mesocyclePhase ?? "build"}
-Körper ${profile.heightCm ?? "?"}cm ${profile.weightKg ?? "?"}kg KFA${profile.bodyFatPct ?? "?"}%
-Verfügbarkeit: ${availabilityLine}
-Ziele: ${payload.activeGoals?.slice(0, 5).join("; ") || "keine"}
-Schon: ${payload.injuryExerciseNames?.slice(0, 6).join(", ") || "keine"}
-${coachNote ? `Notiz: ${coachNote}\n` : ""}${intakeSummary ? `Intake: ${intakeSummary}\n` : ""}
-Training14d: ${training14Json}
-Counts: ${countsJson}
-Sessions: ${sessionsJson}
-Spiele: ${gamesJson}
-Katalog-IDs: ${catalogJson}
-
-JSON: {"headline":string,"bullets":string[4-5],"weekConfig":{7 Tage mode+minutes},"coachWorkoutByDay":{7 Tage id|null}}
-Regeln: Verfügbarkeit respektieren; 1 recovery wenn möglich; gym nur Gym-IDs; basketball/game nur Basketball-IDs; variiere Unterkategorien; injury beachten.`;
-
-  const content = await fetchChatCompletionJson(
-    config,
-    [
-      {
-        role: "system",
-        content: `${COACH_PERSONA_CORE} Ein Aufruf: Kurzdiagnose + Wochenplan als JSON.${COACH_JSON_ONLY}`,
-      },
-      { role: "user", content: user },
-    ],
-    { max_tokens: 900, temperature: 0.4 },
-  );
-
-  const parsed = parseLlmJsonObject(content);
-  const weekConfig = applyLlmWeekPatch(merged, parsed.weekConfig);
-  const coachWorkoutByDay = sanitizeCoachWorkoutByDay(parsed.coachWorkoutByDay, weekConfig, payload.workoutCatalog);
-  return {
-    headline: typeof parsed.headline === "string" && parsed.headline.trim() ? parsed.headline.trim().slice(0, 80) : "Deine Woche",
-    bullets:
-      Array.isArray(parsed.bullets) && parsed.bullets.length > 0
-        ? parsed.bullets.map((b) => String(b).trim()).filter(Boolean).slice(0, 6)
-        : ["Woche an Verfügbarkeit angepasst.", "Belastung dosieren und Regeneration einplanen."],
-    weekConfig,
-    coachWorkoutByDay,
-  };
 }
 
 function resolveLlmConfig() {

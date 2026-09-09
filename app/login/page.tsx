@@ -16,6 +16,7 @@ const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
 
 type LoginMode = "password" | "otp";
+type VerificationType = "email" | "signup";
 
 function normalizeCodeInput(value: string) {
   return value.replace(/\D/g, "").slice(0, 8);
@@ -53,6 +54,8 @@ export default function LoginPage() {
   const [busyLabel, setBusyLabel] = useState(() => t("login.busySigningIn"));
   const [busySublabel, setBusySublabel] = useState(() => t("login.busyPreparing"));
   const [codeSent, setCodeSent] = useState(false);
+  const [verificationType, setVerificationType] = useState<VerificationType>("email");
+  const [accountJustCreated, setAccountJustCreated] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -180,6 +183,27 @@ export default function LoginPage() {
         body: JSON.stringify({ email: trimmedEmail, password }),
       });
 
+      const payload = (await response.clone().json().catch(() => null)) as {
+        needsEmailConfirmation?: boolean;
+        message?: string;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        setMessage(friendlyAuthErrorMessage(payload?.message ?? payload?.error, "signup"));
+        setLoading(false);
+        return;
+      }
+      if (payload?.needsEmailConfirmation) {
+        setMode("otp");
+        setVerificationType("signup");
+        setAccountJustCreated(true);
+        setCodeSent(true);
+        setOtpCode("");
+        setMessage("Account angelegt! Wir haben dir einen Bestätigungscode per E-Mail gesendet. Gib ihn jetzt direkt hier ein.");
+        setLoading(false);
+        return;
+      }
+
       setBusyLabel(t("login.busyLoadingData"));
       setBusySublabel(t("login.busySyncing"));
 
@@ -256,6 +280,8 @@ export default function LoginPage() {
         : error.message;
       setMessage(friendly);
     } else {
+      setVerificationType("email");
+      setAccountJustCreated(false);
       setCodeSent(true);
       setMessage("Code wurde gesendet. Bitte gib den 8-stelligen Bestätigungscode aus der E-Mail ein.");
     }
@@ -279,7 +305,7 @@ export default function LoginPage() {
     const { data, error } = await supabase.auth.verifyOtp({
       email,
       token: otpCode,
-      type: "email",
+      type: verificationType,
     });
 
     if (error || !data.session) {
@@ -296,6 +322,16 @@ export default function LoginPage() {
       setMessage(redirectError);
       setLoading(false);
     }
+  };
+
+  const resendCode = async () => {
+    setLoading(true);
+    setMessage(null);
+    const { error } = verificationType === "signup"
+      ? await supabase.auth.resendSignupConfirmation({ email: email.trim() })
+      : await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: undefined } });
+    setMessage(error ? friendlyAuthErrorMessage(error.message, "signup") : "Ein neuer Code wurde gesendet. Bitte prüfe auch deinen Spam-Ordner.");
+    setLoading(false);
   };
 
   return (
@@ -320,6 +356,8 @@ export default function LoginPage() {
             onClick={() => {
               setMode("password");
               setCodeSent(false);
+              setAccountJustCreated(false);
+              setVerificationType("email");
               setMessage(null);
             }}
           >
@@ -330,6 +368,8 @@ export default function LoginPage() {
             className={`btn btn-sm flex-1 ${mode === "otp" ? "btn-primary" : "btn-ghost"}`}
             onClick={() => {
               setMode("otp");
+              setVerificationType("email");
+              setAccountJustCreated(false);
               setMessage(null);
             }}
           >
@@ -473,6 +513,12 @@ export default function LoginPage() {
           </form>
         ) : (
           <form onSubmit={verifyCode} className="mt-5 space-y-3">
+            {accountJustCreated ? (
+              <div className="signup-confirmation-banner" role="status">
+                <span className="signup-confirmation-banner__icon" aria-hidden>✓</span>
+                <div><strong>Account erfolgreich angelegt</strong><p>Bestätige jetzt deine E-Mail-Adresse mit dem zugesandten Code.</p></div>
+              </div>
+            ) : null}
             <div>
               <label className="input-label" htmlFor="login-otp">
                 {t("login.codeLabel")}
@@ -492,7 +538,7 @@ export default function LoginPage() {
             </div>
             <button
               type="submit"
-              disabled={loading || otpCode.length !== 8 || Boolean(configError) || !acceptedLegal}
+              disabled={loading || otpCode.length < 6 || Boolean(configError) || !acceptedLegal}
               className="btn btn-cyan btn-block"
             >
               {loading ? t("login.checking") : t("login.verifyCode")}
@@ -500,9 +546,19 @@ export default function LoginPage() {
             <button
               type="button"
               disabled={loading}
+              onClick={() => void resendCode()}
+              className="btn btn-outline btn-block"
+            >
+              Code erneut senden
+            </button>
+            <button
+              type="button"
+              disabled={loading}
               onClick={() => {
                 setCodeSent(false);
                 setOtpCode("");
+                setAccountJustCreated(false);
+                setVerificationType("email");
                 setMessage(null);
               }}
               className="btn btn-ghost btn-block"

@@ -25,9 +25,13 @@ const mesocycleLabels: Record<string, string> = {
 export default function ReviewPage() {
   const t = useT();
   const appDialog = useAppDialog();
+  const [hydrated, setHydrated] = useState(false);
   const [bundle, setBundle] = useState(() => loadTrainingGoalsBundle());
   useEffect(() => {
-    const tick = () => setBundle(loadTrainingGoalsBundle());
+    const tick = () => {
+      setBundle(loadTrainingGoalsBundle());
+      setHydrated(true);
+    };
     const timer = window.setTimeout(tick, 0);
     window.addEventListener("bt:training-goals-updated", tick);
     return () => {
@@ -38,6 +42,16 @@ export default function ReviewPage() {
 
   const activeGoals = useMemo(() => bundle.gymGoals.filter((goal) => goal.status === "active").length, [bundle.gymGoals]);
   const mesoLabel = mesocycleLabels[bundle.mesocyclePhase] ?? bundle.mesocyclePhase;
+
+  if (!hydrated) {
+    return (
+      <main className="app-container animate-in">
+        <section className="app-card">
+          <p className="text-sm text-muted">Auswertung wird geladen…</p>
+        </section>
+      </main>
+    );
+  }
 
   let coaching: ReturnType<typeof buildBasketballCoachingPlan> | null = null;
   try {

@@ -19,6 +19,7 @@ import {
   type OpponentStyleTag,
 } from "@/lib/opponent-styles";
 import { useT } from "@/lib/i18n/I18nProvider";
+import ModernDateInput from "@/components/ui/ModernDateInput";
 
 function toNullableNumber(value: string) {
   const parsed = Number(value);
@@ -206,21 +207,13 @@ export default function GameTrackPage() {
         <section className="mt-5 app-card">
           <p className="section-eyebrow">Kontext</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="input-label">Datum</label>
-              <input
-                type="date"
-                value={resolvedDate}
-                onChange={(e) => setResolvedDate(e.target.value)}
-                className="input"
-              />
-            </div>
+            <ModernDateInput value={resolvedDate} onChange={setResolvedDate} label="Datum" controlClassName="app-unified-control" />
             <div>
               <label className="input-label">Art</label>
               <select
                 value={resolvedContext}
                 onChange={(e) => setResolvedContext(e.target.value as "game" | "game_training")}
-                className="select"
+                className="select app-unified-control"
               >
                 <option value="game">Spieltag</option>
                 <option value="game_training">Trainingsspiel</option>

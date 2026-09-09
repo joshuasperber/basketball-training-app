@@ -1,4 +1,4 @@
-import type { ErrorEvent, EventHint } from "@sentry/nextjs";
+import type { ErrorEvent } from "@sentry/nextjs";
 
 const SENSITIVE_KEY = /email|password|token|authorization|cookie|session|secret|api[_-]?key|refresh|access/i;
 
@@ -25,7 +25,7 @@ function scrubObject(input: Record<string, unknown>) {
   return out;
 }
 
-export function sentryBeforeSend(event: ErrorEvent, _hint: EventHint): ErrorEvent | null {
+export function sentryBeforeSend(event: ErrorEvent): ErrorEvent | null {
   if (event.user) {
     event.user = { id: event.user.id };
   }

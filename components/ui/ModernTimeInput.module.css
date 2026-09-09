@@ -1,0 +1,68 @@
+.field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.control {
+  display: flex;
+  width: 100%;
+  min-height: 2.75rem;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.9rem;
+  background: var(--surface);
+  color: var(--fg-strong);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.control:hover {
+  border-color: rgba(255, 107, 0, 0.36);
+}
+
+.control:focus-within {
+  border-color: rgba(255, 107, 0, 0.58);
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.12);
+}
+
+.icon {
+  display: grid;
+  width: 2.7rem;
+  align-self: stretch;
+  flex: 0 0 auto;
+  place-items: center;
+  border-right: 1px solid rgba(255, 107, 0, 0.14);
+  background: rgba(255, 107, 0, 0.07);
+  color: var(--brand-500);
+}
+
+.icon svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0 0.75rem;
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.input::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
+.suffix {
+  padding-right: 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}

@@ -345,10 +345,11 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
 /* ------------------------------------------------------------------ */
 .btn {
   display: inline-flex;
+  min-height: 2.875rem;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: var(--radius-xs);
+  border-radius: 0.8rem;
   font-weight: 600;
   font-size: 0.875rem;
   padding: 0.55rem 1rem;
@@ -361,8 +362,17 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
   text-decoration: none;
 }
 
+.btn:hover:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(-1px);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.14), 0 4px 14px -4px rgba(15, 23, 42, 0.16);
+}
+
 .btn:active {
-  transform: translateY(1px);
+  transform: translateY(0);
 }
 
 .btn:disabled,
@@ -437,12 +447,14 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
 }
 
 .btn-sm {
+  min-height: 2.5rem;
   font-size: 0.8125rem;
   padding: 0.4rem 0.75rem;
   border-radius: var(--radius-xs);
 }
 
 .btn-xs {
+  min-height: 2.125rem;
   font-size: 0.75rem;
   padding: 0.3rem 0.65rem;
   border-radius: 7px;
@@ -466,6 +478,12 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
   cursor: pointer;
   box-shadow: var(--shadow-soft);
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.icon-btn:focus-visible {
+  border-color: rgba(255, 107, 0, 0.5);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.14), var(--shadow-soft);
 }
 
 .icon-btn svg {
@@ -829,6 +847,11 @@ a.icon-btn {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.input,
+.select {
+  min-height: 2.75rem;
+}
+
 .input::placeholder,
 .textarea::placeholder {
   color: var(--fg-faint);
@@ -857,6 +880,337 @@ a.icon-btn {
   color: var(--fg-muted);
   margin-bottom: 0.35rem;
   letter-spacing: 0.01em;
+}
+
+/* Saisonspiel: einheitliche Höhe und Form für Datum, Auswahlfelder und Aktion */
+.league-game-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.league-game-form .league-game-control,
+.app-unified-control.app-unified-control {
+  width: 100%;
+  height: 2.875rem;
+  min-height: 2.875rem;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: 0.8rem;
+  background: linear-gradient(180deg, #fff 0%, #fffcfa 100%);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.035);
+  color: var(--fg-strong);
+  font-size: 0.9375rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.league-game-form .league-game-control:hover,
+.app-unified-control.app-unified-control:hover {
+  border-color: rgba(255, 107, 0, 0.38);
+  background: #fff;
+}
+
+.league-game-form .league-game-control:focus,
+.league-game-form .league-game-control:focus-visible,
+.league-game-form .league-game-control:focus-within,
+.league-game-form .league-game-control[aria-expanded="true"],
+.app-unified-control.app-unified-control:focus,
+.app-unified-control.app-unified-control:focus-visible,
+.app-unified-control.app-unified-control[aria-expanded="true"] {
+  border-color: rgba(255, 107, 0, 0.62);
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.12);
+  transform: none;
+}
+
+.league-game-form select.league-game-control {
+  padding-block: 0;
+}
+
+/* Native Selects can ignore the visual control height on macOS. Removing the
+   platform appearance keeps the roster selector aligned with the text inputs. */
+.league-game-form select.league-roster-team-select {
+  display: block;
+  box-sizing: border-box;
+  height: 2.875rem !important;
+  min-height: 2.875rem !important;
+  align-self: stretch;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 2.5rem 0 0.85rem;
+  line-height: 1.25rem;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m8 10 4-4 4 4'/%3E%3Cpath d='m16 14-4 4-4-4'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #fff 0%, #fffcfa 100%);
+  background-position: right 0.8rem center, 0 0;
+  background-repeat: no-repeat;
+  background-size: 1rem, 100% 100%;
+}
+
+.league-game-action {
+  width: 100%;
+  min-height: 2.875rem;
+  padding: 0.65rem 1.05rem;
+  border-radius: 0.8rem;
+  font-size: 0.875rem;
+}
+
+.modern-date-field {
+  position: relative;
+  display: block;
+}
+
+.modern-date-input {
+  display: flex;
+  width: 100%;
+  min-height: 2.75rem;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.9rem;
+  background:
+    radial-gradient(circle at 100% 0, rgba(255, 107, 0, 0.1), transparent 42%),
+    var(--surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.modern-date-input:hover {
+  border-color: rgba(255, 107, 0, 0.36);
+}
+
+.modern-date-input:focus-visible,
+.modern-date-input--open {
+  border-color: rgba(255, 107, 0, 0.58);
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.12), 0 10px 28px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.modern-date-input__icon {
+  display: grid;
+  width: 2.7rem;
+  align-self: stretch;
+  place-items: center;
+  border-right: 1px solid rgba(255, 107, 0, 0.14);
+  background: rgba(255, 107, 0, 0.07);
+  color: var(--brand-500);
+}
+
+.modern-date-input__icon svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.modern-date-input__value {
+  min-width: 0;
+  flex: 1;
+  padding: 0.68rem 0.8rem;
+  color: var(--fg-strong);
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.modern-date-input__value--empty {
+  color: var(--fg-faint);
+  font-weight: 550;
+}
+
+.modern-date-input__chevron {
+  display: grid;
+  width: 2.3rem;
+  place-items: center;
+  color: var(--fg-muted);
+  transition: transform 0.15s ease;
+}
+
+.modern-date-input--open .modern-date-input__chevron {
+  transform: rotate(180deg);
+}
+
+.modern-date-input__chevron svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.modern-calendar-popover {
+  position: fixed;
+  z-index: 11000;
+  width: min(20.25rem, calc(100vw - 1.5rem));
+  overflow: hidden;
+  border: 1px solid rgba(255, 107, 0, 0.2);
+  border-radius: 1.3rem;
+  background: rgba(255, 255, 255, 0.98);
+  padding: 0.9rem;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.72) inset;
+  backdrop-filter: blur(18px);
+  animation: modern-calendar-in 0.18s ease-out;
+}
+
+.modern-calendar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0.15rem 0.8rem;
+}
+
+.modern-calendar__eyebrow {
+  color: var(--brand-500);
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.modern-calendar__month {
+  margin-top: 0.18rem;
+  color: var(--fg-strong);
+  font-size: 1.05rem;
+  font-weight: 850;
+  letter-spacing: -0.025em;
+}
+
+.modern-calendar__month::first-letter {
+  text-transform: uppercase;
+}
+
+.modern-calendar__nav {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.modern-calendar__nav button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.7rem;
+  background: var(--bg-muted);
+  color: var(--fg-strong);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.modern-calendar__nav button:hover {
+  border-color: rgba(255, 107, 0, 0.28);
+  background: var(--brand-soft);
+  color: var(--brand-500);
+  transform: translateY(-1px);
+}
+
+.modern-calendar__weekdays,
+.modern-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.modern-calendar__weekdays {
+  margin-bottom: 0.3rem;
+  color: var(--fg-faint);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.modern-calendar__weekdays span {
+  padding: 0.25rem 0;
+}
+
+.modern-calendar__grid {
+  gap: 0.22rem;
+}
+
+.modern-calendar__day {
+  position: relative;
+  display: grid;
+  aspect-ratio: 1;
+  min-width: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 0.72rem;
+  background: transparent;
+  color: var(--fg-strong);
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.13s ease, color 0.13s ease, box-shadow 0.13s ease, transform 0.13s ease;
+}
+
+.modern-calendar__day:hover:not(:disabled):not(.modern-calendar__day--selected) {
+  background: var(--brand-soft);
+  color: var(--brand-500);
+  transform: translateY(-1px);
+}
+
+.modern-calendar__day--outside {
+  color: var(--fg-faint);
+  opacity: 0.48;
+}
+
+.modern-calendar__day--today::after {
+  position: absolute;
+  bottom: 0.26rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 999px;
+  background: #06b6d4;
+  content: "";
+}
+
+.modern-calendar__day--selected {
+  background: linear-gradient(145deg, #ff7a18, #ff5a00);
+  color: #fff;
+  box-shadow: 0 7px 16px rgba(255, 107, 0, 0.28);
+  font-weight: 850;
+}
+
+.modern-calendar__day--selected::after {
+  background: #fff;
+}
+
+.modern-calendar__day:disabled {
+  opacity: 0.22;
+  cursor: not-allowed;
+}
+
+.modern-calendar__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-top: 0.65rem;
+  border-top: 1px solid var(--surface-border);
+  padding: 0.72rem 0.15rem 0.05rem;
+  color: var(--fg-muted);
+  font-size: 0.68rem;
+}
+
+.modern-calendar__footer button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  padding: 0.35rem 0.72rem;
+  color: var(--brand-500);
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.modern-calendar__footer button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes modern-calendar-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1675,14 +2029,21 @@ a.icon-btn {
   align-items: center;
   justify-content: center;
   height: 3rem;
-  border-radius: 0.65rem;
+  border-radius: 0.85rem;
   border: 1px solid var(--surface-border);
-  background: #fff;
+  background: linear-gradient(160deg, #fff 35%, rgba(241, 245, 249, 0.78));
   color: var(--fg-strong);
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.035);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.calendar-day:not(.calendar-day--empty):hover {
+  border-color: rgba(255, 107, 0, 0.32);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
 }
 
 .calendar-day--empty {
@@ -1987,3 +2348,327 @@ a.icon-btn {
   content-visibility: auto;
   contain-intrinsic-size: auto 420px;
 }
+
+.league-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 1rem;
+  background: var(--surface);
+}
+
+.league-table {
+  width: 100%;
+  min-width: 46rem;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.league-table th,
+.league-table td {
+  padding: 0.68rem 0.7rem;
+  border-bottom: 1px solid var(--surface-border);
+  white-space: nowrap;
+}
+
+.league-table th {
+  background: var(--bg-muted);
+  color: var(--fg-muted);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.league-table th:nth-child(2),
+.league-table td:nth-child(2),
+.league-player-table th:first-child,
+.league-player-table td:first-child {
+  text-align: left;
+}
+
+.league-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.league-row--playoffs td:first-child { border-left: 4px solid #7c3aed; }
+.league-row--stay td:first-child { border-left: 4px solid #06b6d4; }
+.league-row--relegation td:first-child { border-left: 4px solid #e11d48; }
+.league-row--own { background: rgba(255, 107, 0, 0.055); }
+
+.league-status,
+.league-legend {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.48rem;
+  font-weight: 700;
+}
+
+.league-status--playoffs,
+.league-legend--playoffs { background: #f5f3ff; color: #6d28d9; }
+.league-status--stay,
+.league-legend--stay { background: #ecfeff; color: #0e7490; }
+.league-status--relegation,
+.league-legend--relegation { background: #fff1f2; color: #be123c; }
+.league-status--outside { background: var(--bg-muted); color: var(--fg-muted); }
+
+.league-game-card {
+  overflow: hidden;
+  border: 1px solid var(--surface-border);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+}
+
+.league-game-card[open] {
+  border-color: rgba(255, 107, 0, 0.25);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.075);
+}
+
+.league-game-card__summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.league-game-card__summary::-webkit-details-marker { display: none; }
+.league-game-card__body { border-top: 1px solid var(--surface-border); padding: 1rem; }
+.league-score { margin: 0 0.4rem; color: var(--brand-500); font-size: 1.05rem; }
+
+.league-fixture-board {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.league-fixture-day {
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--surface-border);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.045);
+}
+
+.league-fixture-day__date {
+  display: flex;
+  min-height: 5.25rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid rgba(255, 107, 0, 0.16);
+  background: linear-gradient(145deg, rgba(255, 107, 0, 0.13), rgba(255, 248, 242, 0.58));
+  color: var(--brand-600, #c2410c);
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.league-fixture-day__date strong {
+  margin: 0.25rem 0;
+  color: var(--fg-strong);
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.league-fixture-day__date span {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.league-fixture-day__games {
+  min-width: 0;
+}
+
+.league-fixture {
+  display: grid;
+  min-height: 5.25rem;
+  grid-template-columns: 4.75rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+}
+
+.league-fixture + .league-fixture {
+  border-top: 1px solid var(--surface-border);
+}
+
+.league-fixture__time,
+.league-fixture__result {
+  display: flex;
+  flex-direction: column;
+}
+
+.league-fixture__time strong,
+.league-fixture__result strong {
+  color: var(--fg-strong);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.league-fixture__time span,
+.league-fixture__result span {
+  margin-top: 0.15rem;
+  color: var(--fg-muted);
+  font-size: 0.625rem;
+  font-weight: 650;
+}
+
+.league-fixture__teams {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+  color: var(--fg-strong);
+  font-size: 0.8125rem;
+  font-weight: 680;
+}
+
+.league-fixture__teams span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.league-fixture__result {
+  min-width: 5.25rem;
+  align-items: flex-end;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.75rem;
+  background: var(--bg-muted);
+  padding: 0.45rem 0.65rem;
+}
+
+.league-fixture__result--final {
+  border-color: rgba(255, 107, 0, 0.22);
+  background: rgba(255, 107, 0, 0.075);
+}
+
+@media (max-width: 639px) {
+  .league-fixture-day {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+  }
+
+  .league-fixture {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+    gap: 0.65rem;
+    padding: 0.75rem;
+  }
+
+  .league-fixture__result {
+    grid-column: 2;
+    align-items: flex-start;
+    justify-self: start;
+  }
+}
+
+.league-player-table { min-width: 58rem; }
+.league-player-table th:not(:first-child), .league-player-table td:not(:first-child) { width: 4.4rem; }
+.league-stat-input {
+  width: 3.5rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.55rem;
+  background: var(--bg-muted);
+  padding: 0.38rem 0.25rem;
+  text-align: center;
+  color: var(--fg-strong);
+  outline: none;
+}
+.league-stat-input:focus { border-color: var(--brand-500); box-shadow: 0 0 0 2px rgba(255, 107, 0, 0.1); }
+
+.celebration-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.68);
+  backdrop-filter: blur(12px);
+}
+
+.celebration-card {
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 34rem);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 2rem;
+  background: linear-gradient(150deg, #fff 25%, #fff7ed 68%, #f5f3ff);
+  padding: clamp(2rem, 6vw, 4rem) clamp(1.4rem, 5vw, 3.5rem);
+  box-shadow: 0 32px 90px rgba(15, 23, 42, 0.38), 0 0 80px rgba(255, 107, 0, 0.26);
+  text-align: center;
+  animation: celebration-pop 0.55s cubic-bezier(0.2, 0.9, 0.28, 1.2);
+}
+
+.celebration-glow {
+  position: absolute;
+  z-index: -1;
+  top: -7rem;
+  left: 50%;
+  width: 22rem;
+  height: 22rem;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 107, 0, 0.35), transparent 68%);
+}
+
+.celebration-icon {
+  display: grid;
+  width: 6.5rem;
+  height: 6.5rem;
+  margin: 0 auto 1rem;
+  place-items: center;
+  border: 1px solid rgba(255, 107, 0, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 45px rgba(255, 107, 0, 0.22);
+  font-size: 3.2rem;
+  animation: celebration-ball 1.2s ease-in-out infinite alternate;
+}
+
+.celebration-kicker { color: var(--brand-500); font-size: 0.72rem; font-weight: 900; letter-spacing: 0.24em; }
+.celebration-title { margin-top: 0.45rem; color: var(--fg-strong); font-size: clamp(2.1rem, 8vw, 4rem); font-weight: 950; letter-spacing: -0.055em; line-height: 0.98; }
+.celebration-copy { max-width: 28rem; margin: 1rem auto 0; color: var(--fg-muted); font-size: 1rem; line-height: 1.65; }
+.celebration-tier { display: inline-flex; margin-top: 1rem; border-radius: 999px; background: #ede9fe; padding: 0.35rem 0.75rem; color: #6d28d9; font-size: 0.75rem; font-weight: 800; }
+
+.celebration-confetti { position: absolute; inset: 0; pointer-events: none; }
+.celebration-confetti i {
+  position: absolute;
+  top: -8%;
+  left: calc((var(--piece) + 1) * 5.25%);
+  width: 0.55rem;
+  height: 1.1rem;
+  border-radius: 0.2rem;
+  background: hsl(calc(var(--piece) * 43deg) 85% 56%);
+  transform: rotate(calc(var(--piece) * 23deg));
+  animation: celebration-fall calc(2.8s + var(--piece) * 0.04s) linear infinite;
+  animation-delay: calc(var(--piece) * -0.17s);
+}
+
+@keyframes celebration-pop { from { opacity: 0; transform: translateY(28px) scale(0.88); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes celebration-ball { from { transform: translateY(0) rotate(-4deg); } to { transform: translateY(-9px) rotate(5deg); } }
+@keyframes celebration-fall { to { top: 108%; transform: rotate(720deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .celebration-card, .celebration-icon, .celebration-confetti i { animation: none; }
+}
+
+.signup-confirmation-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  border: 1px solid rgba(5, 150, 105, 0.24);
+  border-radius: 1rem;
+  background: linear-gradient(135deg, #ecfdf5, #f0fdfa);
+  padding: 0.9rem;
+  color: #065f46;
+}
+
+.signup-confirmation-banner p { margin-top: 0.15rem; font-size: 0.75rem; line-height: 1.45; color: #047857; }
+.signup-confirmation-banner__icon { display: grid; width: 1.8rem; height: 1.8rem; flex: 0 0 auto; place-items: center; border-radius: 999px; background: #10b981; color: #fff; font-weight: 900; }

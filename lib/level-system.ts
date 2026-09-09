@@ -21,6 +21,14 @@ export type ProgressionState = {
 
 const XP_HISTORY_KEY = "bt.xp-history.v1";
 const XP_PROGRESSION_KEY = "bt.progression.v1";
+export const PROGRESSION_CELEBRATION_EVENT = "bt:progression-celebration";
+
+export type ProgressionCelebrationDetail = {
+  level: number;
+  previousLevel: number;
+  levelDelta: number;
+  totalXp: number;
+};
 
 function toDateKey(date: Date) {
   const year = date.getFullYear();
@@ -201,6 +209,18 @@ export function appendWorkoutXpEntry(entry: WorkoutXpEntry) {
   };
 
   writeJson(XP_PROGRESSION_KEY, nextState);
+  if (canUseStorage()) {
+    window.dispatchEvent(
+      new CustomEvent<ProgressionCelebrationDetail>(PROGRESSION_CELEBRATION_EVENT, {
+        detail: {
+          level: levelData.level,
+          previousLevel,
+          levelDelta: levelData.level - previousLevel,
+          totalXp,
+        },
+      }),
+    );
+  }
   return {
     entry: { ...entry, totalXp: effectiveXp },
     progression: nextState,

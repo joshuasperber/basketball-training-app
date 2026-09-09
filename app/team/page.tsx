@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import TopSubTabs from "@/components/TopSubTabs";
@@ -43,25 +43,12 @@ function formToneClass(tone: "green" | "yellow" | "red") {
 
 export default function TeamPage() {
   const t = useT();
-  const [teams, setTeams] = useState<TeamSummary[]>(() =>
-    typeof window !== "undefined" ? (loadCachedTeamList() ?? []) : [],
-  );
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    const cached = loadCachedTeamList();
-    return cached?.[0]?.id ?? null;
-  });
-  const [detail, setDetail] = useState<TeamDetail | null>(() => {
-    if (typeof window === "undefined") return null;
-    const cached = loadCachedTeamList();
-    const teamId = cached?.[0]?.id;
-    return teamId ? loadCachedTeamDetail(teamId) : null;
-  });
+  const router = useRouter();
+  const [teams, setTeams] = useState<TeamSummary[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<TeamDetail | null>(null);
   const [tab, setTab] = useState<TeamTab>("overview");
-  const [loading, setLoading] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return !(loadCachedTeamList()?.length ?? 0);
-  });
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [newTeamName, setNewTeamName] = useState("");
   const [joinToken, setJoinToken] = useState("");
@@ -72,7 +59,6 @@ export default function TeamPage() {
   const [scoutingNotes, setScoutingNotes] = useState("");
   const [adviceOpponent, setAdviceOpponent] = useState("");
   const [authMe, setAuthMe] = useState<{ id: string; email: string; cloudWorkouts14d: number; cloudSessionCount: number } | null>(null);
-  const [localSessionCount, setLocalSessionCount] = useState(0);
   const [shareLevelSaving, setShareLevelSaving] = useState(false);
   const [roleSavingUserId, setRoleSavingUserId] = useState<string | null>(null);
 
@@ -92,7 +78,13 @@ export default function TeamPage() {
   const loadTeams = useCallback(async () => {
     const cached = loadCachedTeamList();
     const hasCache = (cached?.length ?? 0) > 0;
-    if (!hasCache) setLoading(true);
+    if (hasCache && cached) {
+      setTeams(cached);
+      setSelectedTeamId((current) => current ?? cached[0]?.id ?? null);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     try {
       const response = await fetch("/api/team", { cache: "no-store" });
       if (response.status === 401) {
@@ -126,7 +118,6 @@ export default function TeamPage() {
 
   const refreshAuthDiagnostics = useCallback(async () => {
     const me = await fetchAuthMe();
-    setLocalSessionCount(getWorkoutSessions().length);
     if (me) {
       setAuthMe({
         id: me.id,
@@ -162,7 +153,6 @@ export default function TeamPage() {
       saveCachedTeamDetail(teamId, json);
       setAdviceOpponent((current) => current || json.scouting[0]?.opponentName || "");
       const localCount = getWorkoutSessions().length;
-      setLocalSessionCount(localCount);
 
       if (!me) {
         setMessage("Nicht eingeloggt — Session-Cookie fehlt. Bitte erneut anmelden.");
@@ -283,7 +273,7 @@ export default function TeamPage() {
     if (!response.ok) {
       if (response.status === 401) {
         const next = `/team?join=${encodeURIComponent(token)}`;
-        window.location.href = `/login?next=${encodeURIComponent(next)}`;
+        router.push(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
       setMessage(teamJoinErrorMessage(response.status, json?.error));

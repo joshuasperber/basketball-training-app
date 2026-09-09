@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import AiConsentSettings from "@/components/AiConsentSettings";
 import AnalyticsConsentSettings from "@/components/AnalyticsConsentSettings";
 import { useAppDialog } from "@/components/ui/AppDialogProvider";
@@ -13,6 +14,7 @@ type ProfilePrivacySectionProps = {
 
 export default function ProfilePrivacySection({ onFeedback }: ProfilePrivacySectionProps) {
   const appDialog = useAppDialog();
+  const router = useRouter();
   const t = useT();
 
   return (
@@ -53,6 +55,7 @@ export default function ProfilePrivacySection({ onFeedback }: ProfilePrivacySect
 
             const result = await deleteAccountAndLocalData();
             onFeedback(result.message, result.ok ? "success" : "error");
+            if (result.ok) router.replace("/login");
           }}
         >
           {t("privacy.delete")}

@@ -321,23 +321,6 @@ function toNavCard(card: WorkoutCardItem): WeeklyWorkoutNavCard {
   };
 }
 
-function encodeAutoWorkoutSuggestion(suggestion: SuggestedWorkout) {
-  const payload = {
-    title: suggestion.title,
-    sport: suggestion.sport,
-    subcategory: suggestion.subcategory,
-    notes: suggestion.notes,
-    exerciseIds: suggestion.exerciseIds ?? [],
-    exercises: suggestion.exercises ?? [],
-  };
-
-  try {
-    return encodeURIComponent(JSON.stringify(payload));
-  } catch {
-    return null;
-  }
-}
-
 function roundUpToNearestFive(value: number) {
   return Math.ceil(value / 5) * 5;
 }

@@ -35,7 +35,8 @@ export async function getOrCreateTeamInviteToken(
     body: JSON.stringify(payload),
   });
   if (!created.ok) {
-    const { invited_role: _role, ...legacyPayload } = payload;
+    const { invited_role, ...legacyPayload } = payload;
+    void invited_role;
     created = await supabaseRest<InviteRow[]>("team_invites", {
       method: "POST",
       prefer: "return=representation",

@@ -31,10 +31,8 @@ import {
   aggregateShootingByZone,
   computeFieldGoalPercentage,
   computeThreePointPercentage,
-  mergeShootingZoneTotals,
   shootingZoneRows,
 } from "@/lib/shooting-zone-stats";
-import { aggregateGameShootingByZone } from "@/lib/game-shooting-splits";
 
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home" | "Regeneration";
@@ -69,7 +67,7 @@ type GymExerciseGoalStat = {
 };
 
 type StatsRange = "all" | "monthly" | "weekly";
-type StatsDetailTab = "overview" | "basketball" | "gym";
+type StatsDetailTab = "overview" | "basketball" | "games" | "gym";
 
 type HistorySportBucket = "Basketball" | "Gym" | "Home" | "Regeneration";
 
@@ -445,13 +443,9 @@ function StatsPageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const detailTab: StatsDetailTab =
-    tabParam === "basketball" || tabParam === "gym" ? tabParam : "overview";
-  const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>(() =>
-    typeof window !== "undefined" ? loadCombinedHistory() : [],
-  );
-  const [sessionDetails, setSessionDetails] = useState<WorkoutSessionEntry[]>(() =>
-    typeof window !== "undefined" ? getTrackedWorkoutSessions() : [],
-  );
+    tabParam === "basketball" || tabParam === "games" || tabParam === "gym" ? tabParam : "overview";
+  const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
+  const [sessionDetails, setSessionDetails] = useState<WorkoutSessionEntry[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [range, setRange] = useState<StatsRange>("all");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -464,9 +458,8 @@ function StatsPageContent() {
     basketballHistory: false,
     gymHistory: false,
   });
-  const [username, setUsername] = useState("Spieler");  const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>(() =>
-    typeof window !== "undefined" ? loadGameStats() : [],
-  );
+  const [username, setUsername] = useState("Spieler");
+  const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>([]);
   const [sessionNotesDraft, setSessionNotesDraft] = useState("");
 
   const refreshSessionDetails = useCallback(() => {
@@ -805,16 +798,14 @@ useEffect(() => {
   );
 
   const shootingZoneStats = useMemo(() => {
-    const workoutTotals = aggregateShootingByZone(basketballSessions, exerciseLookupForSplit);
-    const gameTotals = aggregateGameShootingByZone(filteredGameStats);
-    const totals = mergeShootingZoneTotals(workoutTotals, gameTotals);
+    const totals = aggregateShootingByZone(basketballSessions, exerciseLookupForSplit);
     return {
       rows: shootingZoneRows(totals),
       totals,
       fieldGoalPct: computeFieldGoalPercentage(totals),
       threePointPct: computeThreePointPercentage(totals),
     };
-  }, [basketballSessions, exerciseLookupForSplit, filteredGameStats]);
+  }, [basketballSessions, exerciseLookupForSplit]);
 
   const toggleSection = (
     key:
@@ -878,6 +869,7 @@ useEffect(() => {
               {([
                 { id: "overview", label: t("stats.tabOverview"), href: "/stats?tab=overview" },
                 { id: "basketball", label: t("stats.tabBasketball"), href: "/stats?tab=basketball" },
+                { id: "games", label: "Spiele", href: "/stats?tab=games" },
                 { id: "gym", label: t("stats.tabGym"), href: "/stats?tab=gym" },
               ] as const).map((tab) => (
                 <Link
@@ -1030,76 +1022,48 @@ useEffect(() => {
         </>
       ) : null}
 
+      {detailTab === "games" ? (
+        <>
+          <section className="mt-6 app-card">
+            <p className="section-eyebrow">Game Tracking</p>
+            <h2 className="section-title mt-1">Spiele &amp; Testspiele</h2>
+            <p className="mt-1 text-xs text-muted">Persönliche Basketball-Spielwerte getrennt von deinen Workout-Statistiken.</p>
+            <div className="mt-4 grid-stats">
+              <div className="stat-tile"><p className="stat-tile__label">Spieltage</p><p className="stat-tile__value">{gameTotals.games}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Test-/Trainingsspiele</p><p className="stat-tile__value">{gameTotals.gameTrainings}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Ø Punkte</p><p className="stat-tile__value">{filteredGameStats.length > 0 ? Math.round(gameTotals.points / filteredGameStats.length) : "–"}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Ø Assists</p><p className="stat-tile__value">{filteredGameStats.length > 0 ? Math.round((gameTotals.assists / filteredGameStats.length) * 10) / 10 : "–"}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Ø Rebounds</p><p className="stat-tile__value">{filteredGameStats.length > 0 ? Math.round((gameTotals.rebounds / filteredGameStats.length) * 10) / 10 : "–"}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{gameTotals.minutes}</p></div>
+            </div>
+          </section>
+          <div className="mt-6"><GameStatsSearchPanel entries={filteredGameStats} variant="full" /></div>
+          <div className="mt-6"><GameTrainingInsights /></div>
+          <div className="mt-6"><MatchupHintsCard /></div>
+        </>
+      ) : null}
+
       {detailTab === "basketball" ? (
         <>
           <section className="mt-6 app-card">
-            <button type="button" onClick={() => toggleSection("games")} className="flex w-full items-center justify-between text-left">
-              <div>
-                <p className="section-eyebrow">Game Tracking</p>
-                <span className="section-title">Spiele</span>
-              </div>
-              <span className="chip">{openSections.games ? "−" : "+"}</span>
-            </button>
-            {openSections.games ? (
-              <div className="mt-4">
-                <p className="text-xs text-muted">
-                  {gameTotals.games} Spieltage · {gameTotals.gameTrainings} Spieltrainings · {filteredGameStats.length}{" "}
-                  Einträge im Zeitraum
-                </p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  <div className="stat-tile">
-                    <p className="stat-tile__label">Spiele</p>
-                    <p className="stat-tile__value">{gameTotals.games}</p>
-                  </div>
-                  <div className="stat-tile">
-                    <p className="stat-tile__label">Spieltraining</p>
-                    <p className="stat-tile__value">{gameTotals.gameTrainings}</p>
-                  </div>
-                  <div className="stat-tile">
-                    <p className="stat-tile__label">Ø Punkte / Spiel</p>
-                    <p className="stat-tile__value">
-                      {gameTotals.games > 0 ? Math.round(gameTotals.points / gameTotals.games) : "–"}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-5 border-t border-[var(--surface-border)] pt-4">
-                  <GameStatsSearchPanel entries={filteredGameStats} variant="full" />
-                </div>
-                <div className="mt-6">
-                  <GameTrainingInsights />
-                </div>
-                <div className="mt-6">
-                  <MatchupHintsCard />
-                </div>
-              </div>
-            ) : null}
+            <p className="section-eyebrow">Basketball</p>
+            <h2 className="section-title mt-1">Training Kennzahlen</h2>
+            <p className="mt-1 text-xs text-muted">Wie in Übersicht und Gym: nur abgeschlossene Basketball-Workouts und Übungen.</p>
+            <div className="mt-4 grid-stats">
+              <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{basketballTotals.workouts}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{basketballTotals.exercises}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{basketballTotals.sets}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{basketballTotals.reps}</p></div>
+              <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{basketballTotals.minutes}</p></div>
+            </div>
           </section>
 
-          <section className="mt-6 app-card">
-            <button type="button" onClick={() => toggleSection("trainingStats")} className="flex w-full items-center justify-between text-left">
-              <div>
-                <p className="section-eyebrow">Training</p>
-                <span className="section-title">Workouts &amp; Übungen</span>
-              </div>
-              <span className="chip">{openSections.trainingStats ? "−" : "+"}</span>
-            </button>
-            {openSections.trainingStats ? (
-              <>
-                <div className="mt-3 grid-stats">
-                  <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{basketballTotals.workouts}</p></div>
-                  <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{basketballTotals.minutes}</p></div>
-                  <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{basketballTotals.sets}</p></div>
-                </div>
-              </>
-            ) : null}
-          </section>
-
-          {openSections.trainingStats && shootingZoneStats.rows.length > 0 ? (
+          {shootingZoneStats.rows.length > 0 ? (
             <section className="mt-6 app-card--accent-cyan">
               <p className="section-eyebrow">Shooting Splits</p>
               <h2 className="section-title mt-1">Wurfzonen (NBA-Standard)</h2>
               <p className="mt-2 text-sm text-muted">
-                FT%, FG% und 3P% nach Zone — Workouts und Spiel-Track (At Rim, In The Paint, Mid-Range, Corner 3, Beyond the Arc).
+                FT%, FG% und 3P% nach Zone — ausschließlich aus Basketball-Workouts (At Rim, In The Paint, Mid-Range, Corner 3, Beyond the Arc).
               </p>
               {shootingZoneStats.fieldGoalPct != null || shootingZoneStats.threePointPct != null ? (
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">

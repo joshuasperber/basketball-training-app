@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
     body: JSON.stringify(memberPayload),
   });
   if (!memberRes.ok) {
-    const { member_email: _omit, ...legacyPayload } = memberPayload;
+    const { member_email, ...legacyPayload } = memberPayload;
+    void member_email;
     memberRes = await supabaseRest("team_members", {
       method: "POST",
       body: JSON.stringify(legacyPayload),

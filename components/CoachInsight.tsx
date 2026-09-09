@@ -124,9 +124,6 @@ function buildPayload() {
   const intake = loadPlayerIntake();
   const playerIntakeSummaryRaw = formatPlayerIntakeForPrompt(intake);
   const playerIntakeSummary = playerIntakeSummaryRaw ? playerIntakeSummaryRaw.slice(0, 900) : undefined;
-  const intakeAge =
-    intake && !intake.skipped && intake.ageYears != null && intake.ageYears > 0 ? intake.ageYears : null;
-
   return {
     position: profileCache?.profile?.favorite_position ?? "sg",
     playStyle: profileCache?.playStyle ?? "",
@@ -257,7 +254,7 @@ export default function CoachInsight() {
         autoWeeklyRunningRef.current = false;
       }
     },
-    [buildPayload],
+    [],
   );
 
   const fetchCoachingLlm = useCallback(async (skipCache = false) => {

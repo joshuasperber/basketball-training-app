@@ -96,11 +96,6 @@ function getAccessTokenFromBrowserCookie() {
   return getCookieValue("sb-access-token");
 }
 
-function getRefreshTokenFromBrowserCookie() {
-  if (typeof document === "undefined") return undefined;
-  return getCookieValue("sb-refresh-token");
-}
-
 function getCookieValue(name: string) {
   const tokenCookie = document.cookie
     .split(";")
@@ -109,10 +104,6 @@ function getCookieValue(name: string) {
 
   if (!tokenCookie) return undefined;
   return decodeURIComponent(tokenCookie.split("=").slice(1).join("="));
-}
-
-function persistBrowserSessionCookies(_session: AuthSession) {
-  // Session cookies are set HttpOnly by /api/auth/session — not readable/writable from JS.
 }
 
 async function fetchBrowserAuthUser(): Promise<AuthUser | null> {

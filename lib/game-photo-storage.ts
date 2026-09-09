@@ -1,5 +1,3 @@
-import { supabase } from "@/lib/supabase";
-
 /** Komprimiert ein Bild client-seitig auf max. ~1600 px lange Kante & JPEG q=0.8. */
 async function compressImage(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => {

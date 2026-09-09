@@ -1,10 +1,12 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { alignLocalAuthAfterServerSession } from "@/lib/auth-finalize-client";
 import { bootstrapRecoverySessionFromUrl } from "@/lib/auth-recovery-client";
 
 export default function ResetPasswordPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -119,7 +121,7 @@ export default function ResetPasswordPage() {
             {message ??
               "Bitte auf der Login-Seite erneut „Passwort vergessen?“ wählen und den neuen Link öffnen."}
           </p>
-          <button type="button" className="btn btn-primary btn-block mt-4" onClick={() => window.location.assign("/login")}>
+          <button type="button" className="btn btn-primary btn-block mt-4" onClick={() => router.push("/login")}>
             Zur Login-Seite
           </button>
         </div>

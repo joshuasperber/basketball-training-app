@@ -43,7 +43,6 @@ type UseWorkoutCompletionOptions = {
   currentExercise: WorkoutPlan["exercises"][number] | undefined;
   setSetValidationError: (message: string | null) => void;
   setCompletionBanner: (message: string | null) => void;
-  appendQueryParams: (href: string, params: Record<string, string>) => string;
   onCompleteStart?: () => void;
 };
 
@@ -70,7 +69,6 @@ export function useWorkoutCompletion({
   currentExercise,
   setSetValidationError,
   setCompletionBanner,
-  appendQueryParams,
   onCompleteStart,
 }: UseWorkoutCompletionOptions) {
   const completionRunLockRef = useRef<string | null>(null);

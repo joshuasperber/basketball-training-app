@@ -369,7 +369,7 @@ export function finishWorkoutSession(input: {
   const avgRpe =
     rpeSamples.length > 0 ? Math.round((rpeSamples.reduce((a, b) => a + b, 0) / rpeSamples.length) * 10) / 10 : null;
 
-  const extraSetMinutes = workoutPlan.exercises.reduce((sum, exercise, exerciseIndex) => {
+  const extraSetMinutes = workoutPlan.exercises.reduce((sum, exercise) => {
     const exerciseDef = exercise.exerciseId
       ? trainingExercises.find((item) => item.id === exercise.exerciseId) ??
         trainingExercises.find((item) => item.name === exercise.name)
@@ -377,7 +377,7 @@ export function finishWorkoutSession(input: {
     return sum + getExtraSetDuration(exerciseDef ?? null, exercise.sets.length);
   }, 0);
 
-  const calculatedDurationMinutes = workoutPlan.exercises.reduce((sum, exercise, exerciseIndex) => {
+  const calculatedDurationMinutes = workoutPlan.exercises.reduce((sum, exercise) => {
     const exerciseDef = exercise.exerciseId
       ? trainingExercises.find((item) => item.id === exercise.exerciseId) ??
         trainingExercises.find((item) => item.name === exercise.name)
