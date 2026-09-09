@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
@@ -13,6 +14,20 @@ import {
   type OpponentStyleTag,
 } from "@/lib/opponent-styles";
 import { buildStartLineupRecommendation, buildTeamMatchupHints } from "@/lib/matchup-hints";
+import {
+  createEmptyLeagueBundle,
+  getActiveSeason,
+  LEAGUE_UPDATED_EVENT,
+  loadLeagueBundle,
+  opponentsForSeason,
+  saveLeagueBundle,
+} from "@/lib/league";
+import {
+  buildTeamOpponentOptions,
+  normalizeTeamOpponentName,
+  updateLeagueOpponentScouting,
+  type TeamOpponentOption,
+} from "@/lib/team-league-opponents";
 import type { TeamCoachResponse, TeamDetail, TeamRole, TeamShareLevel, TeamSummary } from "@/lib/team-types";
 import { isAppOnline } from "@/lib/app-online";
 import { fetchAuthMe } from "@/lib/auth-session-align";
@@ -41,6 +56,19 @@ function formToneClass(tone: "green" | "yellow" | "red") {
   return tone === "green" ? "text-emerald-300" : tone === "red" ? "text-rose-300" : "text-amber-300";
 }
 
+function opponentSourceLabel(opponent: TeamOpponentOption) {
+  if (opponent.source === "league-and-scouting") return "Liga + Scouting";
+  return opponent.source === "league" ? "Aus der Liga" : "Team-Scouting";
+}
+
+function opponentProfileSummary(opponent: TeamOpponentOption) {
+  return [
+    opponent.strengths?.trim() ? `Stärken: ${opponent.strengths.trim()}` : null,
+    opponent.weaknesses?.trim() ? `Schwächen: ${opponent.weaknesses.trim()}` : null,
+    opponent.defenseNotes?.trim() ? `Defense: ${opponent.defenseNotes.trim()}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
 export default function TeamPage() {
   const t = useT();
   const router = useRouter();
@@ -57,7 +85,9 @@ export default function TeamPage() {
   const [scoutingName, setScoutingName] = useState("");
   const [scoutingStyles, setScoutingStyles] = useState<OpponentStyleTag[]>([]);
   const [scoutingNotes, setScoutingNotes] = useState("");
+  const [scoutingManual, setScoutingManual] = useState(false);
   const [adviceOpponent, setAdviceOpponent] = useState("");
+  const [leagueBundle, setLeagueBundle] = useState(createEmptyLeagueBundle);
   const [authMe, setAuthMe] = useState<{ id: string; email: string; cloudWorkouts14d: number; cloudSessionCount: number } | null>(null);
   const [shareLevelSaving, setShareLevelSaving] = useState(false);
   const [roleSavingUserId, setRoleSavingUserId] = useState<string | null>(null);
@@ -69,6 +99,30 @@ export default function TeamPage() {
   const viewerRole = selectedTeam?.role ?? "player";
   const canManageTeam = viewerRole === "owner" || viewerRole === "captain";
   const isCoachViewer = viewerRole === "coach";
+
+  const activeLeagueSeason = useMemo(() => getActiveSeason(leagueBundle), [leagueBundle]);
+  const leagueOpponents = useMemo(
+    () => activeLeagueSeason
+      ? opponentsForSeason(leagueBundle, activeLeagueSeason.id)
+      : leagueBundle.opponents,
+    [activeLeagueSeason, leagueBundle],
+  );
+  const opponentOptions = useMemo(
+    () => buildTeamOpponentOptions(leagueOpponents, detail?.scouting ?? []),
+    [detail?.scouting, leagueOpponents],
+  );
+  const selectedAdviceOpponent = useMemo(
+    () => opponentOptions.find(
+      (opponent) => normalizeTeamOpponentName(opponent.name) === normalizeTeamOpponentName(adviceOpponent),
+    ) ?? null,
+    [adviceOpponent, opponentOptions],
+  );
+  const selectedScoutingOpponent = useMemo(
+    () => opponentOptions.find(
+      (opponent) => normalizeTeamOpponentName(opponent.name) === normalizeTeamOpponentName(scoutingName),
+    ) ?? null,
+    [opponentOptions, scoutingName],
+  );
 
   const viewerMember = useMemo(
     () => detail?.members.find((member) => member.userId === authMe?.id) ?? null,
@@ -151,7 +205,6 @@ export default function TeamPage() {
       const json = (await response.json()) as TeamDetail;
       setDetail(json);
       saveCachedTeamDetail(teamId, json);
-      setAdviceOpponent((current) => current || json.scouting[0]?.opponentName || "");
       const localCount = getWorkoutSessions().length;
 
       if (!me) {
@@ -185,6 +238,17 @@ export default function TeamPage() {
   }, [loadTeams]);
 
   useEffect(() => {
+    const refreshLeague = () => setLeagueBundle(loadLeagueBundle());
+    refreshLeague();
+    window.addEventListener(LEAGUE_UPDATED_EVENT, refreshLeague);
+    window.addEventListener("storage", refreshLeague);
+    return () => {
+      window.removeEventListener(LEAGUE_UPDATED_EVENT, refreshLeague);
+      window.removeEventListener("storage", refreshLeague);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!selectedTeamId) {
       setDetail(null);
       return;
@@ -213,9 +277,8 @@ export default function TeamPage() {
 
   const matchupHints = useMemo(() => {
     if (!detail) return [];
-    const opponent = detail.scouting.find((entry) => entry.opponentName === adviceOpponent);
     return buildTeamMatchupHints({
-      opponentStyles: opponent?.styles ?? [],
+      opponentStyles: selectedAdviceOpponent?.styles ?? [],
       roster: detail.members.map((member) => ({
         displayName: member.displayName,
         position: member.position,
@@ -223,7 +286,7 @@ export default function TeamPage() {
         formScore: member.form.score,
       })),
     });
-  }, [adviceOpponent, detail]);
+  }, [detail, selectedAdviceOpponent]);
 
   const createTeam = async () => {
     const name = newTeamName.trim();
@@ -285,14 +348,43 @@ export default function TeamPage() {
     await loadTeams();
   };
 
+  const chooseScoutingOpponent = (opponent: TeamOpponentOption) => {
+    setScoutingManual(false);
+    setScoutingName(opponent.name);
+    setScoutingStyles(opponent.styles);
+    setScoutingNotes(opponent.notes ?? "");
+  };
+
+  const resetScoutingForm = () => {
+    setScoutingName("");
+    setScoutingNotes("");
+    setScoutingStyles([]);
+    setScoutingManual(false);
+  };
+
+  const handleScoutingOpponentChange = (value: string) => {
+    if (value === "__manual__") {
+      resetScoutingForm();
+      setScoutingManual(true);
+      return;
+    }
+    if (!value) {
+      resetScoutingForm();
+      return;
+    }
+    const opponent = opponentOptions.find((entry) => entry.id === value);
+    if (opponent) chooseScoutingOpponent(opponent);
+  };
+
   const saveScouting = async () => {
-    if (!selectedTeamId || !scoutingName.trim()) return;
+    const opponentName = scoutingName.trim();
+    if (!selectedTeamId || !opponentName) return;
     const response = await fetch("/api/team/scouting", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         teamId: selectedTeamId,
-        opponentName: scoutingName.trim(),
+        opponentName,
         styles: scoutingStyles,
         notes: scoutingNotes.trim() || undefined,
       }),
@@ -301,10 +393,21 @@ export default function TeamPage() {
       setMessage("Scouting konnte nicht gespeichert werden.");
       return;
     }
-    setScoutingName("");
-    setScoutingNotes("");
-    setScoutingStyles([]);
-    setMessage("Gegner-Scouting gespeichert.");
+    const currentLeagueBundle = loadLeagueBundle();
+    const nextLeagueBundle = updateLeagueOpponentScouting(
+      currentLeagueBundle,
+      opponentName,
+      scoutingStyles,
+      scoutingNotes,
+    );
+    if (nextLeagueBundle !== currentLeagueBundle) saveLeagueBundle(nextLeagueBundle);
+    setLeagueBundle(nextLeagueBundle);
+    resetScoutingForm();
+    setMessage(
+      nextLeagueBundle !== currentLeagueBundle
+        ? "Scouting im Team und beim Liga-Gegner gespeichert."
+        : "Gegner-Scouting gespeichert.",
+    );
     await loadDetail(selectedTeamId);
   };
 
@@ -312,7 +415,6 @@ export default function TeamPage() {
     if (!selectedTeamId) return;
     setCoachLoading(true);
     try {
-      const opponent = detail?.scouting.find((entry) => entry.opponentName === adviceOpponent);
       const response = await fetch("/api/team/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -320,7 +422,7 @@ export default function TeamPage() {
         body: JSON.stringify({
           teamId: selectedTeamId,
           opponentName: adviceOpponent || undefined,
-          opponentStyles: opponent?.styles ?? [],
+          opponentStyles: selectedAdviceOpponent?.styles ?? [],
         }),
       });
       if (!response.ok) throw new Error("Coach-Empfehlung fehlgeschlagen.");
@@ -429,28 +531,28 @@ export default function TeamPage() {
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div>
               <label className="input-label">Neues Team</label>
-              <div className="mt-1 flex gap-2">
+              <div className="team-inline-form mt-1">
                 <input
                   value={newTeamName}
                   onChange={(event) => setNewTeamName(event.target.value)}
                   placeholder="z. B. U18 Lions"
                   className="input"
                 />
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => void createTeam()}>
+                <button type="button" className="btn btn-primary" onClick={() => void createTeam()}>
                   {t("team.create")}
                 </button>
               </div>
             </div>
             <div>
               <label className="input-label">Team beitreten</label>
-              <div className="mt-1 flex gap-2">
+              <div className="team-inline-form mt-1">
                 <input
                   value={joinToken}
                   onChange={(event) => setJoinToken(parseJoinInviteToken(event.target.value) || event.target.value)}
                   placeholder="Einladungs-Token"
                   className="input"
                 />
-                <button type="button" className="btn btn-outline btn-sm" onClick={() => void joinTeam()}>
+                <button type="button" className="btn btn-outline" onClick={() => void joinTeam()}>
                   {t("team.join")}
                 </button>
               </div>
@@ -506,11 +608,11 @@ export default function TeamPage() {
 
               {["owner", "captain", "coach"].includes(viewerRole) ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyInvite("player")}>
+                  <button type="button" className="btn btn-outline" onClick={() => void copyInvite("player")}>
                     {t("team.invitePlayer")}
                   </button>
                   {canManageTeam ? (
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyInvite("coach")}>
+                    <button type="button" className="btn btn-outline" onClick={() => void copyInvite("coach")}>
                       {t("team.inviteCoach")}
                     </button>
                   ) : null}
@@ -657,116 +759,244 @@ export default function TeamPage() {
                 </section>
               ) : null}
 
-              {tab === "scouting" && !isCoachViewer ? (
-                <section className="mt-4 app-card">
-                  <h2 className="section-title">Gegner-Scouting</h2>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {tab === "scouting" && canManageTeam ? (
+                <section className="mt-4 app-card team-workflow-card">
+                  <div className="team-workflow-header">
                     <div>
-                      <label className="input-label">Gegner</label>
-                      <input
-                        value={scoutingName}
-                        onChange={(event) => setScoutingName(event.target.value)}
-                        className="input mt-1"
-                        placeholder="Team XYZ"
-                      />
+                      <p className="section-eyebrow">Liga-Verknüpfung</p>
+                      <h2 className="section-title mt-1">Gegner-Scouting</h2>
+                      <p className="mt-2 text-sm text-muted">
+                        Gegner aus {activeLeagueSeason ? `„${activeLeagueSeason.name}“` : "der Liga"} stehen hier automatisch bereit.
+                      </p>
                     </div>
-                    <div>
-                      <label className="input-label">Notizen</label>
-                      <input
-                        value={scoutingNotes}
-                        onChange={(event) => setScoutingNotes(event.target.value)}
-                        className="input mt-1"
-                        placeholder="z. B. starke Zone, schneller Backcourt"
-                      />
+                    <div className="team-workflow-header__actions">
+                      <span className="team-source-pill team-source-pill--league">{leagueOpponents.length} Liga-Gegner</span>
+                      <Link href="/liga" className="btn btn-outline">Liga verwalten</Link>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {OPPONENT_STYLE_TAGS.map((tag) => {
-                      const active = scoutingStyles.includes(tag);
-                      return (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => setScoutingStyles((current) => toggleOpponentStyle(current, tag))}
-                          className={`chip ${active ? "chip-active" : ""}`}
-                        >
-                          {OPPONENT_STYLE_LABELS[tag]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <button type="button" className="btn btn-primary btn-sm mt-4" onClick={() => void saveScouting()}>
-                    Scouting speichern
-                  </button>
 
-                  <GradientFadeList
-                    className="mt-5"
-                    items={detail.scouting}
-                    listClassName="space-y-2"
-                    getKey={(entry) => entry.id}
-                    renderItem={(entry) => (
-                      <div className="list-card text-sm">
-                        <p className="font-semibold text-strong">{entry.opponentName}</p>
-                        <p className="text-xs text-muted">
-                          {entry.styles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(", ") || "Keine Tags"}
-                        </p>
-                        {entry.notes ? <p className="mt-1 text-muted">{entry.notes}</p> : null}
+                  <div className="team-scouting-layout mt-5">
+                    <div className="team-workflow-panel">
+                      <label className="input-label" htmlFor="team-scouting-opponent">Gegner auswählen</label>
+                      <select
+                        id="team-scouting-opponent"
+                        value={scoutingManual ? "__manual__" : (selectedScoutingOpponent?.id ?? "")}
+                        onChange={(event) => handleScoutingOpponentChange(event.target.value)}
+                        className="select app-unified-control app-modern-select mt-1"
+                      >
+                        <option value="">— Liga- oder Scouting-Gegner wählen —</option>
+                        {opponentOptions.map((opponent) => (
+                          <option key={opponent.id} value={opponent.id}>{opponent.name} · {opponentSourceLabel(opponent)}</option>
+                        ))}
+                        <option value="__manual__">＋ Neuen Gegner manuell erfassen</option>
+                      </select>
+
+                      {scoutingManual ? (
+                        <div className="mt-3">
+                          <label className="input-label" htmlFor="team-scouting-name">Name des Gegners</label>
+                          <input
+                            id="team-scouting-name"
+                            value={scoutingName}
+                            onChange={(event) => setScoutingName(event.target.value)}
+                            className="input app-unified-control mt-1"
+                            placeholder="z. B. City Falcons"
+                          />
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3">
+                        <label className="input-label" htmlFor="team-scouting-notes">Scouting-Notizen</label>
+                        <textarea
+                          id="team-scouting-notes"
+                          value={scoutingNotes}
+                          onChange={(event) => setScoutingNotes(event.target.value)}
+                          className="textarea team-scouting-notes mt-1"
+                          placeholder="Stärken, Schwächen, Schlüsselspieler, defensive Tendenzen …"
+                          rows={4}
+                        />
                       </div>
-                    )}
-                  />
+
+                      <fieldset className="mt-4">
+                        <legend className="input-label">Spielstil und Matchup</legend>
+                        <div className="team-style-grid mt-2">
+                          {OPPONENT_STYLE_TAGS.map((tag) => {
+                            const active = scoutingStyles.includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                aria-pressed={active}
+                                onClick={() => setScoutingStyles((current) => toggleOpponentStyle(current, tag))}
+                                className={`team-style-option ${active ? "team-style-option--active" : ""}`}
+                              >
+                                <span className="team-style-option__indicator" aria-hidden="true">{active ? "✓" : "+"}</span>
+                                {OPPONENT_STYLE_LABELS[tag]}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+
+                      <div className="team-workflow-actions mt-4">
+                        <button
+                          type="button"
+                          className="btn btn-primary team-workflow-primary"
+                          disabled={!scoutingName.trim()}
+                          onClick={() => void saveScouting()}
+                        >
+                          Scouting speichern
+                        </button>
+                        {scoutingName || scoutingManual ? (
+                          <button type="button" className="btn btn-outline" onClick={resetScoutingForm}>Zurücksetzen</button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="team-opponent-pool">
+                      <div className="flex items-end justify-between gap-3">
+                        <div>
+                          <p className="section-eyebrow">Gegnerpool</p>
+                          <h3 className="section-title mt-1">Liga & Team-Scouting</h3>
+                        </div>
+                        <span className="text-xs text-muted">{opponentOptions.length} gesamt</span>
+                      </div>
+                      {opponentOptions.length > 0 ? (
+                        <GradientFadeList
+                          className="mt-3"
+                          items={opponentOptions}
+                          listClassName="space-y-2"
+                          getKey={(opponent) => opponent.id}
+                          renderItem={(opponent) => (
+                            <button
+                              type="button"
+                              onClick={() => chooseScoutingOpponent(opponent)}
+                              className={`team-opponent-card ${selectedScoutingOpponent?.id === opponent.id ? "team-opponent-card--active" : ""}`}
+                            >
+                              <span className="team-opponent-card__topline">
+                                <strong>{opponent.name}</strong>
+                                <span className={`team-source-pill team-source-pill--${opponent.source}`}>{opponentSourceLabel(opponent)}</span>
+                              </span>
+                              <span className="team-opponent-card__tags">
+                                {opponent.styles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(" · ") || "Noch keine Stil-Tags"}
+                              </span>
+                              {opponentProfileSummary(opponent) ? <span className="team-opponent-card__notes">{opponentProfileSummary(opponent)}</span> : null}
+                              {opponent.notes ? <span className="team-opponent-card__notes">{opponent.notes}</span> : null}
+                            </button>
+                          )}
+                        />
+                      ) : (
+                        <div className="team-empty-state mt-3">
+                          <strong>Noch keine Gegner vorhanden</strong>
+                          <span>Lege Gegner in der Liga an oder erfasse sie hier manuell.</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </section>
               ) : null}
 
-              {tab === "scouting" && isCoachViewer ? (
-                <section className="mt-4 app-card">
-                  <h2 className="section-title">Gegner-Scouting (read-only)</h2>
-                  <GradientFadeList
-                    className="mt-3"
-                    items={detail.scouting}
-                    listClassName="space-y-2"
-                    getKey={(entry) => entry.id}
-                    renderItem={(entry) => (
-                      <div className="list-card text-sm">
-                        <p className="font-semibold text-strong">{entry.opponentName}</p>
-                        <p className="text-xs text-muted">
-                          {entry.styles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(", ") || "Keine Tags"}
-                        </p>
-                        {entry.notes ? <p className="mt-1 text-muted">{entry.notes}</p> : null}
-                      </div>
-                    )}
-                  />
+              {tab === "scouting" && !canManageTeam ? (
+                <section className="mt-4 app-card team-workflow-card">
+                  <div className="team-workflow-header">
+                    <div>
+                      <p className="section-eyebrow">Liga-Verknüpfung</p>
+                      <h2 className="section-title mt-1">Gegner-Scouting</h2>
+                      <p className="mt-2 text-sm text-muted">
+                        {isCoachViewer ? "Trainer-Ansicht" : "Spieler-Ansicht"} · Liga- und Teamdaten gemeinsam dargestellt.
+                      </p>
+                    </div>
+                    <span className="team-source-pill team-source-pill--league">{opponentOptions.length} Gegner</span>
+                  </div>
+                  {opponentOptions.length > 0 ? (
+                    <GradientFadeList
+                      className="mt-5"
+                      items={opponentOptions}
+                      listClassName="grid gap-3 md:grid-cols-2"
+                      getKey={(opponent) => opponent.id}
+                      renderItem={(opponent) => (
+                        <div className="team-opponent-card team-opponent-card--static">
+                          <span className="team-opponent-card__topline">
+                            <strong>{opponent.name}</strong>
+                            <span className={`team-source-pill team-source-pill--${opponent.source}`}>{opponentSourceLabel(opponent)}</span>
+                          </span>
+                          <span className="team-opponent-card__tags">
+                            {opponent.styles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(" · ") || "Noch keine Stil-Tags"}
+                          </span>
+                          {opponentProfileSummary(opponent) ? <span className="team-opponent-card__notes">{opponentProfileSummary(opponent)}</span> : null}
+                          {opponent.notes ? <span className="team-opponent-card__notes">{opponent.notes}</span> : null}
+                        </div>
+                      )}
+                    />
+                  ) : (
+                    <div className="team-empty-state mt-4"><strong>Noch kein Gegner-Scouting</strong><span>Gegner werden über die Liga oder das Team-Scouting ergänzt.</span></div>
+                  )}
                 </section>
               ) : null}
 
               {tab === "advice" ? (
                 <section className="mt-4 space-y-4">
-                  <div className="app-card">
-                    <h2 className="section-title">Start & Matchup</h2>
-                    <label className="input-label mt-3">Gegner für Empfehlung</label>
-                    <select
-                      value={adviceOpponent}
-                      onChange={(event) => setAdviceOpponent(event.target.value)}
-                      className="select mt-1"
-                    >
-                      <option value="">— Gegner wählen —</option>
-                      {detail.scouting.map((entry) => (
-                        <option key={entry.id} value={entry.opponentName}>
-                          {entry.opponentName}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="btn btn-violet btn-sm mt-3"
-                      disabled={coachLoading}
-                      onClick={() => void fetchCoachAdvice()}
-                    >
-                      {coachLoading ? "Analysiere …" : "KI-Empfehlung laden"}
-                    </button>
+                  <div className="app-card team-workflow-card team-matchup-hero">
+                    <div className="team-workflow-header">
+                      <div>
+                        <p className="section-eyebrow">Game Prep</p>
+                        <h2 className="section-title mt-1">Start & Matchup</h2>
+                        <p className="mt-2 text-sm text-muted">Start-Five, Matchup-Hinweise und Coach-Analyse aus Team- und Ligadaten.</p>
+                      </div>
+                      <div className="team-workflow-header__actions">
+                        <span className="team-source-pill team-source-pill--league">{opponentOptions.length} Gegner verfügbar</span>
+                        <Link href="/liga" className="btn btn-outline">Liga öffnen</Link>
+                      </div>
+                    </div>
+
+                    <div className="team-matchup-toolbar mt-5">
+                      <label className="team-matchup-selector" htmlFor="team-matchup-opponent">
+                        <span className="input-label">Gegner für die Empfehlung</span>
+                        <select
+                          id="team-matchup-opponent"
+                          value={adviceOpponent}
+                          onChange={(event) => {
+                            setAdviceOpponent(event.target.value);
+                            setCoachAdvice(null);
+                          }}
+                          className="select app-unified-control app-modern-select mt-1"
+                        >
+                          <option value="">— Gegner aus Liga oder Scouting wählen —</option>
+                          {opponentOptions.map((opponent) => (
+                            <option key={opponent.id} value={opponent.name}>{opponent.name} · {opponentSourceLabel(opponent)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-primary team-workflow-primary"
+                        disabled={coachLoading || !adviceOpponent}
+                        onClick={() => void fetchCoachAdvice()}
+                      >
+                        {coachLoading ? "Analyse läuft …" : "Coach-Empfehlung erstellen"}
+                      </button>
+                    </div>
+
+                    {selectedAdviceOpponent ? (
+                      <div className="team-selected-opponent mt-4">
+                        <div>
+                          <span className="team-selected-opponent__label">Ausgewähltes Matchup</span>
+                          <strong>{selectedAdviceOpponent.name}</strong>
+                        </div>
+                        <span className={`team-source-pill team-source-pill--${selectedAdviceOpponent.source}`}>{opponentSourceLabel(selectedAdviceOpponent)}</span>
+                        <p>{selectedAdviceOpponent.styles.map((tag) => OPPONENT_STYLE_LABELS[tag]).join(" · ") || "Noch keine Stil-Tags – im Scouting ergänzen."}</p>
+                        {opponentProfileSummary(selectedAdviceOpponent) ? <p>{opponentProfileSummary(selectedAdviceOpponent)}</p> : null}
+                      </div>
+                    ) : opponentOptions.length === 0 ? (
+                      <div className="team-empty-state mt-4">
+                        <strong>Noch keine Gegner verfügbar</strong>
+                        <span>Füge zuerst in der Liga einen Gegner hinzu. Er erscheint anschließend automatisch hier.</span>
+                        <Link href="/liga" className="btn btn-primary">Gegner in Liga anlegen</Link>
+                      </div>
+                    ) : null}
                   </div>
 
                   {lineup ? (
-                    <div className="app-card">
+                    <div className="app-card team-result-card">
                       <p className="section-eyebrow">Regelbasiert</p>
                       <h3 className="section-title mt-1">Start-Five</h3>
                       <p className="mt-2 text-sm text-strong">
@@ -776,9 +1006,10 @@ export default function TeamPage() {
                     </div>
                   ) : null}
 
-                  {matchupHints.length > 0 ? (
-                    <div className="app-card">
-                      <h3 className="section-title">Matchup-Hinweise</h3>
+                  {selectedAdviceOpponent && matchupHints.length > 0 ? (
+                    <div className="app-card team-result-card">
+                      <p className="section-eyebrow">Gegen {selectedAdviceOpponent.name}</p>
+                      <h3 className="section-title mt-1">Matchup-Hinweise</h3>
                       <GradientFadeList
                         className="mt-3"
                         items={matchupHints}

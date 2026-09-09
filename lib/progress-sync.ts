@@ -8,7 +8,7 @@ import {
 } from "@/lib/activity-calendar";
 import { PLAYER_INTAKE_STORAGE_KEY, PLAYER_INTAKE_UPDATED_EVENT } from "@/lib/coach-intake";
 import { GAME_STATS_KEY } from "@/lib/game-stats";
-import { LEAGUE_STORAGE_KEY } from "@/lib/league";
+import { LEAGUE_STORAGE_KEY, LEAGUE_UPDATED_EVENT } from "@/lib/league";
 import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
 import { isAppOnline } from "@/lib/app-online";
@@ -288,6 +288,9 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   }
   window.dispatchEvent(new CustomEvent("bt:plan-updated", { detail: { source: "remote" } }));
   window.dispatchEvent(new Event(PLAYER_INTAKE_UPDATED_EVENT));
+  if (remote.leagueData) {
+    window.dispatchEvent(new CustomEvent(LEAGUE_UPDATED_EVENT, { detail: { source: "remote" } }));
+  }
   if (remote.trainingGoals) {
     window.dispatchEvent(new Event("bt:training-goals-updated"));
   }

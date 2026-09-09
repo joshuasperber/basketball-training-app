@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
       `opponent_scouting?team_id=eq.${teamId}&opponent_name=eq.${encodeURIComponent(opponentName)}&select=opponent_name,styles&limit=1`,
     );
     const scoutingStyles = normalizeOpponentStyles(scoutingRes.data?.[0]?.styles ?? []);
-    if (scoutingStyles.length > 0) opponentStyles = scoutingStyles;
+    opponentStyles = [...new Set([...opponentStyles, ...scoutingStyles])];
   }
 
   const heuristic = buildTeamCoachHeuristic({ members, opponentName, opponentStyles });

@@ -10,6 +10,7 @@ import {
   resetInitialCloudSyncCache,
 } from "@/lib/progress-sync";
 import { isAppOnline } from "@/lib/app-online";
+import { LEAGUE_UPDATED_EVENT } from "@/lib/league";
 import { syncWorkoutSessionsToCloud, syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
 
 function CoachFallback({ resetError }: { resetError: () => void }) {
@@ -37,7 +38,12 @@ import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import ProgressCelebrationHost from "@/components/ProgressCelebrationHost";
 
-const PLAN_SYNC_EVENTS = ["bt:plan-updated", "bt:training-goals-updated", "bt:player-intake-updated"] as const;
+const PLAN_SYNC_EVENTS = [
+  "bt:plan-updated",
+  "bt:training-goals-updated",
+  "bt:player-intake-updated",
+  LEAGUE_UPDATED_EVENT,
+] as const;
 
 function CloudSyncBridge() {
   const planPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

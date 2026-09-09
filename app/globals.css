@@ -929,7 +929,8 @@ a.icon-btn {
 
 /* Native Selects can ignore the visual control height on macOS. Removing the
    platform appearance keeps the roster selector aligned with the text inputs. */
-.league-game-form select.league-roster-team-select {
+.league-game-form select.league-roster-team-select,
+select.app-modern-select {
   display: block;
   box-sizing: border-box;
   height: 2.875rem !important;
@@ -945,6 +946,334 @@ a.icon-btn {
   background-position: right 0.8rem center, 0 0;
   background-repeat: no-repeat;
   background-size: 1rem, 100% 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Team + Liga workflow                                                */
+/* ------------------------------------------------------------------ */
+.team-inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+}
+
+.team-inline-form .input,
+.team-inline-form .btn {
+  min-height: 2.875rem;
+}
+
+.team-workflow-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.team-workflow-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand-500), #ffb36b 48%, transparent 88%);
+  content: "";
+}
+
+.team-workflow-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.team-workflow-header__actions,
+.team-workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.team-scouting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(18rem, 0.92fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.team-workflow-panel,
+.team-opponent-pool {
+  min-width: 0;
+  border: 1px solid var(--surface-border);
+  border-radius: 1rem;
+  background: linear-gradient(145deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.98));
+  padding: 1rem;
+}
+
+.team-scouting-notes {
+  min-height: 7.25rem;
+  resize: vertical;
+  border-radius: 0.8rem;
+  background: #fff;
+}
+
+.team-style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.75rem, 1fr));
+  gap: 0.55rem;
+}
+
+.team-style-option {
+  display: flex;
+  min-height: 2.875rem;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: 0.8rem;
+  background: #fff;
+  padding: 0.55rem 0.7rem;
+  color: var(--fg-default);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.team-style-option:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 107, 0, 0.42);
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.06);
+}
+
+.team-style-option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.14);
+}
+
+.team-style-option--active {
+  border-color: rgba(255, 107, 0, 0.52);
+  background: linear-gradient(135deg, #fff4eb, #fffaf6);
+  color: #c44f00;
+  box-shadow: 0 5px 16px rgba(255, 107, 0, 0.09);
+}
+
+.team-style-option__indicator {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.team-style-option--active .team-style-option__indicator {
+  background: var(--brand-500);
+  color: #fff;
+}
+
+.team-workflow-primary {
+  min-width: 13.5rem;
+}
+
+.team-source-pill {
+  display: inline-flex;
+  min-height: 1.65rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 107, 0, 0.2);
+  border-radius: 999px;
+  background: #fff4eb;
+  padding: 0.2rem 0.55rem;
+  color: #b84a00;
+  font-size: 0.6875rem;
+  font-weight: 750;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.team-source-pill--scouting {
+  border-color: rgba(124, 58, 237, 0.18);
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.team-source-pill--league-and-scouting {
+  border-color: rgba(5, 150, 105, 0.2);
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.team-opponent-card {
+  display: grid;
+  width: 100%;
+  gap: 0.35rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.9rem;
+  background: #fff;
+  padding: 0.85rem;
+  color: var(--fg-default);
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+button.team-opponent-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 107, 0, 0.4);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+}
+
+.team-opponent-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.14);
+}
+
+.team-opponent-card--active {
+  border-color: rgba(255, 107, 0, 0.55);
+  background: linear-gradient(135deg, #fff7f0, #fff);
+  box-shadow: 0 8px 22px rgba(255, 107, 0, 0.1);
+}
+
+.team-opponent-card--static {
+  cursor: default;
+}
+
+.team-opponent-card__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.team-opponent-card__topline strong {
+  color: var(--fg-strong);
+  font-size: 0.9375rem;
+}
+
+.team-opponent-card__tags,
+.team-opponent-card__notes {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.team-opponent-card__notes {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--fg-default);
+}
+
+.team-matchup-hero {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 107, 0, 0.08), transparent 34%),
+    var(--surface);
+}
+
+.team-matchup-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.team-matchup-selector {
+  min-width: 0;
+}
+
+.team-selected-opponent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem 0.8rem;
+  align-items: center;
+  border: 1px solid rgba(255, 107, 0, 0.2);
+  border-radius: 0.9rem;
+  background: rgba(255, 247, 240, 0.78);
+  padding: 0.85rem;
+}
+
+.team-selected-opponent > div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.team-selected-opponent__label {
+  color: var(--fg-faint);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.team-selected-opponent strong {
+  color: var(--fg-strong);
+}
+
+.team-selected-opponent p {
+  grid-column: 1 / -1;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+
+.team-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  border: 1px dashed var(--surface-border-strong);
+  border-radius: 0.9rem;
+  background: rgba(248, 250, 252, 0.8);
+  padding: 1.4rem;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.team-empty-state strong {
+  color: var(--fg-strong);
+  font-size: 0.875rem;
+}
+
+.team-empty-state span {
+  max-width: 31rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.team-empty-state .btn {
+  margin-top: 0.35rem;
+}
+
+.team-result-card {
+  border-top: 3px solid rgba(255, 107, 0, 0.36);
+}
+
+@media (max-width: 899px) {
+  .team-scouting-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 639px) {
+  .team-workflow-header,
+  .team-workflow-header__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .team-workflow-header__actions .btn,
+  .team-workflow-primary {
+    width: 100%;
+  }
+
+  .team-matchup-toolbar,
+  .team-inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .team-matchup-toolbar .btn,
+  .team-inline-form .btn {
+    width: 100%;
+  }
 }
 
 .league-game-action {

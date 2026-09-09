@@ -4,6 +4,7 @@ import { addManualGameForDate } from "@/lib/plan-day-actions";
 import { findGameStatByDateAndContext, upsertGameStat } from "@/lib/game-stats";
 
 export const LEAGUE_STORAGE_KEY = "bt.league.v1";
+export const LEAGUE_UPDATED_EVENT = "bt:league-updated";
 export const LEAGUE_OWN_TEAM_ID = "league-own-team";
 
 export type LeagueGameKind = "game" | "game_training";
@@ -220,7 +221,7 @@ export function loadLeagueBundle(): LeagueBundle {
 export function saveLeagueBundle(bundle: LeagueBundle) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(LEAGUE_STORAGE_KEY, JSON.stringify(bundle));
-  window.dispatchEvent(new Event("bt:league-updated"));
+  window.dispatchEvent(new CustomEvent(LEAGUE_UPDATED_EVENT, { detail: { source: "local" } }));
 }
 
 export function createId(prefix: string) {
