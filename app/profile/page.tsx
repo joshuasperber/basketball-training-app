@@ -1095,7 +1095,7 @@ export default function ProfilePage() {
                           };
                         });
                       }}
-                      className="select min-w-[140px] flex-1"
+                      className="select app-unified-control app-modern-select min-w-[140px] flex-1"
                     >
                       <option value="basketball_training">Basketball</option>
                       <option value="game_training">Spieltraining</option>

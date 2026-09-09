@@ -12,7 +12,15 @@ export type SupabaseLaunchHealth = {
   checks: SupabaseHealthCheck[];
 };
 
-const REQUIRED_TABLES = ["user_progress", "profiles", "exercises", "teams", "team_members"] as const;
+const REQUIRED_TABLES = [
+  "user_progress",
+  "profiles",
+  "exercises",
+  "teams",
+  "team_members",
+  "team_invites",
+  "opponent_scouting",
+] as const;
 
 function envCheck(id: string, present: boolean, label: string): SupabaseHealthCheck {
   return {
@@ -85,6 +93,49 @@ async function probeAuth(supabaseUrl: string, anonKey: string): Promise<Supabase
   }
 }
 
+async function probeLeagueDataColumn(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<SupabaseHealthCheck> {
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/user_progress?select=league_data&limit=0`, {
+      method: "HEAD",
+      headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+      cache: "no-store",
+    });
+    return response.ok
+      ? { id: "column_league_data", ok: true, detail: "Spalte user_progress.league_data erreichbar" }
+      : { id: "column_league_data", ok: false, detail: `Spalte user_progress.league_data — HTTP ${response.status}` };
+  } catch (error) {
+    return {
+      id: "column_league_data",
+      ok: false,
+      detail: error instanceof Error ? error.message : "Liga-Cloudspalte nicht erreichbar",
+    };
+  }
+}
+
+async function probeGamePhotosBucket(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<SupabaseHealthCheck> {
+  try {
+    const response = await fetch(`${supabaseUrl}/storage/v1/bucket/game-photos`, {
+      headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+      cache: "no-store",
+    });
+    return response.ok
+      ? { id: "bucket_game_photos", ok: true, detail: "Storage-Bucket game-photos erreichbar" }
+      : { id: "bucket_game_photos", ok: false, detail: `Storage-Bucket game-photos — HTTP ${response.status}` };
+  } catch (error) {
+    return {
+      id: "bucket_game_photos",
+      ok: false,
+      detail: error instanceof Error ? error.message : "Storage-Bucket nicht erreichbar",
+    };
+  }
+}
+
 /** Prüft Env-Vars, Auth-API und Pflicht-Tabellen für Launch. */
 export async function runSupabaseLaunchHealthChecks(): Promise<SupabaseLaunchHealth> {
   const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -107,6 +158,8 @@ export async function runSupabaseLaunchHealthChecks(): Promise<SupabaseLaunchHea
   for (const table of REQUIRED_TABLES) {
     checks.push(await probeTable(supabaseUrl, serviceRoleKey, table));
   }
+  checks.push(await probeLeagueDataColumn(supabaseUrl, serviceRoleKey));
+  checks.push(await probeGamePhotosBucket(supabaseUrl, serviceRoleKey));
 
   return {
     ok: checks.every((check) => check.ok),

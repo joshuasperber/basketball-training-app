@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     `team_members?team_id=eq.${teamId}&user_id=eq.${user.id}&select=role&limit=1`,
   );
   const role = membership.data?.[0]?.role;
-  if (!role || !["owner", "captain", "coach"].includes(role)) {
+  if (!role || !["owner", "captain"].includes(role)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

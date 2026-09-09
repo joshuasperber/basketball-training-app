@@ -99,6 +99,7 @@ where p.user_id is null
 -- supabase/teams.sql
 -- supabase/migrations/20260629120000_security_hardening.sql
 -- supabase/migrations/20260629140000_league_data_and_storage.sql
+-- supabase/migrations/20260909120000_team_permissions_and_opponent_names.sql
 
 -- ── 4) Verifikation ─────────────────────────────────────────────────────────
 

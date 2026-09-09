@@ -294,6 +294,7 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   if (remote.trainingGoals) {
     window.dispatchEvent(new Event("bt:training-goals-updated"));
   }
+  window.dispatchEvent(new Event("bt:cloud-progress-applied"));
 }
 
 let initialCloudSyncPromise: Promise<RemoteProgress | null> | null = null;

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, getSupabaseServiceConfig } from "@/lib/server/supabase-admin";
 
 const BUCKET = "game-photos";
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
 
 function userOwnsPath(userId: string, path: string) {
   return path.startsWith(`${userId}/`);
@@ -16,6 +18,15 @@ export async function POST(request: NextRequest) {
   const gameId = String(formData?.get("gameId") ?? "").trim();
   if (!(file instanceof Blob) || !gameId) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
+  }
+  if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+    return NextResponse.json({ error: "unsupported_file_type" }, { status: 415 });
+  }
+  if (file.size <= 0 || file.size > MAX_FILE_SIZE) {
+    return NextResponse.json({ error: "file_too_large" }, { status: 413 });
+  }
+  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(gameId)) {
+    return NextResponse.json({ error: "invalid_game_id" }, { status: 400 });
   }
 
   const config = getSupabaseServiceConfig();

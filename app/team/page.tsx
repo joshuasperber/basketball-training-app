@@ -606,7 +606,7 @@ export default function TeamPage() {
                 ))}
               </div>
 
-              {["owner", "captain", "coach"].includes(viewerRole) ? (
+              {canManageTeam ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" className="btn btn-outline" onClick={() => void copyInvite("player")}>
                     {t("team.invitePlayer")}

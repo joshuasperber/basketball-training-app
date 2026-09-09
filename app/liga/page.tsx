@@ -25,6 +25,8 @@ import {
   getActiveSeason,
   getStandingZone,
   groupLeagueScheduleByDay,
+  findDuplicateLeagueGame,
+  isCompletedLeagueGame,
   loadLeagueBundle,
   opponentsForSeason,
   playersForTeam,
@@ -33,17 +35,34 @@ import {
   syncLeagueEntryToPlan,
   syncUpcomingLeagueSchedule,
   teamsForSeason,
+  validateLeagueGame,
+  type LeagueAttendanceStatus,
   type LeagueBundle,
   type LeagueGameKind,
+  type LeagueGameStatus,
   type LeagueOpponent,
   type LeaguePlayer,
   type LeaguePlayerStatLine,
   type LeagueScheduleEntry,
   type LeagueSeason,
 } from "@/lib/league";
+import { deleteGameStatForLeagueGame } from "@/lib/game-stats";
+import { removeManualGameForDate } from "@/lib/plan-day-actions";
+import {
+  buildGoogleCalendarUrl,
+  buildLeagueCalendarIcs,
+  downloadLeagueCalendar,
+} from "@/lib/league-calendar";
+import {
+  applyLeagueScheduleCsv,
+  LEAGUE_CSV_TEMPLATE,
+  parseLeagueScheduleCsv,
+  type LeagueCsvImportPlan,
+} from "@/lib/league-csv";
 import { getTodayDateKey } from "@/lib/workout";
 import { loadLigaTab, persistLigaTab, type LigaTab } from "@/lib/ui-navigation-state";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { normalizeTeamOpponentName } from "@/lib/team-league-opponents";
 
 type Tab = LigaTab;
 type NumericStatKey = Exclude<keyof LeaguePlayerStatLine, "playerId">;
@@ -94,6 +113,20 @@ function nullableNumber(value: string) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function nullableInteger(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function gameStatusLabel(status: LeagueGameStatus | undefined) {
+  if (status === "final") return "Final";
+  if (status === "live") return "Live";
+  if (status === "postponed") return "Verschoben";
+  if (status === "cancelled") return "Abgesagt";
+  return "Geplant";
+}
+
 function zoneLabel(position: number) {
   const zone = getStandingZone(position);
   if (zone === "playoffs") return "Playoffs";
@@ -108,6 +141,8 @@ export default function LigaPage() {
   const [bundle, setBundle] = useState<LeagueBundle>(() => createEmptyLeagueBundle());
   const [tab, setTab] = useState<Tab>("schedule");
   const [seasonName, setSeasonName] = useState("");
+  const [seasonStartDate, setSeasonStartDate] = useState("");
+  const [seasonEndDate, setSeasonEndDate] = useState("");
   const [seasonNotes, setSeasonNotes] = useState("");
   const [opponentEditId, setOpponentEditId] = useState<string | null>(null);
   const [opponentName, setOpponentName] = useState("");
@@ -130,6 +165,12 @@ export default function LigaPage() {
   const [homeTeamId, setHomeTeamId] = useState(LEAGUE_OWN_TEAM_ID);
   const [awayTeamId, setAwayTeamId] = useState("");
   const [gameNotes, setGameNotes] = useState("");
+  const [gameVenue, setGameVenue] = useState("");
+  const [gameAddress, setGameAddress] = useState("");
+  const [gameMeetingTime, setGameMeetingTime] = useState("");
+  const [gameTravelMinutes, setGameTravelMinutes] = useState("");
+  const [csvPreview, setCsvPreview] = useState<LeagueCsvImportPlan | null>(null);
+  const [csvFileName, setCsvFileName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
   const refresh = useCallback(() => setBundle(loadLeagueBundle()), []);
@@ -163,6 +204,8 @@ export default function LigaPage() {
     [activeSeason, bundle],
   );
   const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
+  const ownTeamPlayers = useMemo(() => playersForTeam(bundle, LEAGUE_OWN_TEAM_ID), [bundle]);
+  const ownSchedule = useMemo(() => schedule.filter(gameInvolvesOwnTeam), [schedule]);
   const playerById = useMemo(() => new Map(bundle.players.map((player) => [player.id, player])), [bundle.players]);
   const playerSeasonSummaries = useMemo(
     () => activeSeason ? buildPlayerSeasonSummaries(bundle, activeSeason.id) : new Map(),
@@ -253,14 +296,24 @@ export default function LigaPage() {
     event.preventDefault();
     const name = seasonName.trim();
     if (!name) return;
+    if (bundle.seasons.some((season) => season.name.trim().toLocaleLowerCase("de-DE") === name.toLocaleLowerCase("de-DE"))) {
+      return setMessage("Eine Saison mit diesem Namen ist bereits vorhanden.");
+    }
+    if (seasonStartDate && seasonEndDate && seasonEndDate < seasonStartDate) {
+      return setMessage("Das Saisonende darf nicht vor dem Saisonstart liegen.");
+    }
     const season: LeagueSeason = {
       id: createId("season"),
       name,
+      startDate: seasonStartDate || undefined,
+      endDate: seasonEndDate || undefined,
       notes: seasonNotes.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
     persist({ ...bundle, activeSeasonId: season.id, seasons: [season, ...bundle.seasons] });
     setSeasonName("");
+    setSeasonStartDate("");
+    setSeasonEndDate("");
     setSeasonNotes("");
     setMessage(`Saison „${name}“ angelegt.`);
   }
@@ -270,6 +323,23 @@ export default function LigaPage() {
     if (!activeSeason) return setMessage("Bitte zuerst eine Saison anlegen.");
     const name = opponentName.trim();
     if (!name) return;
+    const duplicate = bundle.opponents.find((opponent) =>
+      opponent.id !== opponentEditId && normalizeTeamOpponentName(opponent.name) === normalizeTeamOpponentName(name),
+    );
+    if (duplicate) {
+      if (!opponentEditId && !duplicate.seasonIds.includes(activeSeason.id)) {
+        persist({
+          ...bundle,
+          opponents: bundle.opponents.map((opponent) => opponent.id === duplicate.id
+            ? { ...opponent, seasonIds: [...opponent.seasonIds, activeSeason.id] }
+            : opponent),
+        });
+        setMessage(`Der vorhandene Gegner „${duplicate.name}“ wurde dieser Saison zugeordnet.`);
+        resetOpponentForm();
+        return;
+      }
+      return setMessage(`Ein Gegner namens „${duplicate.name}“ ist bereits vorhanden.`);
+    }
     if (opponentEditId) {
       persist({
         ...bundle,
@@ -324,6 +394,13 @@ export default function LigaPage() {
 
   function detachOpponent(opponent: LeagueOpponent) {
     if (!activeSeason) return;
+    const usedInSchedule = bundle.schedule.some((game) =>
+      game.seasonId === activeSeason.id && (game.homeTeamId === opponent.id || game.awayTeamId === opponent.id),
+    );
+    if (usedInSchedule) {
+      setMessage("Das Team ist noch im Saison-Spielplan eingetragen und kann deshalb nicht aus der Saison entfernt werden.");
+      return;
+    }
     persist({
       ...bundle,
       opponents: bundle.opponents.map((entry) =>
@@ -342,6 +419,13 @@ export default function LigaPage() {
       tone: "danger",
     });
     if (!confirmed) return;
+    const affectedGames = bundle.schedule.filter((game) =>
+      game.homeTeamId === opponent.id || game.awayTeamId === opponent.id || game.opponentId === opponent.id,
+    );
+    const affectedIds = new Set(affectedGames.map((game) => game.id));
+    for (const game of affectedGames) {
+      if (game.syncedAt) cleanupSyncedGame(game, affectedIds);
+    }
     persist({
       ...bundle,
       opponents: bundle.opponents.filter((entry) => entry.id !== opponent.id),
@@ -354,6 +438,12 @@ export default function LigaPage() {
     event.preventDefault();
     const name = playerName.trim();
     if (!name || !playerTeamId) return;
+    const duplicate = bundle.players.find((player) =>
+      player.id !== playerEditId &&
+      player.teamId === playerTeamId &&
+      player.name.trim().toLocaleLowerCase("de-DE") === name.toLocaleLowerCase("de-DE"),
+    );
+    if (duplicate) return setMessage(`${duplicate.name} ist in diesem Kader bereits vorhanden.`);
     const playerId = playerEditId ?? createId("player");
     const previous = playerEditId ? bundle.players.find((player) => player.id === playerEditId) : undefined;
     const player: LeaguePlayer = {
@@ -387,6 +477,7 @@ export default function LigaPage() {
         ...game,
         bestPlayerId: game.bestPlayerId === player.id ? undefined : game.bestPlayerId,
         playerStats: game.playerStats?.filter((line) => line.playerId !== player.id),
+        attendance: game.attendance?.filter((response) => response.playerId !== player.id),
       })),
     };
     next = applyBestPlayer(next, player.id, player.teamId, false);
@@ -398,6 +489,18 @@ export default function LigaPage() {
     if (!activeSeason) return setMessage("Bitte zuerst eine Saison anlegen.");
     if (!gameDate || !gameTime || !homeTeamId || !awayTeamId) return setMessage("Bitte Datum, Spielzeit und beide Teams vollständig auswählen.");
     if (homeTeamId === awayTeamId) return setMessage("Heim- und Auswärtsteam müssen unterschiedlich sein.");
+    if ((activeSeason.startDate && gameDate < activeSeason.startDate) || (activeSeason.endDate && gameDate > activeSeason.endDate)) {
+      return setMessage("Das Spieldatum liegt außerhalb des eingetragenen Saisonzeitraums.");
+    }
+    const duplicate = findDuplicateLeagueGame(bundle.schedule, {
+      id: "new-game",
+      seasonId: activeSeason.id,
+      date: gameDate,
+      startTime: gameTime,
+      homeTeamId,
+      awayTeamId,
+    });
+    if (duplicate) return setMessage("Dieses Spiel ist mit denselben Teams, Datum und Uhrzeit bereits vorhanden.");
     const opponentId = homeTeamId === LEAGUE_OWN_TEAM_ID ? awayTeamId : awayTeamId === LEAGUE_OWN_TEAM_ID ? homeTeamId : undefined;
     const entry: LeagueScheduleEntry = {
       id: createId("game"),
@@ -405,34 +508,91 @@ export default function LigaPage() {
       date: gameDate,
       startTime: gameTime,
       kind: gameKind,
+      status: "scheduled",
       homeTeamId,
       awayTeamId,
       opponentId,
       notes: gameNotes.trim() || undefined,
+      venueName: gameVenue.trim() || undefined,
+      venueAddress: gameAddress.trim() || undefined,
+      meetingTime: gameMeetingTime || undefined,
+      travelMinutes: nullableInteger(gameTravelMinutes),
       homeScore: null,
       awayScore: null,
       playerStats: [],
+      attendance: [],
     };
     persist({ ...bundle, schedule: [...bundle.schedule, entry] });
     setGameDate("");
     setGameTime("18:00");
     setGameNotes("");
+    setGameVenue("");
+    setGameAddress("");
+    setGameMeetingTime("");
+    setGameTravelMinutes("");
     setMessage("Spiel zum Saisonplan hinzugefügt.");
   }
 
   function updateGame(gameId: string, patch: Partial<LeagueScheduleEntry>) {
-    persist({ ...bundle, schedule: bundle.schedule.map((entry) => entry.id === gameId ? { ...entry, ...patch } : entry) });
+    const previous = bundle.schedule.find((entry) => entry.id === gameId);
+    if (!previous) return;
+    let updated = { ...previous, ...patch };
+    const becomesUnavailable = updated.status === "cancelled" || updated.status === "postponed";
+    const moved = previous.date !== updated.date || previous.kind !== updated.kind;
+    if (previous.syncedAt && (moved || becomesUnavailable)) {
+      cleanupSyncedGame(previous);
+      updated = { ...updated, syncedAt: undefined };
+      if (!becomesUnavailable) {
+        const opponentId = updated.homeTeamId === LEAGUE_OWN_TEAM_ID ? updated.awayTeamId : updated.homeTeamId;
+        const opponent = bundle.opponents.find((team) => team.id === opponentId);
+        updated = syncLeagueEntryToPlan(updated, opponent);
+      }
+    } else if (previous.syncedAt && Object.keys(patch).some((key) => ["startTime", "notes", "awards", "venueName", "venueAddress", "meetingTime", "travelMinutes"].includes(key))) {
+      const opponentId = updated.homeTeamId === LEAGUE_OWN_TEAM_ID ? updated.awayTeamId : updated.homeTeamId;
+      const opponent = bundle.opponents.find((team) => team.id === opponentId);
+      updated = syncLeagueEntryToPlan(updated, opponent);
+    }
+    persist({ ...bundle, schedule: bundle.schedule.map((entry) => entry.id === gameId ? updated : entry) });
+  }
+
+  function updateGameScore(entry: LeagueScheduleEntry, side: "home" | "away", rawValue: string) {
+    const value = nullableInteger(rawValue);
+    const otherValue = side === "home" ? entry.awayScore : entry.homeScore;
+    updateGame(entry.id, {
+      [side === "home" ? "homeScore" : "awayScore"]: value,
+      status: value != null && otherValue != null ? "final" : entry.status === "final" ? "scheduled" : entry.status,
+    });
   }
 
   function updatePlayerStat(game: LeagueScheduleEntry, playerId: string, key: NumericStatKey, value: string) {
     const existing = game.playerStats?.find((line) => line.playerId === playerId) ?? emptyPlayerStatLine(playerId);
-    const nextLine = { ...existing, [key]: nullableNumber(value) };
+    const nextLine = { ...existing, [key]: key === "minutes" ? nullableNumber(value) : nullableInteger(value) };
     const nextLines = [...(game.playerStats?.filter((line) => line.playerId !== playerId) ?? []), nextLine];
     updateGame(game.id, { playerStats: nextLines });
   }
 
+  function updateAttendance(entry: LeagueScheduleEntry, playerId: string, patch: { status?: LeagueAttendanceStatus; expectedStarter?: boolean }) {
+    const previous = entry.attendance?.find((item) => item.playerId === playerId) ?? { playerId, status: "pending" as const };
+    const next = { ...previous, ...patch };
+    updateGame(entry.id, {
+      attendance: [...(entry.attendance?.filter((item) => item.playerId !== playerId) ?? []), next],
+    });
+  }
+
+  function cleanupSyncedGame(entry: LeagueScheduleEntry, removedIds = new Set([entry.id])) {
+    deleteGameStatForLeagueGame(entry.id, entry.date, entry.kind);
+    const hasReplacement = bundle.schedule.some((candidate) =>
+      !removedIds.has(candidate.id) &&
+      candidate.syncedAt &&
+      candidate.date === entry.date &&
+      candidate.kind === entry.kind,
+    );
+    if (!hasReplacement) removeManualGameForDate(entry.date, entry.kind);
+  }
+
   function handleSyncEntry(entry: LeagueScheduleEntry) {
     if (!gameInvolvesOwnTeam(entry)) return setMessage("Nur Spiele des eigenen Teams werden in den persönlichen Wochenplan übernommen.");
+    if (entry.status === "cancelled" || entry.status === "postponed") return setMessage("Abgesagte oder verschobene Spiele können nicht synchronisiert werden.");
     const opponentId = entry.homeTeamId === LEAGUE_OWN_TEAM_ID ? entry.awayTeamId : entry.homeTeamId;
     const opponent = bundle.opponents.find((team) => team.id === opponentId);
     const synced = syncLeagueEntryToPlan(entry, opponent);
@@ -450,7 +610,50 @@ export default function LigaPage() {
   async function deleteGame(gameId: string) {
     const confirmed = await appDialog.confirm({ message: "Spiel aus dem Saisonplan entfernen?", confirmLabel: "Entfernen", tone: "danger" });
     if (!confirmed) return;
+    const entry = bundle.schedule.find((game) => game.id === gameId);
+    if (entry?.syncedAt) cleanupSyncedGame(entry);
     persist({ ...bundle, schedule: bundle.schedule.filter((entry) => entry.id !== gameId) });
+  }
+
+  async function readCsvFile(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage("Die CSV-Datei darf maximal 2 MB groß sein.");
+      return;
+    }
+    const preview = parseLeagueScheduleCsv(await file.text());
+    setCsvPreview(preview);
+    setCsvFileName(file.name);
+    setMessage(preview.rows.length > 0 ? `${preview.rows.length} gültige CSV-Zeilen erkannt.` : preview.errors[0] ?? "Keine Spiele erkannt.");
+  }
+
+  function confirmCsvImport() {
+    if (!activeSeason || !csvPreview || csvPreview.rows.length === 0) return;
+    const result = applyLeagueScheduleCsv(bundle, activeSeason.id, csvPreview);
+    persist(result.bundle);
+    setCsvPreview(null);
+    setCsvFileName("");
+    setMessage(`${result.imported} Spiele importiert${result.createdOpponentNames.length ? ` · ${result.createdOpponentNames.length} neue Teams angelegt` : ""}${result.skippedLines.length ? ` · ${result.skippedLines.length} Dubletten übersprungen` : ""}.`);
+  }
+
+  function exportCalendar() {
+    if (!activeSeason || ownSchedule.length === 0) return setMessage("Keine eigenen Saisonspiele für den Kalender vorhanden.");
+    const resolveTeamName = (id: string | undefined) => teamById.get(id ?? "")?.name ?? "";
+    const content = buildLeagueCalendarIcs(ownSchedule, resolveTeamName);
+    const filename = `${activeSeason.name.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "saison"}-spielplan.ics`;
+    downloadLeagueCalendar(filename, content);
+    setMessage(`${ownSchedule.length} eigene Spiele als iCal exportiert.`);
+  }
+
+  function downloadCsvTemplate() {
+    const content = LEAGUE_CSV_TEMPLATE.replaceAll("Mein Team", bundle.ownTeam.name);
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "liga-spielplan-vorlage.csv";
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   return (
@@ -493,6 +696,10 @@ export default function LigaPage() {
           <form className="app-card space-y-3" onSubmit={handleCreateSeason}>
             <p className="section-eyebrow">Neue Saison</p>
             <input value={seasonName} onChange={(event) => setSeasonName(event.target.value)} placeholder="z. B. Regionalliga 2026/27" className="input" required />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ModernDateInput value={seasonStartDate} onChange={setSeasonStartDate} label="Saisonstart" max={seasonEndDate || undefined} />
+              <ModernDateInput value={seasonEndDate} onChange={setSeasonEndDate} label="Saisonende" min={seasonStartDate || undefined} />
+            </div>
             <textarea value={seasonNotes} onChange={(event) => setSeasonNotes(event.target.value)} placeholder="Ziele, Modus und Saisonnotizen" rows={3} className="textarea" />
             <button type="submit" className="btn btn-primary btn-sm">Saison anlegen</button>
           </form>
@@ -501,7 +708,7 @@ export default function LigaPage() {
             {bundle.seasons.length === 0 ? <p className="mt-3 text-sm text-muted">Lege deine erste Saison an.</p> : (
               <GradientFadeList className="mt-3" items={bundle.seasons} listClassName="space-y-2" getKey={(season) => season.id} renderItem={(season) => (
                 <div className="list-card flex items-center justify-between gap-2">
-                  <div><p className="list-card__title">{season.name}</p>{season.notes ? <p className="list-card__meta">{season.notes}</p> : null}</div>
+                  <div><p className="list-card__title">{season.name}</p>{season.startDate || season.endDate ? <p className="list-card__meta">{season.startDate ? formatDateLabel(season.startDate) : "Start offen"} – {season.endDate ? formatDateLabel(season.endDate) : "Ende offen"}</p> : null}{season.notes ? <p className="list-card__meta">{season.notes}</p> : null}</div>
                   <button type="button" className={`btn btn-xs ${bundle.activeSeasonId === season.id ? "btn-primary" : "btn-outline"}`} onClick={() => persist({ ...bundle, activeSeasonId: season.id })}>{bundle.activeSeasonId === season.id ? "Aktiv" : "Aktivieren"}</button>
                 </div>
               )} />
@@ -581,7 +788,7 @@ export default function LigaPage() {
 
       {tab === "standings" ? (
         <section className="mt-4 app-card overflow-hidden">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="section-eyebrow">Live-Tabelle</p><h2 className="section-title mt-1">{activeSeason?.name ?? "Saison"}</h2><p className="mt-1 text-xs text-muted">Sieg = 2 Punkte · Niederlage = 1 Punkt · Sortierung nach Punkten, Korbdifferenz und erzielten Punkten.</p></div><div className="flex flex-wrap gap-1.5 text-xs"><span className="league-legend league-legend--playoffs">1–8 Playoffs</span><span className="league-legend league-legend--stay">9–10 Liga</span><span className="league-legend league-legend--relegation">11–12 Abstieg</span></div></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="section-eyebrow">Live-Tabelle</p><h2 className="section-title mt-1">{activeSeason?.name ?? "Saison"}</h2><p className="mt-1 text-xs text-muted">Sieg = 2 Punkte · Niederlage = 1 Punkt · Bei Gleichstand zählen direkter Vergleich, Korbdifferenz und erzielte Punkte.</p></div><div className="flex flex-wrap gap-1.5 text-xs"><span className="league-legend league-legend--playoffs">1–8 Playoffs</span><span className="league-legend league-legend--stay">9–10 Liga</span><span className="league-legend league-legend--relegation">11–12 Abstieg</span></div></div>
           <div className="league-table-wrap mt-4"><table className="league-table"><thead><tr><th>#</th><th>Team</th><th>SP</th><th>S</th><th>N</th><th>PF</th><th>PA</th><th>Diff</th><th>PKT</th><th>Status</th></tr></thead><tbody>{standings.map((row) => <tr key={row.teamId} className={`league-row league-row--${getStandingZone(row.position)} ${row.teamId === LEAGUE_OWN_TEAM_ID ? "league-row--own" : ""}`}><td className="font-extrabold">{row.position}</td><td><span className="font-semibold text-strong">{row.teamName}</span>{row.teamId === LEAGUE_OWN_TEAM_ID ? <span className="ml-2 text-xs text-brand">Dein Team</span> : null}</td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.pointsFor}</td><td>{row.pointsAgainst}</td><td>{row.difference > 0 ? `+${row.difference}` : row.difference}</td><td className="font-extrabold">{row.tablePoints}</td><td><span className={`league-status league-status--${getStandingZone(row.position)}`}>{zoneLabel(row.position)}</span></td></tr>)}</tbody></table></div>
           {standings.length < 12 ? <p className="mt-3 text-xs text-muted">Die Zonen 9–12 werden sichtbar, sobald mindestens zwölf Teams in der Saison sind.</p> : null}
         </section>
@@ -598,14 +805,47 @@ export default function LigaPage() {
               <label className="league-game-field"><span className="input-label">Heimteam</span><select value={homeTeamId} onChange={(event) => setHomeTeamId(event.target.value)} className="select league-game-control" required>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
               <label className="league-game-field"><span className="input-label">Auswärtsteam</span><select value={awayTeamId} onChange={(event) => setAwayTeamId(event.target.value)} className="select league-game-control" required><option value="">Team wählen</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
             </div>
+            <div className="league-game-form__controls grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <label className="league-game-field"><span className="input-label">Spielort / Halle</span><input value={gameVenue} onChange={(event) => setGameVenue(event.target.value)} className="input league-game-control" placeholder="z. B. Sporthalle Mitte" /></label>
+              <label className="league-game-field md:col-span-2"><span className="input-label">Hallenadresse</span><input value={gameAddress} onChange={(event) => setGameAddress(event.target.value)} className="input league-game-control" placeholder="Straße, PLZ, Ort" /></label>
+              <ModernTimeInput value={gameMeetingTime} onChange={setGameMeetingTime} label="Treffpunkt" className="league-game-field" controlClassName="league-game-control" />
+              <label className="league-game-field"><span className="input-label">Anfahrt (Min.)</span><input type="number" min="0" step="1" value={gameTravelMinutes} onChange={(event) => setGameTravelMinutes(event.target.value)} className="input league-game-control" placeholder="z. B. 35" /></label>
+            </div>
             <textarea value={gameNotes} onChange={(event) => setGameNotes(event.target.value)} placeholder="Vorbereitung oder Spielnotiz" rows={2} className="textarea" />
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <button type="submit" className="btn btn-primary league-game-action" disabled={!activeSeason || teams.length < 2}>Spiel hinzufügen</button>
             </div>
           </form>
 
+          <div className="app-card league-import-card">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="section-eyebrow">Spielplan importieren</p>
+                <h2 className="section-title mt-1">CSV mit Vorschau</h2>
+                <p className="mt-1 text-xs text-muted">Erkannte, noch nicht vorhandene Teams werden als wiederverwendbare Gegner angelegt. Dubletten werden übersprungen.</p>
+              </div>
+              <button type="button" className="btn btn-outline btn-sm" onClick={downloadCsvTemplate}>CSV-Vorlage</button>
+            </div>
+            <label className="league-file-picker mt-4">
+              <span className="league-file-picker__icon" aria-hidden>CSV</span>
+              <span><strong>{csvFileName || "Spielplan-Datei auswählen"}</strong><small>CSV, maximal 2 MB · Komma oder Semikolon</small></span>
+              <input type="file" accept=".csv,text/csv" onChange={(event) => void readCsvFile(event.target.files?.[0])} />
+            </label>
+            {csvPreview ? (
+              <div className="league-import-preview mt-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-strong">{csvPreview.rows.length} gültige Spiele</p>
+                  <button type="button" className="btn btn-primary btn-sm" disabled={!activeSeason || csvPreview.rows.length === 0} onClick={confirmCsvImport}>Jetzt importieren</button>
+                </div>
+                {csvPreview.rows.length > 0 ? <div className="mt-2 space-y-1">{csvPreview.rows.slice(0, 5).map((row) => <p key={row.line} className="text-xs text-muted">Zeile {row.line}: {row.date} · {row.startTime} · {row.homeTeam} – {row.awayTeam}</p>)}</div> : null}
+                {csvPreview.rows.length > 5 ? <p className="mt-1 text-xs text-faint">… und {csvPreview.rows.length - 5} weitere</p> : null}
+                {csvPreview.errors.length > 0 ? <div className="mt-2 hint-warning">{csvPreview.errors.slice(0, 4).map((error) => <p key={error}>{error}</p>)}</div> : null}
+              </div>
+            ) : null}
+          </div>
+
           <div className="app-card">
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="section-eyebrow">Saison-Spielplan</p><h2 className="section-title mt-1">Chronologischer Spielplan</h2><p className="mt-1 text-xs text-muted">{schedule.length} Spiele · {schedule.filter((game) => game.homeScore != null && game.awayScore != null).length} Ergebnisse</p></div><button type="button" className="btn btn-outline btn-sm" onClick={handleSyncAllUpcoming}>Eigene anstehende → Wochenplan</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="section-eyebrow">Saison-Spielplan</p><h2 className="section-title mt-1">Chronologischer Spielplan</h2><p className="mt-1 text-xs text-muted">{schedule.length} Spiele · {schedule.filter(isCompletedLeagueGame).length} gültige Ergebnisse</p></div><div className="flex flex-wrap gap-2"><button type="button" className="btn btn-cyan btn-sm" onClick={exportCalendar}>iCal exportieren</button><button type="button" className="btn btn-outline btn-sm" onClick={handleSyncAllUpcoming}>Eigene anstehende → Wochenplan</button></div></div>
             {schedule.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Spiele geplant.</p> : (
               <div className="league-fixture-board mt-4">{scheduleDays.map((day) => {
                 const dateParts = formatScheduleDateParts(day.date);
@@ -618,8 +858,9 @@ export default function LigaPage() {
                   <div className="league-fixture-day__games">{day.games.map((entry) => {
                     const home = teamById.get(entry.homeTeamId ?? "");
                     const away = teamById.get(entry.awayTeamId ?? "");
-                    const finished = entry.homeScore != null && entry.awayScore != null;
-                    return <article key={entry.id} className="league-fixture"><div className="league-fixture__time"><strong>{entry.startTime ?? "–:–"}</strong><span>{entry.startTime ? "Uhr" : "Zeit offen"}</span></div><div className="league-fixture__teams"><span>{home?.name ?? "Heimteam"}</span><span>{away?.name ?? "Auswärtsteam"}</span></div><div className={`league-fixture__result ${finished ? "league-fixture__result--final" : ""}`}><strong>{finished ? `${entry.homeScore} : ${entry.awayScore}` : "Geplant"}</strong><span>{entry.kind === "game" ? "Liga" : "Testspiel"}</span></div></article>;
+                    const finished = isCompletedLeagueGame(entry);
+                    const attendance = entry.attendance ?? [];
+                    return <article key={entry.id} className={`league-fixture league-fixture--${entry.status ?? "scheduled"}`}><div className="league-fixture__time"><strong>{entry.startTime ?? "–:–"}</strong><span>{entry.meetingTime ? `Treffen ${entry.meetingTime}` : entry.startTime ? "Uhr" : "Zeit offen"}</span></div><div className="league-fixture__teams"><span>{home?.name ?? "Heimteam"}</span><span>{away?.name ?? "Auswärtsteam"}</span>{entry.venueName ? <small>{entry.venueName}{entry.travelMinutes != null ? ` · ${entry.travelMinutes} Min. Anfahrt` : ""}</small> : null}</div><div className={`league-fixture__result ${finished ? "league-fixture__result--final" : ""}`}><strong>{finished ? `${entry.homeScore} : ${entry.awayScore}` : gameStatusLabel(entry.status)}</strong><span>{entry.kind === "game" ? "Liga" : "Testspiel"}{attendance.length ? ` · ${attendance.filter((item) => item.status === "yes").length} Zusagen` : ""}</span></div></article>;
                   })}</div>
                 </section>;
               })}</div>
@@ -633,18 +874,29 @@ export default function LigaPage() {
                 const home = teamById.get(entry.homeTeamId ?? "");
                 const away = teamById.get(entry.awayTeamId ?? "");
                 const gamePlayers = bundle.players.filter((player) => player.teamId === entry.homeTeamId || player.teamId === entry.awayTeamId);
-                return <details key={entry.id} className="league-game-card"><summary className="league-game-card__summary"><div><p className="font-bold text-strong">{home?.name ?? "Heimteam"} <span className="league-score">{entry.homeScore ?? "–"} : {entry.awayScore ?? "–"}</span> {away?.name ?? "Auswärtsteam"}</p><p className="mt-1 text-xs text-muted">{formatGameDateTimeLabel(entry.date, entry.startTime)} · {entry.kind === "game" ? "Ligaspiel" : "Test-/Trainingsspiel"}{entry.syncedAt ? " · Im Wochenplan" : ""}</p></div><span className="chip">Details</span></summary>
+                const validationIssues = validateLeagueGame(entry, gamePlayers);
+                const googleCalendarUrl = buildGoogleCalendarUrl(entry, (id) => teamById.get(id ?? "")?.name ?? "");
+                return <details key={entry.id} className="league-game-card"><summary className="league-game-card__summary"><div><p className="font-bold text-strong">{home?.name ?? "Heimteam"} <span className="league-score">{entry.homeScore ?? "–"} : {entry.awayScore ?? "–"}</span> {away?.name ?? "Auswärtsteam"}</p><p className="mt-1 text-xs text-muted">{formatGameDateTimeLabel(entry.date, entry.startTime)} · {entry.kind === "game" ? "Ligaspiel" : "Test-/Trainingsspiel"} · {gameStatusLabel(entry.status)}{entry.syncedAt ? " · Im Wochenplan" : ""}</p></div><span className={`chip ${validationIssues.length ? "chip-warning" : ""}`}>{validationIssues.length ? `${validationIssues.length} Hinweise` : "Details"}</span></summary>
                   <div className="league-game-card__body league-game-form">
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                       <ModernDateInput value={entry.date} onChange={(value) => updateGame(entry.id, { date: value })} label="Datum" className="league-game-field" controlClassName="league-game-control" />
                       <ModernTimeInput value={entry.startTime ?? ""} onChange={(value) => updateGame(entry.id, { startTime: value || undefined })} label="Spielzeit" className="league-game-field" controlClassName="league-game-control" />
-                      <label className="league-game-field"><span className="input-label">Heimteam Punkte</span><input type="number" min="0" value={entry.homeScore ?? ""} onChange={(event) => updateGame(entry.id, { homeScore: nullableNumber(event.target.value) })} className="input league-game-control" /></label>
-                      <label className="league-game-field"><span className="input-label">Auswärtsteam Punkte</span><input type="number" min="0" value={entry.awayScore ?? ""} onChange={(event) => updateGame(entry.id, { awayScore: nullableNumber(event.target.value) })} className="input league-game-control" /></label>
+                      <label className="league-game-field"><span className="input-label">Status</span><select value={entry.status ?? "scheduled"} onChange={(event) => updateGame(entry.id, { status: event.target.value as LeagueGameStatus })} className="select league-game-control"><option value="scheduled">Geplant</option><option value="live">Live</option><option value="postponed">Verschoben</option><option value="cancelled">Abgesagt</option><option value="final">Final</option></select></label>
+                      <label className="league-game-field"><span className="input-label">Heimteam Punkte</span><input type="number" min="0" step="1" value={entry.homeScore ?? ""} onChange={(event) => updateGameScore(entry, "home", event.target.value)} className="input league-game-control" /></label>
+                      <label className="league-game-field"><span className="input-label">Auswärtsteam Punkte</span><input type="number" min="0" step="1" value={entry.awayScore ?? ""} onChange={(event) => updateGameScore(entry, "away", event.target.value)} className="input league-game-control" /></label>
                       <label className="league-game-field"><span className="input-label">Bester Spieler / MVP</span><select value={entry.bestPlayerId ?? ""} onChange={(event) => updateGame(entry.id, { bestPlayerId: event.target.value || undefined })} className="select league-game-control"><option value="">Nicht gewählt</option>{gamePlayers.map((player) => <option key={player.id} value={player.id}>{player.name} · {teamById.get(player.teamId)?.name}</option>)}</select></label>
                     </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                      <label className="league-game-field"><span className="input-label">Spielort / Halle</span><input value={entry.venueName ?? ""} onChange={(event) => updateGame(entry.id, { venueName: event.target.value })} className="input league-game-control" /></label>
+                      <label className="league-game-field sm:col-span-2"><span className="input-label">Adresse</span><input value={entry.venueAddress ?? ""} onChange={(event) => updateGame(entry.id, { venueAddress: event.target.value })} className="input league-game-control" /></label>
+                      <ModernTimeInput value={entry.meetingTime ?? ""} onChange={(value) => updateGame(entry.id, { meetingTime: value || undefined })} label="Treffpunkt" className="league-game-field" controlClassName="league-game-control" />
+                      <label className="league-game-field"><span className="input-label">Anfahrt (Min.)</span><input type="number" min="0" step="1" value={entry.travelMinutes ?? ""} onChange={(event) => updateGame(entry.id, { travelMinutes: nullableInteger(event.target.value) })} className="input league-game-control" /></label>
+                    </div>
+                    {validationIssues.length > 0 ? <div className="hint-warning mt-3" role="status"><strong>Bitte prüfen:</strong>{validationIssues.map((issue) => <p key={issue}>{issue}</p>)}</div> : null}
                     <div className="mt-3 grid gap-3 md:grid-cols-2"><label><span className="input-label">Sonstiges / Auszeichnungen</span><textarea value={entry.awards ?? ""} onChange={(event) => updateGame(entry.id, { awards: event.target.value })} rows={2} className="textarea" placeholder="Viele Dreier, Game-Winner, Career High …" /></label><label><span className="input-label">Spielnotiz</span><textarea value={entry.notes ?? ""} onChange={(event) => updateGame(entry.id, { notes: event.target.value })} rows={2} className="textarea" /></label></div>
+                    {gameInvolvesOwnTeam(entry) && ownTeamPlayers.length > 0 ? <div className="league-attendance mt-4"><div><p className="section-eyebrow">Kaderstatus</p><h3 className="section-title mt-1">Zu-/Absagen & erwartete Start-Five</h3></div><div className="mt-3 grid gap-2 md:grid-cols-2">{ownTeamPlayers.map((player) => { const response = entry.attendance?.find((item) => item.playerId === player.id) ?? { playerId: player.id, status: "pending" as LeagueAttendanceStatus }; return <div key={player.id} className="league-attendance-row"><div><strong>{player.jerseyNumber ? `#${player.jerseyNumber} · ` : ""}{player.name}</strong><small>{player.position || "Position offen"}</small></div><select aria-label={`Teilnahme ${player.name}`} value={response.status} onChange={(event) => updateAttendance(entry, player.id, { status: event.target.value as LeagueAttendanceStatus })} className="select app-unified-control"><option value="pending">Offen</option><option value="yes">Zusage</option><option value="maybe">Vielleicht</option><option value="no">Absage</option></select><label className="league-starter-check"><input type="checkbox" checked={Boolean(response.expectedStarter)} disabled={response.status === "no"} onChange={(event) => updateAttendance(entry, player.id, { expectedStarter: event.target.checked })} /><span>Starter</span></label></div>; })}</div><p className="mt-2 text-xs text-muted">{entry.attendance?.filter((item) => item.status === "yes").length ?? 0} Zusagen · {entry.attendance?.filter((item) => item.status === "maybe").length ?? 0} vielleicht · {entry.attendance?.filter((item) => item.expectedStarter && item.status !== "no").length ?? 0} Starter</p></div> : null}
                     {gamePlayers.length > 0 ? <div className="mt-4"><div className="flex items-center justify-between gap-2"><p className="section-eyebrow">Spieler-Boxscore</p><p className="text-xs text-muted">Werte werden beim Verlassen des Feldes gespeichert</p></div><div className="league-table-wrap mt-2"><table className="league-table league-player-table"><thead><tr><th>Spieler</th>{PLAYER_STAT_COLUMNS.map((column) => <th key={column.key} title={column.title}>{column.label}</th>)}</tr></thead><tbody>{gamePlayers.map((player) => { const line = entry.playerStats?.find((item) => item.playerId === player.id) ?? emptyPlayerStatLine(player.id); return <tr key={player.id}><td><span className="font-semibold text-strong">{player.name}</span><span className="block text-[10px] text-muted">{teamById.get(player.teamId)?.name}</span></td>{PLAYER_STAT_COLUMNS.map((column) => <td key={column.key}><input aria-label={`${player.name} ${column.title}`} type="number" min="0" step={column.key === "minutes" ? "0.1" : "1"} defaultValue={line[column.key] ?? ""} onBlur={(event) => updatePlayerStat(entry, player.id, column.key, event.target.value)} className="league-stat-input" /></td>)}</tr>; })}</tbody></table></div></div> : <p className="mt-4 hint-warning">Füge unter „Spieler“ Kader hinzu, um individuelle Punkte, Minuten und weitere Stats einzutragen.</p>}
-                    <div className="mt-4 flex flex-wrap gap-2">{gameInvolvesOwnTeam(entry) ? <><button type="button" className="btn btn-primary btn-xs" onClick={() => handleSyncEntry(entry)}>→ Wochenplan</button><Link href={`/game-track?date=${encodeURIComponent(entry.date)}&context=${entry.kind}`} className="btn btn-violet btn-xs">Persönliche Stats</Link></> : null}<button type="button" className="btn btn-danger-outline btn-xs" onClick={() => void deleteGame(entry.id)}>Spiel entfernen</button></div>
+                    <div className="mt-4 flex flex-wrap gap-2">{entry.status !== "cancelled" && entry.status !== "postponed" ? <Link href={`/liga/live/${encodeURIComponent(entry.id)}`} className="btn btn-primary btn-xs">{entry.status === "live" ? "Live fortsetzen" : entry.status === "final" ? "Live-Feed ansehen" : "Live-Modus starten"}</Link> : null}{gameInvolvesOwnTeam(entry) ? <><button type="button" className="btn btn-outline btn-xs" onClick={() => handleSyncEntry(entry)}>→ Wochenplan</button><Link href={`/game-track?date=${encodeURIComponent(entry.date)}&context=${entry.kind}`} className="btn btn-violet btn-xs">Persönliche Stats</Link><a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="btn btn-cyan btn-xs">Google Kalender</a></> : null}<button type="button" className="btn btn-danger-outline btn-xs" onClick={() => void deleteGame(entry.id)}>Spiel entfernen</button></div>
                   </div>
                 </details>;
               })}</div>

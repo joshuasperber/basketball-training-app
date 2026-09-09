@@ -1,13 +1,39 @@
 import type { OpponentStyleTag } from "@/lib/opponent-styles";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import { addManualGameForDate } from "@/lib/plan-day-actions";
-import { findGameStatByDateAndContext, upsertGameStat } from "@/lib/game-stats";
+import { findGameStatByDateAndContext, findGameStatByLeagueGameId, upsertGameStat } from "@/lib/game-stats";
 
 export const LEAGUE_STORAGE_KEY = "bt.league.v1";
 export const LEAGUE_UPDATED_EVENT = "bt:league-updated";
 export const LEAGUE_OWN_TEAM_ID = "league-own-team";
 
 export type LeagueGameKind = "game" | "game_training";
+export type LeagueGameStatus = "scheduled" | "live" | "postponed" | "cancelled" | "final";
+export type LeagueAttendanceStatus = "pending" | "yes" | "maybe" | "no";
+
+export type LeagueAttendanceResponse = {
+  playerId: string;
+  status: LeagueAttendanceStatus;
+  expectedStarter?: boolean;
+  note?: string;
+};
+
+export type LeagueLiveEvent = {
+  id: string;
+  type: "score" | "foul";
+  teamId: string;
+  playerId?: string;
+  value: number;
+  quarter: number;
+  occurredAt: string;
+};
+
+export type LeagueLiveState = {
+  quarter: number;
+  clockSeconds: number;
+  runningSince?: number;
+  events: LeagueLiveEvent[];
+};
 
 export type LeagueSeason = {
   id: string;
@@ -70,6 +96,7 @@ export type LeagueScheduleEntry = {
   homeTeamId?: string;
   awayTeamId?: string;
   kind: LeagueGameKind;
+  status?: LeagueGameStatus;
   homeAway?: "home" | "away" | "neutral";
   homeScore?: number | null;
   awayScore?: number | null;
@@ -77,6 +104,12 @@ export type LeagueScheduleEntry = {
   bestPlayerId?: string;
   awards?: string;
   notes?: string;
+  venueName?: string;
+  venueAddress?: string;
+  meetingTime?: string;
+  travelMinutes?: number | null;
+  attendance?: LeagueAttendanceResponse[];
+  liveState?: LeagueLiveState;
   syncedAt?: string;
 };
 
@@ -105,6 +138,8 @@ export type LeagueStanding = {
   pointsAgainst: number;
   difference: number;
   tablePoints: number;
+  headToHeadPoints: number;
+  headToHeadDifference: number;
   position: number;
 };
 
@@ -146,6 +181,46 @@ export function normalizeLeagueStartTime(value: unknown) {
   return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(trimmed) ? trimmed : undefined;
 }
 
+function normalizeGameStatus(value: unknown, hasScore: boolean): LeagueGameStatus {
+  if (value === "scheduled" || value === "live" || value === "postponed" || value === "cancelled" || value === "final") return value;
+  return hasScore ? "final" : "scheduled";
+}
+
+function normalizeLiveState(value: unknown): LeagueLiveState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const state = value as Partial<LeagueLiveState>;
+  const quarter = Number(state.quarter);
+  const clockSeconds = Number(state.clockSeconds);
+  return {
+    quarter: Number.isInteger(quarter) && quarter >= 1 ? Math.min(quarter, 12) : 1,
+    clockSeconds: Number.isFinite(clockSeconds) ? Math.max(0, Math.min(600, Math.round(clockSeconds))) : 600,
+    runningSince: typeof state.runningSince === "number" && Number.isFinite(state.runningSince) ? state.runningSince : undefined,
+    events: Array.isArray(state.events)
+      ? state.events.filter((event): event is LeagueLiveEvent => Boolean(
+          event && typeof event === "object" && typeof event.id === "string" &&
+          (event.type === "score" || event.type === "foul") && typeof event.teamId === "string",
+        )).slice(-500)
+      : [],
+  };
+}
+
+function normalizeAttendance(value: unknown): LeagueAttendanceResponse[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== "object") return [];
+    const item = raw as Partial<LeagueAttendanceResponse>;
+    if (typeof item.playerId !== "string") return [];
+    const status: LeagueAttendanceStatus =
+      item.status === "yes" || item.status === "maybe" || item.status === "no" ? item.status : "pending";
+    return [{
+      playerId: item.playerId,
+      status,
+      expectedStarter: Boolean(item.expectedStarter),
+      note: typeof item.note === "string" ? item.note : undefined,
+    }];
+  });
+}
+
 /** Migriert auch den bisherigen Saisonstand ohne Team-/Spielerfelder. */
 export function normalizeLeagueBundle(value: unknown): LeagueBundle {
   const empty = createEmptyLeagueBundle();
@@ -183,7 +258,19 @@ export function normalizeLeagueBundle(value: unknown): LeagueBundle {
   const schedule = Array.isArray(parsed.schedule)
     ? parsed.schedule.map((raw) => {
         const entry = raw as LeagueScheduleEntry;
-        const normalizedEntry = { ...entry, startTime: normalizeLeagueStartTime(entry.startTime) };
+        const hasScore = entry.homeScore != null && entry.awayScore != null;
+        const travelMinutes = Number(entry.travelMinutes);
+        const normalizedEntry = {
+          ...entry,
+          startTime: normalizeLeagueStartTime(entry.startTime),
+          meetingTime: normalizeLeagueStartTime(entry.meetingTime),
+          status: normalizeGameStatus(entry.status, hasScore),
+          venueName: typeof entry.venueName === "string" ? entry.venueName : undefined,
+          venueAddress: typeof entry.venueAddress === "string" ? entry.venueAddress : undefined,
+          travelMinutes: Number.isFinite(travelMinutes) && travelMinutes >= 0 ? Math.round(travelMinutes) : null,
+          attendance: normalizeAttendance(entry.attendance),
+          liveState: normalizeLiveState(entry.liveState),
+        };
         if (entry.homeTeamId && entry.awayTeamId) return normalizedEntry;
         if (!entry.opponentId) return normalizedEntry;
         return {
@@ -284,6 +371,56 @@ export function getStandingZone(position: number): LeagueStandingZone {
   return "outside";
 }
 
+export function isCompletedLeagueGame(entry: LeagueScheduleEntry) {
+  if (entry.kind !== "game" || (entry.status && entry.status !== "final")) return false;
+  if (!Number.isInteger(entry.homeScore) || !Number.isInteger(entry.awayScore)) return false;
+  return entry.homeScore !== entry.awayScore;
+}
+
+export function findDuplicateLeagueGame(
+  schedule: LeagueScheduleEntry[],
+  candidate: Pick<LeagueScheduleEntry, "id" | "seasonId" | "date" | "startTime" | "homeTeamId" | "awayTeamId">,
+) {
+  return schedule.find((entry) =>
+    entry.id !== candidate.id &&
+    entry.seasonId === candidate.seasonId &&
+    entry.date === candidate.date &&
+    (entry.startTime ?? "") === (candidate.startTime ?? "") &&
+    entry.homeTeamId === candidate.homeTeamId &&
+    entry.awayTeamId === candidate.awayTeamId,
+  );
+}
+
+export function validateLeagueGame(entry: LeagueScheduleEntry, players: LeaguePlayer[] = []) {
+  const issues: string[] = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) issues.push("Datum fehlt oder ist ungültig.");
+  if (entry.startTime && !normalizeLeagueStartTime(entry.startTime)) issues.push("Spielzeit ist ungültig.");
+  if (!entry.homeTeamId || !entry.awayTeamId || entry.homeTeamId === entry.awayTeamId) {
+    issues.push("Heim- und Auswärtsteam müssen unterschiedlich sein.");
+  }
+  const hasHomeScore = entry.homeScore != null;
+  const hasAwayScore = entry.awayScore != null;
+  if (hasHomeScore !== hasAwayScore) issues.push("Für ein Ergebnis müssen beide Punktestände ausgefüllt sein.");
+  if (entry.status === "final" && (!hasHomeScore || !hasAwayScore)) issues.push("Ein finales Spiel benötigt ein vollständiges Ergebnis.");
+  if (hasHomeScore && (!Number.isInteger(entry.homeScore) || (entry.homeScore ?? -1) < 0)) issues.push("Heimpunkte müssen eine ganze positive Zahl sein.");
+  if (hasAwayScore && (!Number.isInteger(entry.awayScore) || (entry.awayScore ?? -1) < 0)) issues.push("Auswärtspunkte müssen eine ganze positive Zahl sein.");
+  if (entry.kind === "game" && hasHomeScore && entry.homeScore === entry.awayScore) {
+    issues.push("Ein Ligaspiel benötigt nach Verlängerung einen Sieger.");
+  }
+  const playerIds = new Set(players.map((player) => player.id));
+  for (const line of entry.playerStats ?? []) {
+    if (players.length > 0 && !playerIds.has(line.playerId)) issues.push("Der Boxscore enthält einen nicht mehr vorhandenen Spieler.");
+    if (line.minutes != null && line.minutes > 60) issues.push("Spielerminuten über 60 sind unplausibel.");
+    if (line.points != null && line.threePointersMade != null && line.threePointersMade * 3 > line.points) {
+      issues.push("Getroffene Dreier können nicht mehr Punkte ergeben als die Gesamtpunkte.");
+    }
+    if (Object.values(line).some((value) => typeof value === "number" && (!Number.isFinite(value) || value < 0))) {
+      issues.push("Boxscore-Werte dürfen nicht negativ sein.");
+    }
+  }
+  return [...new Set(issues)];
+}
+
 export function buildLeagueStandings(bundle: LeagueBundle, seasonId: string): LeagueStanding[] {
   const teams = teamsForSeason(bundle, seasonId);
   const rows = new Map(
@@ -299,13 +436,15 @@ export function buildLeagueStandings(bundle: LeagueBundle, seasonId: string): Le
         pointsAgainst: 0,
         difference: 0,
         tablePoints: 0,
+        headToHeadPoints: 0,
+        headToHeadDifference: 0,
         position: 0,
       } satisfies LeagueStanding,
     ]),
   );
 
-  for (const game of bundle.schedule) {
-    if (game.seasonId !== seasonId || game.kind !== "game") continue;
+  const completedGames = bundle.schedule.filter((game) => game.seasonId === seasonId && isCompletedLeagueGame(game));
+  for (const game of completedGames) {
     if (!game.homeTeamId || !game.awayTeamId || game.homeTeamId === game.awayTeamId) continue;
     if (game.homeScore == null || game.awayScore == null) continue;
     const home = rows.get(game.homeTeamId);
@@ -327,17 +466,43 @@ export function buildLeagueStandings(bundle: LeagueBundle, seasonId: string): Le
       home.losses += 1;
       away.tablePoints += 2;
       home.tablePoints += 1;
-    } else {
-      home.tablePoints += 1;
-      away.tablePoints += 1;
     }
   }
 
-  return [...rows.values()]
-    .map((row) => ({ ...row, difference: row.pointsFor - row.pointsAgainst }))
+  const result = [...rows.values()].map((row) => ({ ...row, difference: row.pointsFor - row.pointsAgainst }));
+  const tiedGroups = new Map<number, LeagueStanding[]>();
+  for (const row of result) {
+    const group = tiedGroups.get(row.tablePoints) ?? [];
+    group.push(row);
+    tiedGroups.set(row.tablePoints, group);
+  }
+  for (const group of tiedGroups.values()) {
+    if (group.length < 2) continue;
+    const ids = new Set(group.map((row) => row.teamId));
+    const groupRows = new Map(group.map((row) => [row.teamId, row]));
+    for (const game of completedGames) {
+      if (!game.homeTeamId || !game.awayTeamId || !ids.has(game.homeTeamId) || !ids.has(game.awayTeamId)) continue;
+      const home = groupRows.get(game.homeTeamId);
+      const away = groupRows.get(game.awayTeamId);
+      if (!home || !away || game.homeScore == null || game.awayScore == null) continue;
+      home.headToHeadDifference += game.homeScore - game.awayScore;
+      away.headToHeadDifference += game.awayScore - game.homeScore;
+      if (game.homeScore > game.awayScore) {
+        home.headToHeadPoints += 2;
+        away.headToHeadPoints += 1;
+      } else {
+        away.headToHeadPoints += 2;
+        home.headToHeadPoints += 1;
+      }
+    }
+  }
+
+  return result
     .sort(
       (left, right) =>
         right.tablePoints - left.tablePoints ||
+        right.headToHeadPoints - left.headToHeadPoints ||
+        right.headToHeadDifference - left.headToHeadDifference ||
         right.difference - left.difference ||
         right.pointsFor - left.pointsFor ||
         left.teamName.localeCompare(right.teamName, "de"),
@@ -366,7 +531,7 @@ export function buildPlayerSeasonSummaries(bundle: LeagueBundle, seasonId: strin
     });
   }
   for (const game of bundle.schedule) {
-    if (game.seasonId !== seasonId) continue;
+    if (game.seasonId !== seasonId || game.status === "cancelled" || game.status === "postponed") continue;
     if (game.bestPlayerId) {
       const mvp = summaries.get(game.bestPlayerId);
       if (mvp) mvp.mvpAwards += 1;
@@ -428,17 +593,27 @@ function opponentPrepNotes(opponent: LeagueOpponent | undefined) {
 
 /** Schreibt nur Spiele des eigenen Teams in Tagesplan und persönliche Spiel-Stats. */
 export function syncLeagueEntryToPlan(entry: LeagueScheduleEntry, opponent?: LeagueOpponent) {
-  if (!gameInvolvesOwnTeam(entry)) return entry;
+  if (!gameInvolvesOwnTeam(entry) || entry.status === "cancelled" || entry.status === "postponed") return entry;
   addManualGameForDate(entry.date, entry.kind === "game_training" ? "game_training" : "game");
 
   const context = entry.kind === "game_training" ? "game_training" : "game";
-  const existing = findGameStatByDateAndContext(entry.date, context);
-  const prepNotes = [entry.startTime ? `Spielbeginn: ${entry.startTime} Uhr` : null, opponentPrepNotes(opponent), entry.notes?.trim(), entry.awards?.trim()]
+  const existing = findGameStatByLeagueGameId(entry.id) ?? (entry.syncedAt ? findGameStatByDateAndContext(entry.date, context) : undefined);
+  const prepNotes = [
+    entry.startTime ? `Spielbeginn: ${entry.startTime} Uhr` : null,
+    entry.meetingTime ? `Treffpunkt: ${entry.meetingTime} Uhr` : null,
+    entry.venueName?.trim() ? `Spielort: ${entry.venueName.trim()}` : null,
+    entry.venueAddress?.trim() ? `Adresse: ${entry.venueAddress.trim()}` : null,
+    entry.travelMinutes != null ? `Anfahrt: ca. ${entry.travelMinutes} Min.` : null,
+    opponentPrepNotes(opponent),
+    entry.notes?.trim(),
+    entry.awards?.trim(),
+  ]
     .filter(Boolean)
     .join("\n\n");
 
   upsertGameStat({
     id: existing?.id,
+    leagueGameId: entry.id,
     date: entry.date,
     context,
     opponentLabel: opponent?.name?.trim() || existing?.opponentLabel || null,
@@ -462,7 +637,13 @@ export function syncUpcomingLeagueSchedule(seasonId: string, fromDate: string) {
   const opponentsById = new Map(bundle.opponents.map((entry) => [entry.id, entry]));
   let count = 0;
   const nextSchedule = bundle.schedule.map((entry) => {
-    if (entry.seasonId !== seasonId || entry.date < fromDate || !gameInvolvesOwnTeam(entry)) return entry;
+    if (
+      entry.seasonId !== seasonId ||
+      entry.date < fromDate ||
+      !gameInvolvesOwnTeam(entry) ||
+      entry.status === "cancelled" ||
+      entry.status === "postponed"
+    ) return entry;
     const opponentId = entry.homeTeamId === LEAGUE_OWN_TEAM_ID ? entry.awayTeamId : entry.homeTeamId;
     const opponent = opponentsById.get(opponentId ?? entry.opponentId ?? "");
     count += 1;

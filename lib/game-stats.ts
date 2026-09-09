@@ -6,6 +6,8 @@ import type { GameShootingSplit } from "@/lib/game-shooting-splits";
 
 export type GameStatEntry = {
   id: string;
+  /** Verknüpfung zum Saisonspiel, damit Verschieben/Löschen keine verwaisten Kopien erzeugt. */
+  leagueGameId?: string | null;
   date: string;
   context: "game" | "game_training";
   /** z. B. Gegner oder Turniername */
@@ -109,11 +111,40 @@ export function findGameStatByDateAndContext(date: string, context: GameStatEntr
   return loadGameStats().find((entry) => entry.date === date && entry.context === context);
 }
 
+export function findGameStatByLeagueGameId(leagueGameId: string) {
+  return loadGameStats().find((entry) => entry.leagueGameId === leagueGameId);
+}
+
+export function deleteGameStatByLeagueGameId(leagueGameId: string) {
+  const current = loadGameStats();
+  const next = current.filter((entry) => entry.leagueGameId !== leagueGameId);
+  if (next.length === current.length) return false;
+  saveGameStats(next);
+  return true;
+}
+
+/** Entfernt auch persönliche Kopien aus der Zeit vor der stabilen Liga-Spiel-ID. */
+export function deleteGameStatForLeagueGame(
+  leagueGameId: string,
+  date: string,
+  context: GameStatEntry["context"],
+) {
+  const current = loadGameStats();
+  const next = current.filter((entry) => {
+    if (entry.leagueGameId === leagueGameId) return false;
+    return !(!entry.leagueGameId && entry.date === date && entry.context === context);
+  });
+  if (next.length === current.length) return false;
+  saveGameStats(next);
+  return true;
+}
+
 export function upsertGameStat(entry: Omit<GameStatEntry, "id" | "createdAt"> & { id?: string }) {
   const current = loadGameStats();
   const now = new Date().toISOString();
   const existing =
     (entry.id ? current.find((item) => item.id === entry.id) : undefined) ??
+    (entry.leagueGameId ? current.find((item) => item.leagueGameId === entry.leagueGameId) : undefined) ??
     current.find((item) => item.date === entry.date && item.context === entry.context);
   const nextEntry: GameStatEntry = {
     ...existing,

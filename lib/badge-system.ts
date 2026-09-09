@@ -43,6 +43,9 @@ function getStreakFromDates(dateKeys: string[]) {
   const set = new Set(dateKeys);
   let streak = 0;
   const cursor = new Date();
+  if (!set.has(toDateKey(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
   while (true) {
     const key = toDateKey(cursor);
     if (!set.has(key)) break;
@@ -53,6 +56,9 @@ function getStreakFromDates(dateKeys: string[]) {
 }
 
 function getSessionMinutes(session: WorkoutSessionEntry) {
+  if (typeof session.durationSeconds === "number" && session.durationSeconds > 0) {
+    return Math.max(1, Math.round(session.durationSeconds / 60));
+  }
   const uniqueExerciseIds = new Set(session.logs.map((log) => log.exerciseId));
   const raw = Math.max(1, uniqueExerciseIds.size) * 10;
   return Math.ceil((raw * 1.1) / 5) * 5;

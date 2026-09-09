@@ -79,8 +79,10 @@ create policy team_members_select_member on public.team_members
 
 -- Inserts only via service-role API (/api/team/join) after invite validation.
 
-create policy team_members_update_self on public.team_members
-  for update using (user_id = auth.uid());
+-- Änderungen laufen ausschließlich über die validierten Service-Role-API-Routen.
+-- Insbesondere darf ein Mitglied seine Rolle nicht direkt selbst hochstufen.
+drop policy if exists team_members_update_self on public.team_members;
+revoke insert, update, delete on public.team_members from anon, authenticated;
 
 create policy opponent_scouting_select_member on public.opponent_scouting
   for select using (
@@ -96,6 +98,6 @@ create policy opponent_scouting_write_captain on public.opponent_scouting
       select 1 from public.team_members tm
       where tm.team_id = opponent_scouting.team_id
         and tm.user_id = auth.uid()
-        and tm.role in ('owner', 'captain', 'coach')
+        and tm.role in ('owner', 'captain')
     )
   );

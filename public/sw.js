@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v10";
+const CACHE_NAME = "bt-app-cache-v11";
 
 const INSTALL_SHELL = [
   "/manifest.webmanifest",
@@ -67,10 +67,8 @@ function isApiRequest(pathname) {
   return pathname.startsWith("/api/");
 }
 
-function shouldBypassServiceWorker(url, request) {
+function shouldBypassServiceWorker(url) {
   if (isAuthPath(url.pathname) || isApiRequest(url.pathname)) return true;
-  // Safari rejects navigation responses served by a SW when they involved redirects.
-  if (request.mode === "navigate") return true;
   return false;
 }
 
@@ -178,8 +176,10 @@ async function handleDocumentNavigation(request) {
     if (isRedirectResponse(response)) {
       return Response.error();
     }
+    const redirectedToAuth = response.redirected && isAuthPath(new URL(response.url).pathname);
     const safe = await sanitizeServiceWorkerResponse(response);
     if (isHtmlResponse(safe)) {
+      if (redirectedToAuth) return safe;
       await putInCache(request, safe.clone());
       return safe;
     }
@@ -288,7 +288,7 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(event.request.url);
   if (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1") return;
-  if (shouldBypassServiceWorker(url, event.request)) return;
+  if (shouldBypassServiceWorker(url)) return;
 
   if (isStaticAsset(url.pathname)) {
     event.respondWith(cacheFirst(event.request));

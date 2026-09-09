@@ -46,7 +46,15 @@ async function runDirectChecks() {
   const supabaseUrl = normalizeUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  const required = ["user_progress", "profiles", "exercises", "teams", "team_members"];
+  const required = [
+    "user_progress",
+    "profiles",
+    "exercises",
+    "teams",
+    "team_members",
+    "team_invites",
+    "opponent_scouting",
+  ];
 
   const issues = [];
   if (!supabaseUrl) issues.push("NEXT_PUBLIC_SUPABASE_URL fehlt");
@@ -69,6 +77,22 @@ async function runDirectChecks() {
     console.log(`${label} Tabelle public.${table} (HTTP ${result.status})`);
     if (!result.ok) allOk = false;
   }
+
+  const leagueColumnUrl = new URL(`${supabaseUrl}/rest/v1/user_progress`);
+  leagueColumnUrl.searchParams.set("select", "league_data");
+  leagueColumnUrl.searchParams.set("limit", "0");
+  const leagueColumnRes = await fetch(leagueColumnUrl, {
+    method: "HEAD",
+    headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+  });
+  console.log(`${leagueColumnRes.ok ? "✅" : "❌"} Spalte public.user_progress.league_data (HTTP ${leagueColumnRes.status})`);
+  allOk = allOk && leagueColumnRes.ok;
+
+  const bucketRes = await fetch(`${supabaseUrl}/storage/v1/bucket/game-photos`, {
+    headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+  });
+  console.log(`${bucketRes.ok ? "✅" : "❌"} Storage-Bucket game-photos (HTTP ${bucketRes.status})`);
+  allOk = allOk && bucketRes.ok;
 
   if (!allOk) {
     console.error("\n→ SQL in Supabase SQL Editor ausführen: supabase/launch-bootstrap.sql");

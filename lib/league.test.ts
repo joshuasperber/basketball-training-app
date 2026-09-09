@@ -4,12 +4,15 @@ import {
   buildLeagueStandings,
   buildPlayerSeasonSummaries,
   createEmptyLeagueBundle,
+  findDuplicateLeagueGame,
   getStandingZone,
   groupLeagueScheduleByDay,
   normalizeLeagueBundle,
   normalizeLeagueStartTime,
+  isCompletedLeagueGame,
   opponentsForSeason,
   scheduleForSeason,
+  validateLeagueGame,
   type LeagueBundle,
   type LeagueOpponent,
 } from "@/lib/league";
@@ -80,6 +83,51 @@ describe("league season management", () => {
     expect(standings[0]).toMatchObject({ teamId: LEAGUE_OWN_TEAM_ID, played: 2, wins: 2, tablePoints: 4, difference: 13 });
     expect(standings.find((row) => row.teamId === "opp-a")).toMatchObject({ played: 1, losses: 1, tablePoints: 1 });
     expect(standings.find((row) => row.teamId === "opp-b")).toMatchObject({ played: 1, losses: 1, tablePoints: 1 });
+  });
+
+  it("uses the direct comparison before the global basket difference", () => {
+    const bundle: LeagueBundle = {
+      ...createEmptyLeagueBundle(),
+      opponents: [opponent("a", "A"), opponent("b", "B"), opponent("c", "C"), opponent("d", "D")],
+      schedule: [
+        { id: "ab", seasonId: "season-1", date: "2026-01-01", kind: "game", homeTeamId: "a", awayTeamId: "b", homeScore: 80, awayScore: 79 },
+        { id: "ac", seasonId: "season-1", date: "2026-01-02", kind: "game", homeTeamId: "c", awayTeamId: "a", homeScore: 110, awayScore: 50 },
+        { id: "bc", seasonId: "season-1", date: "2026-01-03", kind: "game", homeTeamId: "b", awayTeamId: "c", homeScore: 120, awayScore: 50 },
+        { id: "cd", seasonId: "season-1", date: "2026-01-04", kind: "game", homeTeamId: "c", awayTeamId: "d", homeScore: 80, awayScore: 70 },
+      ],
+    };
+    const standings = buildLeagueStandings(bundle, "season-1");
+    expect(standings.findIndex((row) => row.teamId === "a")).toBeLessThan(standings.findIndex((row) => row.teamId === "b"));
+    expect(standings.find((row) => row.teamId === "a")?.headToHeadPoints).toBe(2);
+  });
+
+  it("rejects tied league results and detects duplicate fixtures", () => {
+    const tied = { id: "g1", seasonId: "season-1", date: "2026-01-01", startTime: "18:00", kind: "game" as const, homeTeamId: "a", awayTeamId: "b", homeScore: 80, awayScore: 80 };
+    expect(isCompletedLeagueGame(tied)).toBe(false);
+    expect(validateLeagueGame(tied)).toContain("Ein Ligaspiel benötigt nach Verlängerung einen Sieger.");
+    expect(findDuplicateLeagueGame([tied], { ...tied, id: "g2" })?.id).toBe("g1");
+  });
+
+  it("normalizes logistics, attendance and legacy game status", () => {
+    const migrated = normalizeLeagueBundle({
+      schedule: [{
+        id: "g1",
+        seasonId: "season-1",
+        date: "2026-10-10",
+        startTime: "18:00",
+        meetingTime: "16:45",
+        travelMinutes: 34.6,
+        venueName: "Arena",
+        kind: "game",
+        homeTeamId: "a",
+        awayTeamId: "b",
+        homeScore: 81,
+        awayScore: 79,
+        attendance: [{ playerId: "p1", status: "yes", expectedStarter: true }],
+      }],
+    });
+    expect(migrated.schedule[0]).toMatchObject({ status: "final", meetingTime: "16:45", travelMinutes: 35, venueName: "Arena" });
+    expect(migrated.schedule[0]?.attendance?.[0]).toMatchObject({ status: "yes", expectedStarter: true });
   });
 
   it("marks playoff, safe and relegation positions", () => {

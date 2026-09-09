@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { applySessionCookies, refreshSessionFromRequest, validateSessionTokens } from "@/lib/server/session-cookies";
+import { applySessionCookies, clearSessionCookies, refreshSessionFromRequest, validateSessionTokens } from "@/lib/server/session-cookies";
 
 const protectedPrefixes = [
   "/dashboard",
@@ -47,11 +47,11 @@ export async function proxy(request: NextRequest) {
       }
       return NextResponse.next();
     }
-    // Supabase unreachable (TLS/proxy/offline): session cookies still present — app may load locally.
-    return NextResponse.next();
+    // Ungültige Cookie-Paare dürfen keine geschützten Seiten freischalten.
+    // Echte Offline-Navigation wird vom zuvor befüllten Service-Worker-Cache übernommen.
   }
 
-  if (refreshToken) {
+  if (refreshToken && !accessToken) {
     const refreshed = await refreshSessionFromRequest(request);
     if (refreshed) {
       const response = NextResponse.redirect(request.nextUrl);
@@ -64,7 +64,9 @@ export async function proxy(request: NextRequest) {
   const returnPath = `${pathname}${request.nextUrl.search}`;
   loginUrl.searchParams.set("next", returnPath);
   loginUrl.searchParams.set("reason", "missing_session");
-  return NextResponse.redirect(loginUrl);
+  const response = NextResponse.redirect(loginUrl);
+  if (accessToken || refreshToken) clearSessionCookies(response, request);
+  return response;
 }
 
 export const config = {

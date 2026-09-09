@@ -3,15 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ModernTimeInput from "@/components/ui/ModernTimeInput";
 import type { DayKey, WeekConfig } from "@/lib/planner";
-
-type ReminderPrefs = {
-  enabled: boolean;
-  /** "HH:MM" 24h. */
-  time: string;
-};
-
-const REMINDER_KEY = "bt.workout-reminder.v1";
-const SCHEDULED_FLAG_KEY = "bt.workout-reminder.scheduled-at";
+import {
+  loadReminderPrefs,
+  saveReminderPrefs,
+  syncReminderSchedule,
+  type ReminderPrefs,
+} from "@/lib/workout-reminders";
 
 const DAY_LABELS: Record<DayKey, string> = {
   monday: "Mo",
@@ -23,76 +20,6 @@ const DAY_LABELS: Record<DayKey, string> = {
   sunday: "So",
 };
 
-function loadPrefs(): ReminderPrefs {
-  if (typeof window === "undefined") return { enabled: false, time: "08:00" };
-  try {
-    const raw = window.localStorage.getItem(REMINDER_KEY);
-    if (!raw) return { enabled: false, time: "08:00" };
-    return JSON.parse(raw) as ReminderPrefs;
-  } catch {
-    return { enabled: false, time: "08:00" };
-  }
-}
-
-function savePrefs(prefs: ReminderPrefs) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(REMINDER_KEY, JSON.stringify(prefs));
-}
-
-function nextOccurrencesForActiveDays(weekConfig: WeekConfig, time: string): { dayKey: DayKey; fireAt: number }[] {
-  const [hourStr, minuteStr] = time.split(":");
-  const hour = Number(hourStr ?? "8");
-  const minute = Number(minuteStr ?? "0");
-  if (Number.isNaN(hour) || Number.isNaN(minute)) return [];
-
-  const dayIndexMap: Record<DayKey, number> = {
-    sunday: 0,
-    monday: 1,
-    tuesday: 2,
-    wednesday: 3,
-    thursday: 4,
-    friday: 5,
-    saturday: 6,
-  };
-
-  const result: { dayKey: DayKey; fireAt: number }[] = [];
-  const now = new Date();
-  for (const [day, cfg] of Object.entries(weekConfig) as [DayKey, WeekConfig[DayKey]][]) {
-    if (!cfg || cfg.mode === "unavailable" || cfg.mode === "rest") continue;
-    const targetDow = dayIndexMap[day];
-    const candidate = new Date(now);
-    candidate.setHours(hour, minute, 0, 0);
-    const diff = (targetDow + 7 - candidate.getDay()) % 7;
-    candidate.setDate(candidate.getDate() + diff);
-    if (candidate.getTime() <= now.getTime()) {
-      candidate.setDate(candidate.getDate() + 7);
-    }
-    result.push({ dayKey: day, fireAt: candidate.getTime() });
-  }
-  return result.sort((a, b) => a.fireAt - b.fireAt);
-}
-
-async function scheduleReminders(weekConfig: WeekConfig, prefs: ReminderPrefs) {
-  if (!("serviceWorker" in navigator) || !("Notification" in window)) return;
-  if (Notification.permission !== "granted") return;
-  const registration = await navigator.serviceWorker.ready;
-  if (!registration.active) return;
-
-  const occurrences = nextOccurrencesForActiveDays(weekConfig, prefs.time).slice(0, 7);
-  for (const occurrence of occurrences) {
-    registration.active.postMessage({
-      type: "schedule-reminder",
-      payload: {
-        title: "Trainings-Reminder 🏀",
-        body: "Heute steht ein Workout an. Los geht's!",
-        tag: `workout-reminder-${occurrence.dayKey}`,
-        fireAtTs: occurrence.fireAt,
-      },
-    });
-  }
-  window.localStorage.setItem(SCHEDULED_FLAG_KEY, String(Date.now()));
-}
-
 export default function WorkoutReminderSettings({ weekConfig }: { weekConfig: WeekConfig }) {
   const [prefs, setPrefs] = useState<ReminderPrefs>({ enabled: false, time: "08:00" });
   const [permission, setPermission] = useState<NotificationPermission>("default");
@@ -100,7 +27,7 @@ export default function WorkoutReminderSettings({ weekConfig }: { weekConfig: We
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      setPrefs(loadPrefs());
+      setPrefs(loadReminderPrefs());
       if (typeof window !== "undefined" && "Notification" in window) {
         setSupportsNotifications(true);
         setPermission(Notification.permission);
@@ -127,34 +54,33 @@ export default function WorkoutReminderSettings({ weekConfig }: { weekConfig: We
     if (perm !== "granted") {
       setPrefs((current) => {
         const next = { ...current, enabled: false };
-        savePrefs(next);
+        saveReminderPrefs(next);
         return next;
       });
       return;
     }
-    setPrefs((current) => {
-      const next = { ...current, enabled: true };
-      savePrefs(next);
-      return next;
-    });
-    await scheduleReminders(weekConfig, { ...prefs, enabled: true });
+    const next = { ...prefs, enabled: true };
+    setPrefs(next);
+    saveReminderPrefs(next);
+    await syncReminderSchedule(weekConfig, next);
   }, [permission, prefs, supportsNotifications, weekConfig]);
 
   const handleDisable = useCallback(() => {
     setPrefs((current) => {
       const next = { ...current, enabled: false };
-      savePrefs(next);
+      saveReminderPrefs(next);
+      void syncReminderSchedule(weekConfig, next);
       return next;
     });
-  }, []);
+  }, [weekConfig]);
 
   const handleTimeChange = useCallback(
     (value: string) => {
       setPrefs((current) => {
         const next = { ...current, time: value };
-        savePrefs(next);
+        saveReminderPrefs(next);
         if (next.enabled && permission === "granted") {
-          void scheduleReminders(weekConfig, next);
+          void syncReminderSchedule(weekConfig, next);
         }
         return next;
       });
@@ -178,7 +104,7 @@ export default function WorkoutReminderSettings({ weekConfig }: { weekConfig: We
       <p className="section-eyebrow">Reminder</p>
       <h2 className="section-title mt-1">Trainings-Erinnerung</h2>
       <p className="text-xs text-muted">
-        An aktiven Tagen bekommst du eine Browser-Notification. Details in der{" "}
+        An aktiven Tagen bekommst du eine Browser-Notification, sobald der Browser die App im Hintergrund ausführen darf. Details in der{" "}
         <a href="/datenschutz" className="text-[var(--brand-400)] underline">
           Datenschutzerklärung
         </a>

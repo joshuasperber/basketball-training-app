@@ -67,10 +67,12 @@ export default function ProgressCelebrationHost() {
     window.addEventListener(PROGRESSION_CELEBRATION_EVENT, onProgression);
     window.addEventListener("bt:sessions-updated", onStats);
     window.addEventListener("bt:game-stats-updated", onStats);
+    window.addEventListener("bt:cloud-progress-applied", onStats);
     return () => {
       window.removeEventListener(PROGRESSION_CELEBRATION_EVENT, onProgression);
       window.removeEventListener("bt:sessions-updated", onStats);
       window.removeEventListener("bt:game-stats-updated", onStats);
+      window.removeEventListener("bt:cloud-progress-applied", onStats);
     };
   }, [checkBadges, enqueue]);
 

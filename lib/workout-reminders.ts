@@ -42,6 +42,7 @@ export function loadReminderPrefs(): ReminderPrefs {
 export function saveReminderPrefs(prefs: ReminderPrefs) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(REMINDER_PREFS_KEY, JSON.stringify(prefs));
+  window.dispatchEvent(new Event("bt:reminder-prefs-updated"));
 }
 
 export function loadWeekConfigFromProfileCache(): WeekConfig | null {
@@ -167,10 +168,7 @@ export async function syncReminderSchedule(weekConfig: WeekConfig, prefs: Remind
     return;
   }
 
-  const now = Date.now();
-  const maxDelayMs = 48 * 60 * 60 * 1000;
   const items = nextOccurrencesForActiveDays(weekConfig, prefs.time)
-    .filter((occurrence) => occurrence.fireAt - now <= maxDelayMs)
     .map((occurrence) => ({
       title: "Trainings-Reminder 🏀",
       body: "Heute steht ein Workout an. Los geht's!",

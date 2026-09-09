@@ -7,6 +7,7 @@ import { fetchProgressByUserIds } from "@/lib/server/user-progress-team";
 import { buildTeamCoachHeuristic } from "@/lib/team-coach-heuristic";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import type { TeamCoachResponse, TeamMemberView, TeamRole } from "@/lib/team-types";
+import { checkRateLimit, rateLimitHeaders } from "@/lib/server/rate-limit";
 
 type MemberRow = {
   id: string;
@@ -24,6 +25,7 @@ type ScoutingRow = { opponent_name: string; styles: string[] };
 
 const openaiKey = process.env.OPENAI_API_KEY;
 const groqKey = process.env.GROQ_API_KEY;
+const TEAM_COACH_RATE_LIMIT = { max: 12, windowMs: 60 * 60 * 1000 };
 
 async function callTeamLlm(prompt: string): Promise<string | null> {
   const baseUrl = groqKey
@@ -80,6 +82,14 @@ function parseCoachJson(raw: string): TeamCoachResponse | null {
 export async function POST(request: NextRequest) {
   const user = await getRequestUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const rateLimit = checkRateLimit(`team-coach:${user.id}`, TEAM_COACH_RATE_LIMIT);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "rate_limit", message: "Zu viele Team-Coach-Anfragen. Bitte später erneut versuchen." },
+      { status: 429, headers: rateLimitHeaders(rateLimit, TEAM_COACH_RATE_LIMIT) },
+    );
+  }
 
   const body = (await request.json().catch(() => null)) as {
     teamId?: string;

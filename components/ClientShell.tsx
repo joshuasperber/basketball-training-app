@@ -37,6 +37,7 @@ import CookieConsentBanner from "@/components/CookieConsentBanner";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import ProgressCelebrationHost from "@/components/ProgressCelebrationHost";
+import WorkoutReminderSync from "@/components/WorkoutReminderSync";
 
 const PLAN_SYNC_EVENTS = [
   "bt:plan-updated",
@@ -124,6 +125,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
             <OnboardingGateLauncher />
             <CookieConsentBanner />
             <ProgressCelebrationHost />
+            <WorkoutReminderSync />
             {children}
           </AppBootGate>
         </AppDialogProvider>
