@@ -20,6 +20,18 @@ const REQUIRED_TABLES = [
   "team_members",
   "team_invites",
   "opponent_scouting",
+  "team_league_data",
+] as const;
+
+const PRIVATE_TABLES = [
+  "user_progress",
+  "profiles",
+  "exercises",
+  "teams",
+  "team_members",
+  "team_invites",
+  "opponent_scouting",
+  "team_league_data",
 ] as const;
 
 function envCheck(id: string, present: boolean, label: string): SupabaseHealthCheck {
@@ -93,6 +105,34 @@ async function probeAuth(supabaseUrl: string, anonKey: string): Promise<Supabase
   }
 }
 
+async function probeAnonymousRls(
+  supabaseUrl: string,
+  anonKey: string,
+  table: string,
+): Promise<SupabaseHealthCheck> {
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/${table}?select=*&limit=1`, {
+      headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => null);
+    const protectedAndHealthy = response.ok && Array.isArray(data) && data.length === 0;
+    return {
+      id: `rls_anon_${table}`,
+      ok: protectedAndHealthy,
+      detail: protectedAndHealthy
+        ? `RLS public.${table}: anonym geschützt`
+        : `RLS public.${table}: HTTP ${response.status}${Array.isArray(data) && data.length ? " · Daten sichtbar" : ""}`,
+    };
+  } catch (error) {
+    return {
+      id: `rls_anon_${table}`,
+      ok: false,
+      detail: error instanceof Error ? error.message : `RLS public.${table}: Netzwerkfehler`,
+    };
+  }
+}
+
 async function probeLeagueDataColumn(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -157,6 +197,9 @@ export async function runSupabaseLaunchHealthChecks(): Promise<SupabaseLaunchHea
 
   for (const table of REQUIRED_TABLES) {
     checks.push(await probeTable(supabaseUrl, serviceRoleKey, table));
+  }
+  for (const table of PRIVATE_TABLES) {
+    checks.push(await probeAnonymousRls(supabaseUrl, anonKey, table));
   }
   checks.push(await probeLeagueDataColumn(supabaseUrl, serviceRoleKey));
   checks.push(await probeGamePhotosBucket(supabaseUrl, serviceRoleKey));

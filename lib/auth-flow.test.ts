@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildPasswordResetRedirectUrl } from "@/lib/auth-redirect";
+import { buildAuthConfirmUrl, buildPasswordResetRedirectUrl } from "@/lib/auth-redirect";
 import { redirectToRecoveryPageIfHashPresent } from "@/lib/auth-recovery-client";
+import { safeInternalPath } from "@/lib/safe-redirect";
+import { friendlyAuthErrorMessage } from "@/lib/auth-messages";
 
 describe("auth-redirect", () => {
   beforeEach(() => {
@@ -16,6 +18,34 @@ describe("auth-redirect", () => {
     expect(url).toBe(
       "https://basketball-training-app-tau.vercel.app/auth/reset-password?email=test%40web.de",
     );
+  });
+
+  it("rejects protocol-relative and encoded external redirect targets", () => {
+    expect(safeInternalPath("//evil.example")).toBe("/dashboard");
+    expect(safeInternalPath("/%2f%2fevil.example")).toBe("/dashboard");
+    expect(safeInternalPath("/\\evil.example")).toBe("/dashboard");
+    expect(safeInternalPath("/team?tab=roster")).toBe("/team?tab=roster");
+    expect(buildAuthConfirmUrl("//evil.example")).toBe(
+      "https://basketball-training-app-tau.vercel.app/auth/confirm?next=%2Fdashboard",
+    );
+  });
+});
+
+describe("auth error messages", () => {
+  it("does not reveal whether email or password was wrong", () => {
+    expect(friendlyAuthErrorMessage("Invalid login credentials", "signin")).toBe(
+      "Passwort oder E-Mail-Adresse sind falsch.",
+    );
+    expect(friendlyAuthErrorMessage("invalid_credentials", "signin")).toBe(
+      "Passwort oder E-Mail-Adresse sind falsch.",
+    );
+  });
+
+  it("explains invalid and unconfirmed email addresses", () => {
+    expect(friendlyAuthErrorMessage("Unable to validate email address", "signup")).toBe(
+      "Bitte gib eine gültige E-Mail-Adresse ein.",
+    );
+    expect(friendlyAuthErrorMessage("Email not confirmed", "signin")).toContain("noch nicht bestätigt");
   });
 });
 

@@ -11,23 +11,63 @@ export type AuthMeResponse = {
 
 import { isAppOnline } from "@/lib/app-online";
 
-export async function fetchAuthMe(): Promise<AuthMeResponse | null> {
+const AUTH_ME_CACHE_MS = 60_000;
+const AUTH_ME_FAILURE_CACHE_MS = 5_000;
+
+type AuthMeCacheEntry = {
+  value: AuthMeResponse | null;
+  expiresAt: number;
+};
+
+let authMeCache: AuthMeCacheEntry | null = null;
+let authMeRequest: Promise<AuthMeResponse | null> | null = null;
+
+/** Verwirft den kurzlebigen Auth-Cache, z. B. nach Login oder Logout. */
+export function resetAuthMeCache() {
+  authMeCache = null;
+  authMeRequest = null;
+}
+
+/**
+ * Dedupliziert parallele /api/auth/me-Aufrufe und hält das Ergebnis kurz im
+ * Browser-Speicher. Dadurch lösen Reiterwechsel keinen neuen Auth-Ladezustand aus.
+ */
+export async function fetchAuthMe(options: { force?: boolean } = {}): Promise<AuthMeResponse | null> {
   if (!isAppOnline()) return null;
 
-  try {
+  const now = Date.now();
+  if (!options.force && authMeCache && authMeCache.expiresAt > now) {
+    return authMeCache.value;
+  }
+  if (!options.force && authMeRequest) return authMeRequest;
+
+  const request = (async () => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 4000);
-    const response = await fetch("/api/auth/me", {
-      cache: "no-store",
-      credentials: "same-origin",
-      signal: controller.signal,
-    });
-    window.clearTimeout(timeout);
-    if (!response.ok) return null;
-    return (await response.json()) as AuthMeResponse;
-  } catch {
-    return null;
-  }
+    try {
+      const response = await fetch("/api/auth/me", {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+      const value = response.ok ? ((await response.json()) as AuthMeResponse) : null;
+      authMeCache = {
+        value,
+        expiresAt: Date.now() + (value ? AUTH_ME_CACHE_MS : AUTH_ME_FAILURE_CACHE_MS),
+      };
+      return value;
+    } catch {
+      authMeCache = { value: null, expiresAt: Date.now() + AUTH_ME_FAILURE_CACHE_MS };
+      return null;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  })();
+
+  authMeRequest = request;
+  return request.finally(() => {
+    if (authMeRequest === request) authMeRequest = null;
+  });
 }
 
 export async function checkAuthSession(): Promise<{ me: AuthMeResponse | null; accountSwitched: boolean }> {

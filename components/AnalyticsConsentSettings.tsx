@@ -42,7 +42,7 @@ export default function AnalyticsConsentSettings({ onFeedback }: AnalyticsConsen
       <p className="text-sm font-medium text-strong">{t("analytics.consentTitle")}</p>
       <p className="mt-1 text-xs text-muted">
         {t("analytics.consentHint")}{" "}
-        <Link href="/datenschutz" className="underline text-[var(--brand-400)]">
+        <Link href="/datenschutz" className="text-link underline">
           {t("common.details")}
         </Link>
       </p>

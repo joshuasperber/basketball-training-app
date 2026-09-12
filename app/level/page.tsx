@@ -181,17 +181,19 @@ export default function LevelPage() {
   const [popupMessage, setPopupMessage] = useState<string | null>(null);
   const [openCategory, setOpenCategory] = useState<Category | null>(null);
   const [modalCategory, setModalCategory] = useState<Category | null>(null);
-  const [username] = useState(() => {
-    if (typeof window === "undefined") return "Spieler";
+  const [username, setUsername] = useState("Spieler");
+
+  useEffect(() => {
     try {
       const cached = window.localStorage.getItem("profile_cache_v4");
-      if (!cached) return "Spieler";
-      const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
-      return parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Spieler";
+      if (cached) {
+        const parsed = JSON.parse(cached) as { profile?: { username?: string | null; full_name?: string | null } };
+        setUsername(parsed.profile?.username?.trim() || parsed.profile?.full_name?.trim() || "Spieler");
+      }
     } catch {
-      return "Spieler";
+      setUsername("Spieler");
     }
-  });
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -364,7 +366,7 @@ export default function LevelPage() {
                 >
                   {group.category}
                 </button>
-                <button type="button" className="mt-1 text-xs text-[var(--brand-400)] underline" onClick={() => setModalCategory(group.category as Category)}>
+                <button type="button" className="text-link mt-1 text-xs underline" onClick={() => setModalCategory(group.category as Category)}>
                   Details öffnen
                 </button>
                 <p className="text-sm text-muted">Level {levelInfo.level} • {levelInfo.xpIntoLevel}/{nextRequirement} XP • x{multiplier.toFixed(2)}</p>

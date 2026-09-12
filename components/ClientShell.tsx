@@ -1,19 +1,26 @@
 "use client";
 
 import { ErrorBoundary } from "@sentry/nextjs";
-import { useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import {
-  ensureInitialCloudSync,
-  markLocalProgressDirty,
-  pushProgressToCloudWithRetry,
-  resetInitialCloudSyncCache,
-} from "@/lib/progress-sync";
-import { isAppOnline } from "@/lib/app-online";
-import { LEAGUE_UPDATED_EVENT } from "@/lib/league";
-import { syncWorkoutSessionsToCloud, syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
+import CookieConsentBanner from "@/components/CookieConsentBanner";
+import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
+import { isProtectedAppPath } from "@/lib/app-routes";
+import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
-function CoachFallback({ resetError }: { resetError: () => void }) {
+const AuthenticatedAppFeatures = dynamic(() => import("@/components/AuthenticatedAppFeatures"), {
+  loading: () => (
+    <main className="app-container flex min-h-screen items-center justify-center" role="status" aria-live="polite">
+      <div className="app-card w-full max-w-sm text-center">
+        <div className="app-busy-ball-ring mx-auto" aria-hidden><span className="app-busy-ball">🏀</span></div>
+        <p className="app-busy-label mt-4">App wird vorbereitet …</p>
+      </div>
+    </main>
+  ),
+});
+
+function AppFallback({ resetError }: { resetError: () => void }) {
   return (
     <div className="app-container flex min-h-[50vh] items-center justify-center">
       <div className="app-card max-w-md w-full text-center">
@@ -27,107 +34,22 @@ function CoachFallback({ resetError }: { resetError: () => void }) {
   );
 }
 
-import OfflineRouteWarmup from "@/components/OfflineRouteWarmup";
-import OfflineSessionGuard from "@/components/OfflineSessionGuard";
-import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
-import AppBootGate from "@/components/AppBootGate";
-import OfflineBanner from "@/components/OfflineBanner";
-import SyncConflictBanner from "@/components/SyncConflictBanner";
-import CookieConsentBanner from "@/components/CookieConsentBanner";
-import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
-import { I18nProvider } from "@/lib/i18n/I18nProvider";
-import ProgressCelebrationHost from "@/components/ProgressCelebrationHost";
-import WorkoutReminderSync from "@/components/WorkoutReminderSync";
-
-const PLAN_SYNC_EVENTS = [
-  "bt:plan-updated",
-  "bt:training-goals-updated",
-  "bt:player-intake-updated",
-  LEAGUE_UPDATED_EVENT,
-] as const;
-
-function CloudSyncBridge() {
-  const planPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const pull = () => {
-      if (document.visibilityState === "hidden") return;
-      if (!isAppOnline()) return;
-      void ensureInitialCloudSync().catch(() => {
-        /* Cloud optional */
-      });
-    };
-
-    const queuePlanPush = (event: Event) => {
-      const source = (event as CustomEvent<{ source?: string }>).detail?.source;
-      if (source === "remote") return;
-      markLocalProgressDirty();
-      if (!isAppOnline()) return;
-      if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
-      planPushTimerRef.current = setTimeout(() => {
-        void pushProgressToCloudWithRetry();
-      }, 800);
-    };
-
-    const onSessionsUpdated = () => {
-      if (!isAppOnline()) {
-        markLocalProgressDirty();
-        return;
-      }
-      void syncWorkoutSessionsToCloud();
-    };
-
-    const onOnline = () => {
-      if (!isAppOnline()) return;
-      resetInitialCloudSyncCache();
-      void syncWorkoutSessionsToCloudWithRetry().then(() =>
-        pushProgressToCloudWithRetry().then(() => ensureInitialCloudSync()),
-      );
-    };
-
-    if (isAppOnline()) {
-      pull();
-    }
-    window.addEventListener("focus", pull);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("bt:sessions-updated", onSessionsUpdated);
-    document.addEventListener("visibilitychange", pull);
-    for (const eventName of PLAN_SYNC_EVENTS) {
-      window.addEventListener(eventName, queuePlanPush);
-    }
-
-    return () => {
-      if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
-      window.removeEventListener("focus", pull);
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("bt:sessions-updated", onSessionsUpdated);
-      document.removeEventListener("visibilitychange", pull);
-      for (const eventName of PLAN_SYNC_EVENTS) {
-        window.removeEventListener(eventName, queuePlanPush);
-      }
-    };
-  }, []);
-
-  return null;
-}
-
 export default function ClientShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname() ?? "";
+  const appFeaturesEnabled = isProtectedAppPath(pathname);
+
   return (
-    <ErrorBoundary fallback={({ resetError }) => <CoachFallback resetError={resetError} />}>
+    <ErrorBoundary fallback={({ resetError }) => <AppFallback resetError={resetError} />}>
       <I18nProvider>
         <AppDialogProvider>
-          <AppBootGate>
-            <OfflineBanner />
-            <CloudSyncBridge />
-            <OfflineRouteWarmup />
-            <OfflineSessionGuard />
-            <SyncConflictBanner />
-            <OnboardingGateLauncher />
-            <CookieConsentBanner />
-            <ProgressCelebrationHost />
-            <WorkoutReminderSync />
-            {children}
-          </AppBootGate>
+          {appFeaturesEnabled ? (
+            <AuthenticatedAppFeatures>{children}</AuthenticatedAppFeatures>
+          ) : (
+            <>
+              <CookieConsentBanner />
+              {children}
+            </>
+          )}
         </AppDialogProvider>
       </I18nProvider>
     </ErrorBoundary>

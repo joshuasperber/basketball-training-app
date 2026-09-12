@@ -16,12 +16,13 @@
 
   --fg-strong: #111827;
   --fg-default: #374151;
-  --fg-muted: #6b7280;
-  --fg-faint: #9ca3af;
+  --fg-muted: #596273;
+  --fg-faint: #6b7280;
 
   --brand-500: #ff6b00;
   --brand-400: #ff8533;
   --brand-300: #ffa366;
+  --brand-link: #c2410c;
   --brand-soft: #fff4eb;
 
   --accent-cyan: #0891b2;
@@ -978,6 +979,92 @@ select.app-modern-select {
 .team-inline-form .input,
 .team-inline-form .btn {
   min-height: 2.875rem;
+}
+
+.team-share-toggle {
+  display: grid;
+  width: min(100%, 34rem);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: 1rem;
+  background: var(--bg-muted);
+  padding: 0.75rem 0.85rem;
+  color: var(--fg-strong);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.team-share-toggle:hover:not(:disabled) {
+  border-color: rgba(255, 107, 0, 0.36);
+}
+
+.team-share-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.14);
+}
+
+.team-share-toggle:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.team-share-toggle--active {
+  border-color: rgba(16, 185, 129, 0.34);
+  background: rgba(16, 185, 129, 0.075);
+}
+
+.team-share-toggle__track {
+  position: relative;
+  width: 2.9rem;
+  height: 1.65rem;
+  border-radius: 999px;
+  background: #cbd5e1;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.18);
+  transition: background 0.16s ease;
+}
+
+.team-share-toggle__track span {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.24);
+  transition: transform 0.18s ease;
+}
+
+.team-share-toggle--active .team-share-toggle__track {
+  background: #10b981;
+}
+
+.team-share-toggle--active .team-share-toggle__track span {
+  transform: translateX(1.25rem);
+}
+
+.team-share-toggle__copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.team-share-toggle__copy strong {
+  font-size: 0.83rem;
+}
+
+.team-share-toggle__copy small,
+.team-share-toggle__state {
+  color: var(--fg-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.team-share-toggle__state {
+  color: var(--fg-strong);
 }
 
 .team-workflow-card {
@@ -2062,6 +2149,7 @@ button.team-opponent-card:hover {
 .text-muted { color: var(--fg-muted); }
 .text-faint { color: var(--fg-faint); }
 .text-brand { color: var(--brand-500); }
+.text-link { color: var(--brand-link); }
 
 .gap-cards {
   display: grid;
@@ -2694,6 +2782,161 @@ button.team-opponent-card:hover {
 .profile-section-body {
   content-visibility: auto;
   contain-intrinsic-size: auto 420px;
+}
+
+.league-context-bar {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.7fr) minmax(12rem, 1fr) auto;
+  align-items: end;
+  gap: 0.85rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.8rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.035);
+}
+
+.league-context-bar__summary {
+  display: flex;
+  min-height: 2.875rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.76rem;
+}
+
+.league-context-bar__summary strong {
+  color: var(--fg-strong);
+  font-size: 0.9rem;
+}
+
+.league-select-card,
+.league-season-card {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.9rem;
+  background: var(--surface);
+  padding: 0.85rem 0.95rem;
+  color: var(--fg-strong);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.league-select-card:hover,
+.league-season-card:hover {
+  border-color: rgba(255, 107, 0, 0.34);
+  transform: translateY(-1px);
+}
+
+.league-select-card--active,
+.league-season-card--active {
+  border-color: rgba(255, 107, 0, 0.38);
+  background: rgba(255, 107, 0, 0.055);
+  box-shadow: 0 8px 20px rgba(255, 107, 0, 0.07);
+}
+
+.league-select-card > span:first-child,
+.league-season-card > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.14rem;
+}
+
+.league-select-card strong,
+.league-season-card strong {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.league-select-card small,
+.league-season-card small {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.season-team-picker {
+  border: 1px solid var(--surface-border);
+  border-radius: 0.9rem;
+  background: var(--bg-muted);
+  padding: 0.8rem;
+}
+
+.season-team-toggle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.8rem;
+  background: var(--surface);
+  padding: 0.65rem 0.75rem;
+  color: var(--fg-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.season-team-toggle--checked,
+.season-team-toggle--locked {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.07);
+}
+
+.season-team-toggle--locked {
+  cursor: default;
+}
+
+.season-team-toggle__check {
+  display: grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.season-team-toggle--checked .season-team-toggle__check,
+.season-team-toggle--locked .season-team-toggle__check {
+  background: #10b981;
+  color: #fff;
+}
+
+.season-team-toggle > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.season-team-toggle strong {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.season-team-toggle small {
+  color: var(--fg-muted);
+  font-size: 0.64rem;
+}
+
+@media (max-width: 767px) {
+  .league-context-bar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
 }
 
 .league-table-wrap {

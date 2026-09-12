@@ -31,7 +31,7 @@ export default function NutzungsbedingungenPage() {
           <p className="mt-1">
             Automatisierte Empfehlungen können fehlerhaft sein. Du entscheidest selbst über Belastung und Ausführung.
             Profil- und Intake-Daten können an konfigurierte KI-Dienste (z. B. Groq/OpenAI) übermittelt werden — siehe{" "}
-            <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
+            <Link href="/datenschutz" className="text-link underline">
               Datenschutz
             </Link>
             .

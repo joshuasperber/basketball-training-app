@@ -22,7 +22,7 @@ export default function DatenschutzPage() {
             {legalConfig.operatorAddress}
             <br />
             E-Mail:{" "}
-            <a href={`mailto:${legalConfig.operatorEmail}`} className="text-[var(--brand-400)] underline">
+            <a href={`mailto:${legalConfig.operatorEmail}`} className="text-link underline">
               {legalConfig.operatorEmail}
             </a>
           </p>
@@ -101,8 +101,9 @@ export default function DatenschutzPage() {
           <p className="mt-1">
             Session-Cookies (<code className="text-xs">sb-access-token</code>,{" "}
             <code className="text-xs">sb-refresh-token</code>) sind technisch notwendig für die Anmeldung (HttpOnly).
-            Wenn <code className="text-xs">SENTRY_DSN</code> gesetzt ist, werden nach deiner Einwilligung
-            anonymisierte Fehler- und Performance-Berichte an Sentry übermittelt — ohne Klartext-E-Mails oder Tokens.
+            Nach deiner Einwilligung können anonymisierte Fehler- und Performance-Berichte an Sentry übermittelt
+            werden — ohne Klartext-E-Mails oder Tokens. Serverseitige Berichte sind standardmäßig deaktiviert und
+            werden nur mit der gesonderten Betreiberfreigabe <code className="text-xs">SENTRY_SERVER_ENABLED</code> aktiviert.
           </p>
         </div>
 

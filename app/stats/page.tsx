@@ -875,6 +875,7 @@ useEffect(() => {
                 <Link
                   key={tab.id}
                   href={tab.href}
+                  prefetch={true}
                   className={`top-tabs__btn ${detailTab === tab.id ? "top-tabs__btn--active" : ""}`}
                 >
                   {tab.label}

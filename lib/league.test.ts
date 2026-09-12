@@ -3,15 +3,19 @@ import {
   LEAGUE_OWN_TEAM_ID,
   buildLeagueStandings,
   buildPlayerSeasonSummaries,
+  connectLeagueOwnTeam,
   createEmptyLeagueBundle,
   findDuplicateLeagueGame,
   getStandingZone,
+  getActiveLeague,
+  getActiveSeason,
   groupLeagueScheduleByDay,
   normalizeLeagueBundle,
   normalizeLeagueStartTime,
   isCompletedLeagueGame,
   opponentsForSeason,
   scheduleForSeason,
+  seasonsForLeague,
   validateLeagueGame,
   type LeagueBundle,
   type LeagueOpponent,
@@ -37,6 +41,29 @@ describe("league season management", () => {
     });
     expect(opponentsForSeason(migrated, "season-old")).toHaveLength(1);
     expect(migrated.schedule[0]).toMatchObject({ homeTeamId: "opp-old", awayTeamId: LEAGUE_OWN_TEAM_ID });
+    expect(getActiveLeague(migrated)?.name).toBe("Meine Liga");
+    expect(getActiveSeason(migrated)?.id).toBe("season-old");
+  });
+
+  it("keeps seasons separated by league and connects a cloud team", () => {
+    const bundle = createEmptyLeagueBundle();
+    bundle.leagues = [
+      { id: "league-a", name: "Regionalliga", createdAt: "2026-01-01" },
+      { id: "league-b", name: "Pokal", createdAt: "2026-01-02" },
+    ];
+    bundle.activeLeagueId = "league-b";
+    bundle.activeSeasonId = "season-b";
+    bundle.seasons = [
+      { id: "season-a", leagueId: "league-a", name: "2026/27", createdAt: "2026-01-01" },
+      { id: "season-b", leagueId: "league-b", name: "Pokal 2026", createdAt: "2026-01-02" },
+    ];
+    expect(seasonsForLeague(bundle, "league-a").map((season) => season.id)).toEqual(["season-a"]);
+    expect(getActiveLeague(bundle)?.id).toBe("league-b");
+    expect(getActiveSeason(bundle)?.id).toBe("season-b");
+    expect(connectLeagueOwnTeam(bundle, { id: "cloud-team", name: " Spektrum " }).ownTeam).toMatchObject({
+      sourceTeamId: "cloud-team",
+      name: "Spektrum",
+    });
   });
 
   it("normalizes times and orders the schedule by date and tip-off", () => {

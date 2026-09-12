@@ -1,6 +1,7 @@
-import { ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
+import { ACTIVE_AUTH_EMAIL_KEY, resetAuthMeCache } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
 import { ensureInitialCloudSync } from "@/lib/progress-sync";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
 
@@ -69,12 +70,13 @@ export async function alignLocalAuthAfterServerSession(options: {
   }
 
   alignLocalStorage(email, userId, { freshAccount: options.freshAccount });
+  resetAuthMeCache();
 
   if (!options.skipCloudRestore) {
     await restoreCloudProgressAfterAuth();
   }
 
-  const destination = options.nextPath && options.nextPath.startsWith("/") ? options.nextPath : "/dashboard";
+  const destination = safeInternalPath(options.nextPath);
   redirectAfterAuth(destination);
   return null;
 }
@@ -115,6 +117,7 @@ export async function finalizeClientAuthSession(
 
   const email = payload.user?.email ?? options?.emailHint ?? "";
   alignLocalStorage(email, payload.user?.id, { freshAccount: options?.freshAccount });
+  resetAuthMeCache();
 
   if (options?.nextPath === null) return null;
 
@@ -122,7 +125,7 @@ export async function finalizeClientAuthSession(
     await restoreCloudProgressAfterAuth();
   }
 
-  const destination = options?.nextPath && options.nextPath.startsWith("/") ? options.nextPath : "/dashboard";
+  const destination = safeInternalPath(options?.nextPath);
   redirectAfterAuth(destination);
   return null;
 }

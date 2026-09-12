@@ -8,6 +8,7 @@ import { parseWorkoutSessionsFromProgress } from "@/lib/server/parse-user-progre
 import { fetchProgressByUserIds } from "@/lib/server/user-progress-team";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import type { OpponentScoutingEntry, TeamDetail, TeamMemberView, TeamRole } from "@/lib/team-types";
+import { isUuid, postgrestPath } from "@/lib/server/postgrest-query";
 
 type MemberRow = {
   id: string;
@@ -44,18 +45,30 @@ export async function GET(
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { teamId } = await context.params;
+  if (!isUuid(teamId)) {
+    return NextResponse.json({ error: "invalid_team" }, { status: 400 });
+  }
   const membership = await supabaseRest<MemberRow[]>(
-    `team_members?team_id=eq.${teamId}&user_id=eq.${user.id}&select=*&limit=1`,
+    postgrestPath("team_members", {
+      team_id: `eq.${teamId}`,
+      user_id: `eq.${user.id}`,
+      select: "*",
+      limit: 1,
+    }),
   );
   if (!membership.ok || !membership.data?.[0]) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const teamRes = await supabaseRest<TeamRow[]>(`teams?id=eq.${teamId}&select=*&limit=1`);
+  const teamRes = await supabaseRest<TeamRow[]>(
+    postgrestPath("teams", { id: `eq.${teamId}`, select: "*", limit: 1 }),
+  );
   const team = teamRes.data?.[0];
   if (!team) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const membersRes = await supabaseRest<MemberRow[]>(`team_members?team_id=eq.${teamId}&select=*`);
+  const membersRes = await supabaseRest<MemberRow[]>(
+    postgrestPath("team_members", { team_id: `eq.${teamId}`, select: "*" }),
+  );
   const memberRows = membersRes.data ?? [];
   const userIds = memberRows.map((row) => row.user_id).filter(Boolean);
 
@@ -83,7 +96,11 @@ export async function GET(
     .filter((plan): plan is NonNullable<typeof plan> => plan != null);
 
   const scoutingRes = await supabaseRest<ScoutingRow[]>(
-    `opponent_scouting?team_id=eq.${teamId}&select=*&order=updated_at.desc`,
+    postgrestPath("opponent_scouting", {
+      team_id: `eq.${teamId}`,
+      select: "*",
+      order: "updated_at.desc",
+    }),
   );
   const scouting: OpponentScoutingEntry[] = (scoutingRes.data ?? []).map((row) => ({
     id: row.id,

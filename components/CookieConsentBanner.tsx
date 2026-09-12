@@ -49,7 +49,7 @@ export default function CookieConsentBanner() {
         </p>
         <p className="mt-2 text-xs text-muted leading-relaxed">
           {t("cookie.body")}{" "}
-          <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
+          <Link href="/datenschutz" className="text-link underline">
             {t("cookie.privacyLink")}
           </Link>
           .

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeAuthCode, verifyTokenHash } from "@/lib/server/auth-token-exchange";
 import { applySessionCookies, clearSessionCookies, validateSessionTokens } from "@/lib/server/session-cookies";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 type SupabaseSession = {
   access_token: string;
@@ -9,8 +10,7 @@ type SupabaseSession = {
 };
 
 function buildRedirectPath(rawNext: string | null) {
-  if (!rawNext || !rawNext.startsWith("/") || rawNext.startsWith("//")) return "/dashboard";
-  return rawNext;
+  return safeInternalPath(rawNext);
 }
 
 function withError(request: NextRequest, code: string) {

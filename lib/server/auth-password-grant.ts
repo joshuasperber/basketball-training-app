@@ -1,4 +1,3 @@
-import { ensureEmailConfirmed } from "@/lib/server/auth-admin";
 import type { ExchangedSession } from "@/lib/server/auth-token-exchange";
 import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
 
@@ -14,7 +13,6 @@ function parseAuthError(body: unknown, fallback: string): string {
 export async function passwordGrant(
   email: string,
   password: string,
-  options?: { autoConfirm?: boolean },
 ): Promise<{ session: ExchangedSession; user: { id: string; email: string } } | { error: string }> {
   if (!supabaseUrl || !supabaseAnonKey) {
     return { error: "server_auth_unconfigured" };
@@ -71,19 +69,6 @@ export async function passwordGrant(
       user: { id, email: resolvedEmail },
     };
   };
-
-  const first = await attempt();
-  if (!("error" in first)) return first;
-
-  const lower = first.error.toLowerCase();
-  const needsConfirm =
-    options?.autoConfirm !== false &&
-    (lower.includes("email not confirmed") || lower.includes("email_not_confirmed") || lower.includes("not confirmed"));
-
-  if (!needsConfirm) return first;
-
-  const confirmed = await ensureEmailConfirmed(normalizedEmail);
-  if (!confirmed) return first;
 
   return attempt();
 }

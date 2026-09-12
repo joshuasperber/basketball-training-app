@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { finalizeClientAuthSession, alignLocalAuthAfterServerSession } from "@/lib/auth-finalize-client";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 function parseHashParams(hash: string) {
   const cleanHash = hash.startsWith("#") ? hash.slice(1) : hash;
@@ -9,8 +10,7 @@ function parseHashParams(hash: string) {
 }
 
 function buildNextPath(raw: string | null) {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
-  return raw;
+  return safeInternalPath(raw);
 }
 
 export default function AuthConfirmPage() {

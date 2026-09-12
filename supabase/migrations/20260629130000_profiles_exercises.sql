@@ -52,15 +52,15 @@ create policy exercises_select_authenticated on public.exercises for select to a
 drop policy if exists exercises_insert_own on public.exercises;
 drop policy if exists exercises_insert_authenticated on public.exercises;
 create policy exercises_insert_authenticated on public.exercises for insert to authenticated
-  with check (user_id is null or user_id = auth.uid());
+  with check (user_id = auth.uid());
 
 drop policy if exists exercises_update_own on public.exercises;
 drop policy if exists exercises_update_authenticated on public.exercises;
 create policy exercises_update_authenticated on public.exercises for update to authenticated
-  using (user_id is null or user_id = auth.uid())
-  with check (user_id is null or user_id = auth.uid());
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
 
 drop policy if exists exercises_delete_own on public.exercises;
 drop policy if exists exercises_delete_authenticated on public.exercises;
 create policy exercises_delete_authenticated on public.exercises for delete to authenticated
-  using (user_id is null or user_id = auth.uid());
+  using (user_id = auth.uid());

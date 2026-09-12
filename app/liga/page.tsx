@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import TopSubTabs from "@/components/TopSubTabs";
 import PageHeader from "@/components/PageHeader";
@@ -18,20 +18,24 @@ import {
   LEAGUE_OWN_TEAM_ID,
   buildLeagueStandings,
   buildPlayerSeasonSummaries,
+  connectLeagueOwnTeam,
   createEmptyLeagueBundle,
   createId,
   emptyPlayerStatLine,
   gameInvolvesOwnTeam,
+  getActiveLeague,
   getActiveSeason,
   getStandingZone,
   groupLeagueScheduleByDay,
   findDuplicateLeagueGame,
   isCompletedLeagueGame,
   loadLeagueBundle,
+  normalizeLeagueBundle,
   opponentsForSeason,
   playersForTeam,
   saveLeagueBundle,
   scheduleForSeason,
+  seasonsForLeague,
   syncLeagueEntryToPlan,
   syncUpcomingLeagueSchedule,
   teamsForSeason,
@@ -40,12 +44,15 @@ import {
   type LeagueBundle,
   type LeagueGameKind,
   type LeagueGameStatus,
+  type LeagueDefinition,
   type LeagueOpponent,
   type LeaguePlayer,
   type LeaguePlayerStatLine,
   type LeagueScheduleEntry,
   type LeagueSeason,
 } from "@/lib/league";
+import { loadCachedTeamList, saveCachedTeamList } from "@/lib/team-local-cache";
+import type { TeamSummary } from "@/lib/team-types";
 import { deleteGameStatForLeagueGame } from "@/lib/game-stats";
 import { removeManualGameForDate } from "@/lib/plan-day-actions";
 import {
@@ -140,6 +147,12 @@ export default function LigaPage() {
   const appDialog = useAppDialog();
   const [bundle, setBundle] = useState<LeagueBundle>(() => createEmptyLeagueBundle());
   const [tab, setTab] = useState<Tab>("schedule");
+  const [leagueEditId, setLeagueEditId] = useState<string | null>(null);
+  const [leagueName, setLeagueName] = useState("");
+  const [leagueRegion, setLeagueRegion] = useState("");
+  const [leagueLevel, setLeagueLevel] = useState("");
+  const [leagueNotes, setLeagueNotes] = useState("");
+  const [seasonEditId, setSeasonEditId] = useState<string | null>(null);
   const [seasonName, setSeasonName] = useState("");
   const [seasonStartDate, setSeasonStartDate] = useState("");
   const [seasonEndDate, setSeasonEndDate] = useState("");
@@ -171,7 +184,11 @@ export default function LigaPage() {
   const [gameTravelMinutes, setGameTravelMinutes] = useState("");
   const [csvPreview, setCsvPreview] = useState<LeagueCsvImportPlan | null>(null);
   const [csvFileName, setCsvFileName] = useState("");
+  const [teamAreaTeams, setTeamAreaTeams] = useState<TeamSummary[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [sharedLeagueCanEdit, setSharedLeagueCanEdit] = useState(false);
+  const [sharedLeagueStatus, setSharedLeagueStatus] = useState<string | null>(null);
+  const sharedLeagueLoadedRef = useRef<string | null>(null);
 
   const refresh = useCallback(() => setBundle(loadLeagueBundle()), []);
 
@@ -185,7 +202,80 @@ export default function LigaPage() {
     return () => window.removeEventListener("bt:league-updated", onUpdate);
   }, [refresh]);
 
+  useEffect(() => {
+    let active = true;
+    const cached = loadCachedTeamList() ?? [];
+    setTeamAreaTeams(cached);
+    void fetch("/api/team", { cache: "no-store", credentials: "same-origin" })
+      .then(async (response) => response.ok ? (await response.json()) as { teams?: TeamSummary[] } : null)
+      .then((payload) => {
+        if (!active || !payload?.teams) return;
+        setTeamAreaTeams(payload.teams);
+        saveCachedTeamList(payload.teams);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const teamId = bundle.ownTeam.sourceTeamId;
+    if (!teamId) {
+      sharedLeagueLoadedRef.current = null;
+      setSharedLeagueCanEdit(false);
+      setSharedLeagueStatus(null);
+      return;
+    }
+    if (sharedLeagueLoadedRef.current === teamId) return;
+    sharedLeagueLoadedRef.current = teamId;
+    let active = true;
+    setSharedLeagueStatus("Gemeinsame Team-Liga wird geladen …");
+
+    void fetch(`/api/team/league?teamId=${encodeURIComponent(teamId)}`, {
+      cache: "no-store",
+      credentials: "same-origin",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("shared_league_load_failed");
+        return await response.json() as { bundle?: unknown; canEdit?: boolean };
+      })
+      .then((payload) => {
+        if (!active) return;
+        const canEdit = Boolean(payload.canEdit);
+        setSharedLeagueCanEdit(canEdit);
+        if (payload.bundle && typeof payload.bundle === "object") {
+          const remote = normalizeLeagueBundle(payload.bundle);
+          const connectedTeam = teamAreaTeams.find((team) => team.id === teamId);
+          const next = connectLeagueOwnTeam(remote, connectedTeam ?? { id: teamId, name: bundle.ownTeam.name });
+          saveLeagueBundle(next);
+          setBundle(next);
+          setSharedLeagueStatus(canEdit ? "Mit dem Team synchronisiert." : "Team-Liga geladen · nur Lesen.");
+          return;
+        }
+        setSharedLeagueStatus(canEdit ? "Team-Liga verbunden." : "Team-Liga verbunden · nur Lesen.");
+        if (canEdit) {
+          void fetch("/api/team/league", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ teamId, bundle }),
+          });
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setSharedLeagueCanEdit(false);
+        setSharedLeagueStatus("Team-Liga konnte nicht geladen werden · lokale Daten bleiben erhalten.");
+      });
+
+    return () => { active = false; };
+  }, [bundle, teamAreaTeams]);
+
+  const activeLeague = useMemo(() => getActiveLeague(bundle), [bundle]);
   const activeSeason = useMemo(() => getActiveSeason(bundle), [bundle]);
+  const leagueSeasons = useMemo(
+    () => activeLeague ? seasonsForLeague(bundle, activeLeague.id) : [],
+    [activeLeague, bundle],
+  );
   const opponents = useMemo(
     () => (activeSeason ? opponentsForSeason(bundle, activeSeason.id) : []),
     [activeSeason, bundle],
@@ -225,11 +315,103 @@ export default function LigaPage() {
   function persist(next: LeagueBundle) {
     saveLeagueBundle(next);
     setBundle(next);
+    const teamId = next.ownTeam.sourceTeamId;
+    if (teamId && sharedLeagueCanEdit) {
+      void fetch("/api/team/league", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ teamId, bundle: next }),
+      })
+        .then((response) => {
+          setSharedLeagueStatus(response.ok ? "Mit dem Team synchronisiert." : "Team-Sync fehlgeschlagen · lokal gespeichert.");
+        })
+        .catch(() => setSharedLeagueStatus("Team-Sync fehlgeschlagen · lokal gespeichert."));
+    }
   }
 
   function handleTabChange(next: Tab) {
     setTab(next);
     persistLigaTab(next);
+  }
+
+  function resetLeagueForm() {
+    setLeagueEditId(null);
+    setLeagueName("");
+    setLeagueRegion("");
+    setLeagueLevel("");
+    setLeagueNotes("");
+  }
+
+  function beginLeagueEdit(league: LeagueDefinition) {
+    setLeagueEditId(league.id);
+    setLeagueName(league.name);
+    setLeagueRegion(league.region ?? "");
+    setLeagueLevel(league.level ?? "");
+    setLeagueNotes(league.notes ?? "");
+  }
+
+  function activateLeague(leagueId: string) {
+    const firstSeason = seasonsForLeague(bundle, leagueId)[0] ?? null;
+    persist({ ...bundle, activeLeagueId: leagueId, activeSeasonId: firstSeason?.id ?? null });
+    resetLeagueForm();
+    resetSeasonForm();
+  }
+
+  function handleSaveLeague(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = leagueName.trim();
+    if (!name) return;
+    const duplicate = bundle.leagues.find((league) =>
+      league.id !== leagueEditId && league.name.trim().toLocaleLowerCase("de-DE") === name.toLocaleLowerCase("de-DE"),
+    );
+    if (duplicate) return setMessage(`Die Liga „${duplicate.name}“ ist bereits vorhanden.`);
+    if (leagueEditId) {
+      persist({
+        ...bundle,
+        leagues: bundle.leagues.map((league) => league.id === leagueEditId ? {
+          ...league,
+          name,
+          region: leagueRegion.trim() || undefined,
+          level: leagueLevel.trim() || undefined,
+          notes: leagueNotes.trim() || undefined,
+        } : league),
+      });
+      setMessage(`Liga „${name}“ aktualisiert.`);
+    } else {
+      const league: LeagueDefinition = {
+        id: createId("league"),
+        name,
+        region: leagueRegion.trim() || undefined,
+        level: leagueLevel.trim() || undefined,
+        notes: leagueNotes.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      };
+      persist({ ...bundle, activeLeagueId: league.id, activeSeasonId: null, leagues: [league, ...bundle.leagues] });
+      setMessage(`Liga „${name}“ angelegt.`);
+    }
+    resetLeagueForm();
+  }
+
+  function resetSeasonForm() {
+    setSeasonEditId(null);
+    setSeasonName("");
+    setSeasonStartDate("");
+    setSeasonEndDate("");
+    setSeasonNotes("");
+  }
+
+  function beginSeasonEdit(season: LeagueSeason) {
+    if (season.leagueId) {
+      persist({ ...bundle, activeLeagueId: season.leagueId, activeSeasonId: season.id });
+    } else {
+      persist({ ...bundle, activeSeasonId: season.id });
+    }
+    setSeasonEditId(season.id);
+    setSeasonName(season.name);
+    setSeasonStartDate(season.startDate ?? "");
+    setSeasonEndDate(season.endDate ?? "");
+    setSeasonNotes(season.notes ?? "");
   }
 
   function resetOpponentForm() {
@@ -292,30 +474,59 @@ export default function LigaPage() {
     };
   }
 
-  function handleCreateSeason(event: React.SyntheticEvent<HTMLFormElement>) {
+  function handleSaveSeason(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!activeLeague) return setMessage("Bitte zuerst eine Liga anlegen.");
     const name = seasonName.trim();
     if (!name) return;
-    if (bundle.seasons.some((season) => season.name.trim().toLocaleLowerCase("de-DE") === name.toLocaleLowerCase("de-DE"))) {
-      return setMessage("Eine Saison mit diesem Namen ist bereits vorhanden.");
+    if (bundle.seasons.some((season) => season.id !== seasonEditId && season.leagueId === activeLeague.id && season.name.trim().toLocaleLowerCase("de-DE") === name.toLocaleLowerCase("de-DE"))) {
+      return setMessage("In dieser Liga ist bereits eine Saison mit diesem Namen vorhanden.");
     }
     if (seasonStartDate && seasonEndDate && seasonEndDate < seasonStartDate) {
       return setMessage("Das Saisonende darf nicht vor dem Saisonstart liegen.");
     }
-    const season: LeagueSeason = {
-      id: createId("season"),
-      name,
-      startDate: seasonStartDate || undefined,
-      endDate: seasonEndDate || undefined,
-      notes: seasonNotes.trim() || undefined,
-      createdAt: new Date().toISOString(),
-    };
-    persist({ ...bundle, activeSeasonId: season.id, seasons: [season, ...bundle.seasons] });
-    setSeasonName("");
-    setSeasonStartDate("");
-    setSeasonEndDate("");
-    setSeasonNotes("");
-    setMessage(`Saison „${name}“ angelegt.`);
+    if (seasonEditId) {
+      const outsideGames = bundle.schedule.filter((game) =>
+        game.seasonId === seasonEditId && (
+          (seasonStartDate && game.date < seasonStartDate) ||
+          (seasonEndDate && game.date > seasonEndDate)
+        ),
+      );
+      if (outsideGames.length > 0) {
+        return setMessage(`${outsideGames.length} vorhandene${outsideGames.length === 1 ? "s Spiel liegt" : " Spiele liegen"} außerhalb des neuen Saisonzeitraums.`);
+      }
+      persist({
+        ...bundle,
+        activeSeasonId: seasonEditId,
+        seasons: bundle.seasons.map((season) => season.id === seasonEditId ? {
+          ...season,
+          name,
+          startDate: seasonStartDate || undefined,
+          endDate: seasonEndDate || undefined,
+          notes: seasonNotes.trim() || undefined,
+        } : season),
+      });
+      setMessage(`Saison „${name}“ aktualisiert.`);
+    } else {
+      const season: LeagueSeason = {
+        id: createId("season"),
+        leagueId: activeLeague.id,
+        name,
+        startDate: seasonStartDate || undefined,
+        endDate: seasonEndDate || undefined,
+        notes: seasonNotes.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      };
+      persist({ ...bundle, activeSeasonId: season.id, seasons: [season, ...bundle.seasons] });
+      setMessage(`Saison „${name}“ angelegt.`);
+    }
+    resetSeasonForm();
+  }
+
+  function connectOwnTeam(teamId: string) {
+    const team = teamAreaTeams.find((entry) => entry.id === teamId) ?? null;
+    persist(connectLeagueOwnTeam(bundle, team));
+    setMessage(team ? `„${team.name}“ ist jetzt dein Team in der Liga.` : "Verbindung zum Team-Bereich gelöst.");
   }
 
   function handleSaveOpponent(event: React.SyntheticEvent<HTMLFormElement>) {
@@ -410,6 +621,30 @@ export default function LigaPage() {
       ),
     });
     setMessage(`„${opponent.name}“ aus dieser Saison entfernt. Das Team bleibt im Archiv.`);
+  }
+
+  function toggleSeasonOpponent(seasonId: string, opponent: LeagueOpponent) {
+    const assigned = opponent.seasonIds.includes(seasonId) || opponent.seasonId === seasonId;
+    if (assigned) {
+      const usedInSchedule = bundle.schedule.some((game) =>
+        game.seasonId === seasonId && (game.homeTeamId === opponent.id || game.awayTeamId === opponent.id),
+      );
+      if (usedInSchedule) {
+        setMessage(`„${opponent.name}“ ist noch in Saisonspielen eingetragen und kann nicht entfernt werden.`);
+        return;
+      }
+    }
+    persist({
+      ...bundle,
+      opponents: bundle.opponents.map((entry) => entry.id === opponent.id ? {
+        ...entry,
+        seasonId: assigned && entry.seasonId === seasonId ? undefined : entry.seasonId,
+        seasonIds: assigned
+          ? entry.seasonIds.filter((id) => id !== seasonId)
+          : [...new Set([...entry.seasonIds, seasonId])],
+      } : entry),
+    });
+    setMessage(`„${opponent.name}“ ${assigned ? "aus der Saison entfernt" : "zur Saison hinzugefügt"}.`);
   }
 
   async function deleteOpponentGlobally(opponent: LeagueOpponent) {
@@ -685,35 +920,99 @@ export default function LigaPage() {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
-        <span>Aktive Saison:</span>
-        <strong className="text-strong">{activeSeason?.name ?? "Noch keine Saison"}</strong>
-        {activeSeason ? <span className="chip">{teams.length} Teams</span> : null}
-      </div>
+      <section className="league-context-bar mt-3" aria-label="Aktive Liga und Saison">
+        <label className="league-context-bar__select">
+          <span className="input-label">Liga auswählen</span>
+          <select
+            value={activeLeague?.id ?? ""}
+            onChange={(event) => activateLeague(event.target.value)}
+            className="select app-modern-select"
+            disabled={bundle.leagues.length === 0}
+          >
+            {bundle.leagues.length === 0 ? <option value="">Noch keine Liga</option> : null}
+            {bundle.leagues.map((league) => <option key={league.id} value={league.id}>{league.name}</option>)}
+          </select>
+        </label>
+        <div className="league-context-bar__summary">
+          <span>Aktive Saison</span>
+          <strong>{activeSeason?.name ?? "Noch keine Saison"}</strong>
+          {activeSeason ? <span className="chip">{teams.length} Teams</span> : null}
+        </div>
+        <button type="button" className="btn btn-outline btn-sm" onClick={() => handleTabChange("season")}>Liga & Saison bearbeiten</button>
+      </section>
 
       {tab === "season" ? (
-        <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-          <form className="app-card space-y-3" onSubmit={handleCreateSeason}>
-            <p className="section-eyebrow">Neue Saison</p>
-            <input value={seasonName} onChange={(event) => setSeasonName(event.target.value)} placeholder="z. B. Regionalliga 2026/27" className="input" required />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <ModernDateInput value={seasonStartDate} onChange={setSeasonStartDate} label="Saisonstart" max={seasonEndDate || undefined} />
-              <ModernDateInput value={seasonEndDate} onChange={setSeasonEndDate} label="Saisonende" min={seasonStartDate || undefined} />
+        <section className="mt-4 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+            <form className="app-card space-y-3" onSubmit={handleSaveLeague}>
+              <div className="flex items-start justify-between gap-2">
+                <div><p className="section-eyebrow">{leagueEditId ? "Liga bearbeiten" : "Neue Liga"}</p><h2 className="section-title mt-1">{leagueEditId ? leagueName || "Liga" : "Wettbewerb anlegen"}</h2></div>
+                {leagueEditId ? <button type="button" className="btn btn-ghost btn-xs" onClick={resetLeagueForm}>Abbrechen</button> : null}
+              </div>
+              <label><span className="input-label">Liganame</span><input value={leagueName} onChange={(event) => setLeagueName(event.target.value)} placeholder="z. B. Regionalliga Nord" className="input" required /></label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label><span className="input-label">Region / Verband</span><input value={leagueRegion} onChange={(event) => setLeagueRegion(event.target.value)} placeholder="z. B. Berlin" className="input" /></label>
+                <label><span className="input-label">Spielklasse</span><input value={leagueLevel} onChange={(event) => setLeagueLevel(event.target.value)} placeholder="z. B. Herren I" className="input" /></label>
+              </div>
+              <textarea value={leagueNotes} onChange={(event) => setLeagueNotes(event.target.value)} placeholder="Modus, Verband oder weitere Liga-Notizen" rows={2} className="textarea" />
+              <button type="submit" className="btn btn-primary btn-sm">{leagueEditId ? "Liga speichern" : "Liga anlegen"}</button>
+            </form>
+            <div className="app-card">
+              <p className="section-eyebrow">Deine Ligen</p>
+              <h2 className="section-title mt-1">Auswählen und bearbeiten</h2>
+              {bundle.leagues.length === 0 ? <p className="mt-3 text-sm text-muted">Lege zuerst eine Liga an. Danach kannst du darin Saisons erstellen.</p> : (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">{bundle.leagues.map((league) => {
+                  const seasonCount = seasonsForLeague(bundle, league.id).length;
+                  const selected = activeLeague?.id === league.id;
+                  return <button key={league.id} type="button" className={`league-select-card ${selected ? "league-select-card--active" : ""}`} onClick={() => { activateLeague(league.id); beginLeagueEdit(league); }}>
+                    <span><strong>{league.name}</strong><small>{[league.region, league.level].filter(Boolean).join(" · ") || "Keine Zusatzangaben"}</small></span>
+                    <span className={`chip ${selected ? "chip-active" : ""}`}>{seasonCount} Saison{seasonCount === 1 ? "" : "s"}</span>
+                  </button>;
+                })}</div>
+              )}
             </div>
-            <textarea value={seasonNotes} onChange={(event) => setSeasonNotes(event.target.value)} placeholder="Ziele, Modus und Saisonnotizen" rows={3} className="textarea" />
-            <button type="submit" className="btn btn-primary btn-sm">Saison anlegen</button>
-          </form>
-          <div className="app-card">
-            <p className="section-eyebrow">Saisons</p>
-            {bundle.seasons.length === 0 ? <p className="mt-3 text-sm text-muted">Lege deine erste Saison an.</p> : (
-              <GradientFadeList className="mt-3" items={bundle.seasons} listClassName="space-y-2" getKey={(season) => season.id} renderItem={(season) => (
-                <div className="list-card flex items-center justify-between gap-2">
-                  <div><p className="list-card__title">{season.name}</p>{season.startDate || season.endDate ? <p className="list-card__meta">{season.startDate ? formatDateLabel(season.startDate) : "Start offen"} – {season.endDate ? formatDateLabel(season.endDate) : "Ende offen"}</p> : null}{season.notes ? <p className="list-card__meta">{season.notes}</p> : null}</div>
-                  <button type="button" className={`btn btn-xs ${bundle.activeSeasonId === season.id ? "btn-primary" : "btn-outline"}`} onClick={() => persist({ ...bundle, activeSeasonId: season.id })}>{bundle.activeSeasonId === season.id ? "Aktiv" : "Aktivieren"}</button>
-                </div>
-              )} />
-            )}
           </div>
+
+          {activeLeague ? <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+            <form className="app-card space-y-3" onSubmit={handleSaveSeason}>
+              <div className="flex items-start justify-between gap-2">
+                <div><p className="section-eyebrow">{seasonEditId ? "Saison bearbeiten" : "Neue Saison"}</p><h2 className="section-title mt-1">{activeLeague.name}</h2></div>
+                {seasonEditId ? <button type="button" className="btn btn-ghost btn-xs" onClick={resetSeasonForm}>Abbrechen</button> : null}
+              </div>
+              <label><span className="input-label">Saisonname</span><input value={seasonName} onChange={(event) => setSeasonName(event.target.value)} placeholder="z. B. 2026/27" className="input" required /></label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ModernDateInput value={seasonStartDate} onChange={setSeasonStartDate} label="Saisonstart" max={seasonEndDate || undefined} />
+                <ModernDateInput value={seasonEndDate} onChange={setSeasonEndDate} label="Saisonende" min={seasonStartDate || undefined} />
+              </div>
+              <textarea value={seasonNotes} onChange={(event) => setSeasonNotes(event.target.value)} placeholder="Ziele, Modus und Saisonnotizen" rows={3} className="textarea" />
+              {seasonEditId ? <div className="season-team-picker">
+                <div><p className="input-label">Teams dieser Saison</p><p className="text-xs text-muted">Teams mit vorhandenem Spiel können erst nach dem Entfernen des Spiels abgewählt werden.</p></div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="season-team-toggle season-team-toggle--locked"><span className="season-team-toggle__check">✓</span><span><strong>{bundle.ownTeam.name}</strong><small>Dein Team · immer dabei</small></span></div>
+                  {bundle.opponents.map((opponent) => {
+                    const checked = opponent.seasonIds.includes(seasonEditId) || opponent.seasonId === seasonEditId;
+                    return <button key={opponent.id} type="button" role="checkbox" aria-checked={checked} className={`season-team-toggle ${checked ? "season-team-toggle--checked" : ""}`} onClick={() => toggleSeasonOpponent(seasonEditId, opponent)}><span className="season-team-toggle__check">{checked ? "✓" : "+"}</span><span><strong>{opponent.name}</strong><small>{checked ? "In Saison" : "Hinzufügen"}</small></span></button>;
+                  })}
+                </div>
+                {bundle.opponents.length === 0 ? <p className="mt-2 text-xs text-muted">Lege im Reiter „Teams“ zuerst Gegner an.</p> : null}
+              </div> : null}
+              <button type="submit" className="btn btn-primary btn-sm">{seasonEditId ? "Saison speichern" : "Saison anlegen"}</button>
+            </form>
+            <div className="app-card">
+              <p className="section-eyebrow">Saisons in {activeLeague.name}</p>
+              <h2 className="section-title mt-1">Zum Öffnen anklicken</h2>
+              {leagueSeasons.length === 0 ? <p className="mt-3 text-sm text-muted">Lege die erste Saison dieser Liga an.</p> : (
+                <div className="mt-3 space-y-2">{leagueSeasons.map((season) => {
+                  const selected = activeSeason?.id === season.id;
+                  const count = teamsForSeason(bundle, season.id).length;
+                  return <button key={season.id} type="button" className={`league-season-card ${selected ? "league-season-card--active" : ""}`} onClick={() => beginSeasonEdit(season)}>
+                    <span><strong>{season.name}</strong><small>{season.startDate ? formatDateLabel(season.startDate) : "Start offen"} – {season.endDate ? formatDateLabel(season.endDate) : "Ende offen"}</small>{season.notes ? <small>{season.notes}</small> : null}</span>
+                    <span className={`chip ${selected ? "chip-active" : ""}`}>{count} Teams · {selected ? "Aktiv" : "Bearbeiten"}</span>
+                  </button>;
+                })}</div>
+              )}
+            </div>
+          </div> : <div className="app-card"><p className="text-sm text-muted">Lege eine Liga an, um eine Saison zu erstellen.</p></div>}
         </section>
       ) : null}
 
@@ -721,9 +1020,11 @@ export default function LigaPage() {
         <section className="mt-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
             <form className="app-card space-y-3" onSubmit={(event) => { event.preventDefault(); const name = bundle.ownTeam.name.trim(); if (name) persist({ ...bundle, ownTeam: { ...bundle.ownTeam, name } }); setMessage("Name des eigenen Teams gespeichert."); }}>
-              <p className="section-eyebrow">Eigenes Team</p>
-              <label className="block"><span className="input-label">Teamname</span><input value={bundle.ownTeam.name} onChange={(event) => setBundle({ ...bundle, ownTeam: { ...bundle.ownTeam, name: event.target.value } })} className="input" /></label>
-              <button type="submit" className="btn btn-outline btn-sm">Teamname speichern</button>
+              <div><p className="section-eyebrow">Eigenes Team</p><h2 className="section-title mt-1">Mit dem Team-Bereich verbinden</h2></div>
+              <label className="block"><span className="input-label">Team aus „Teams“</span><select value={bundle.ownTeam.sourceTeamId ?? ""} onChange={(event) => connectOwnTeam(event.target.value)} className="select app-modern-select"><option value="">Ohne Verbindung / manuell</option>{teamAreaTeams.map((team) => <option key={team.id} value={team.id}>{team.name}{team.clubName ? ` · ${team.clubName}` : ""}</option>)}</select></label>
+              {teamAreaTeams.length === 0 ? <p className="text-xs text-muted">Noch kein Team im Team-Reiter gefunden. Dort angelegte Teams erscheinen hier automatisch.</p> : null}
+              <label className="block"><span className="input-label">Teamname in der Liga</span><input value={bundle.ownTeam.name} disabled={Boolean(bundle.ownTeam.sourceTeamId)} onChange={(event) => setBundle({ ...bundle, ownTeam: { ...bundle.ownTeam, name: event.target.value } })} className="input" /></label>
+              {bundle.ownTeam.sourceTeamId ? <><p className="text-xs text-emerald-700">Verbunden · Name und Team-ID stammen aus dem Team-Bereich.</p>{sharedLeagueStatus ? <p className="text-xs text-muted" role="status">{sharedLeagueStatus}</p> : null}</> : <button type="submit" className="btn btn-outline btn-sm">Teamname speichern</button>}
             </form>
             <div className="app-card">
               <p className="section-eyebrow">Team wiederverwenden</p>
@@ -907,7 +1208,7 @@ export default function LigaPage() {
 
       <section className="mt-5 app-card--accent-violet">
         <p className="section-eyebrow">Nächste sinnvolle Ausbaustufe</p>
-        <p className="mt-2 text-sm text-muted">Import eines kompletten Spielplans, direkter Vergleich zweier Teams, Spieler-Saisonmittel, Verletzungsstatus und automatische Head-to-Head-Tiebreaker.</p>
+        <p className="mt-2 text-sm text-muted">Teamweit synchronisierte Zu-/Absagen, ein gemeinsamer Live-Boxscore und automatische Benachrichtigungen bei Spielplanänderungen.</p>
       </section>
     </main>
   );

@@ -15,6 +15,7 @@ import {
 } from "@/lib/opponent-styles";
 import { buildStartLineupRecommendation, buildTeamMatchupHints } from "@/lib/matchup-hints";
 import {
+  connectLeagueOwnTeam,
   createEmptyLeagueBundle,
   getActiveSeason,
   LEAGUE_UPDATED_EVENT,
@@ -319,7 +320,10 @@ export default function TeamPage() {
     }
     setNewTeamName("");
     setSelectedTeamId(json.team.id);
-    setMessage("Team erstellt.");
+    const nextLeagueBundle = connectLeagueOwnTeam(loadLeagueBundle(), json.team);
+    saveLeagueBundle(nextLeagueBundle);
+    setLeagueBundle(nextLeagueBundle);
+    setMessage("Team erstellt und als eigenes Liga-Team verbunden.");
     await loadTeams();
   };
 
@@ -436,6 +440,15 @@ export default function TeamPage() {
 
   const updateShareLevel = async (shareLevel: TeamShareLevel) => {
     if (!selectedTeamId) return;
+    const previousDetail = detail;
+    const optimisticDetail = detail ? {
+      ...detail,
+      members: detail.members.map((member) => member.userId === authMe?.id ? { ...member, shareLevel } : member),
+    } : null;
+    if (optimisticDetail) {
+      setDetail(optimisticDetail);
+      saveCachedTeamDetail(selectedTeamId, optimisticDetail);
+    }
     setShareLevelSaving(true);
     try {
       const response = await fetch("/api/team/member", {
@@ -445,13 +458,24 @@ export default function TeamPage() {
         body: JSON.stringify({ teamId: selectedTeamId, shareLevel }),
       });
       if (!response.ok) throw new Error("Freigabe konnte nicht gespeichert werden.");
-      await loadDetail(selectedTeamId);
       setMessage(shareLevel === "full" ? "Volles Teilen aktiviert." : "Nur Zusammenfassung wird geteilt.");
     } catch (error) {
+      if (previousDetail) {
+        setDetail(previousDetail);
+        saveCachedTeamDetail(selectedTeamId, previousDetail);
+      }
       setMessage(error instanceof Error ? error.message : "Freigabe konnte nicht gespeichert werden.");
     } finally {
       setShareLevelSaving(false);
     }
+  };
+
+  const connectSelectedTeamToLeague = () => {
+    if (!selectedTeam) return;
+    const nextLeagueBundle = connectLeagueOwnTeam(loadLeagueBundle(), selectedTeam);
+    saveLeagueBundle(nextLeagueBundle);
+    setLeagueBundle(nextLeagueBundle);
+    setMessage(`„${selectedTeam.name}“ ist jetzt dein eigenes Team im Liga-Bereich.`);
   };
 
   const copyInvite = async (inviteRole: "player" | "coach" = "player") => {
@@ -616,6 +640,14 @@ export default function TeamPage() {
                       {t("team.inviteCoach")}
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className={`btn ${leagueBundle.ownTeam.sourceTeamId === selectedTeamId ? "btn-cyan" : "btn-outline"}`}
+                    disabled={!selectedTeam || leagueBundle.ownTeam.sourceTeamId === selectedTeamId}
+                    onClick={connectSelectedTeamToLeague}
+                  >
+                    {leagueBundle.ownTeam.sourceTeamId === selectedTeamId ? "Mit Liga verbunden" : "Als Liga-Team verwenden"}
+                  </button>
                 </div>
               ) : null}
 
@@ -626,24 +658,18 @@ export default function TeamPage() {
                   <p className="mt-2 text-xs text-muted">
                     Steuere, wie viele Trainings-Details andere im Kader sehen. Du siehst deine eigenen Daten immer vollständig.
                   </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={shareLevelSaving}
-                      className={`chip ${viewerMember.shareLevel === "summary" ? "chip-active" : ""}`}
-                      onClick={() => void updateShareLevel("summary")}
-                    >
-                      Nur Zusammenfassung
-                    </button>
-                    <button
-                      type="button"
-                      disabled={shareLevelSaving}
-                      className={`chip ${viewerMember.shareLevel === "full" ? "chip-success" : ""}`}
-                      onClick={() => void updateShareLevel("full")}
-                    >
-                      Volles Teilen
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={viewerMember.shareLevel === "full"}
+                    disabled={shareLevelSaving}
+                    className={`team-share-toggle mt-3 ${viewerMember.shareLevel === "full" ? "team-share-toggle--active" : ""}`}
+                    onClick={() => void updateShareLevel(viewerMember.shareLevel === "full" ? "summary" : "full")}
+                  >
+                    <span className="team-share-toggle__track" aria-hidden><span /></span>
+                    <span className="team-share-toggle__copy"><strong>Trainingsdetails teilen</strong><small>{viewerMember.shareLevel === "full" ? "Aktiviert" : "Deaktiviert"}</small></span>
+                    <span className="team-share-toggle__state">{shareLevelSaving ? "Speichert …" : viewerMember.shareLevel === "full" ? "An" : "Aus"}</span>
+                  </button>
                   <p className="mt-2 text-xs text-muted">
                     {viewerMember.shareLevel === "full"
                       ? "Andere sehen Form-Score, Spielstil und Trainings-Hinweise."

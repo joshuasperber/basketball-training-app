@@ -1,6 +1,7 @@
 import { supabaseRest } from "@/lib/server/supabase-admin";
 import { createInviteToken } from "@/lib/server/team-progress";
 import type { TeamRole } from "@/lib/team-types";
+import { isUuid, postgrestPath } from "@/lib/server/postgrest-query";
 
 type InviteRow = { token: string };
 
@@ -9,8 +10,15 @@ export async function getOrCreateTeamInviteToken(
   createdBy: string,
   invitedRole: Extract<TeamRole, "player" | "coach"> = "player",
 ): Promise<string | null> {
+  if (!isUuid(teamId) || !isUuid(createdBy)) return null;
   const existing = await supabaseRest<Array<InviteRow & { max_uses: number; use_count: number; invited_role?: string }>>(
-    `team_invites?team_id=eq.${teamId}&expires_at=gte.${new Date().toISOString()}&select=token,max_uses,use_count,invited_role&order=created_at.desc&limit=5`,
+    postgrestPath("team_invites", {
+      team_id: `eq.${teamId}`,
+      expires_at: `gte.${new Date().toISOString()}`,
+      select: "token,max_uses,use_count,invited_role",
+      order: "created_at.desc",
+      limit: 5,
+    }),
   );
   const row = existing.data?.find(
     (invite) => invite.use_count < invite.max_uses && (invite.invited_role ?? "player") === invitedRole,

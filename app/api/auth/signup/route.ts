@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applySessionCookies, clearSessionCookies, type SupabaseSession } from "@/lib/server/session-cookies";
 import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
+import { isValidEmailAddress } from "@/lib/auth-validation";
 
 const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -22,8 +23,11 @@ export async function POST(request: NextRequest) {
   const email = body?.email?.trim().toLowerCase() ?? "";
   const password = body?.password ?? "";
 
-  if (!email || password.length < 6) {
-    return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
+  if (!isValidEmailAddress(email)) {
+    return NextResponse.json({ error: "invalid_email", message: "Bitte gib eine gültige E-Mail-Adresse ein." }, { status: 400 });
+  }
+  if (password.length < 6) {
+    return NextResponse.json({ error: "weak_password", message: "Das Passwort muss mindestens 6 Zeichen haben." }, { status: 400 });
   }
   if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json({ error: "auth_not_configured" }, { status: 503 });

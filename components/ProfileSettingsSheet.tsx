@@ -13,6 +13,9 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import { pushProgressToCloud, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
 import type { WeekConfig } from "@/lib/planner";
 import PasswordChangeSettings from "@/components/PasswordChangeSettings";
+import { clearLocalUserProgress } from "@/lib/clear-local-user-data";
+import { clearOfflineUserCache } from "@/lib/offline-cache";
+import { resetAuthMeCache } from "@/lib/auth-session-align";
 
 type ProfileSettingsSheetProps = {
   open: boolean;
@@ -80,10 +83,15 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
               setBusyLabel(t("settings.savingData"));
               setBusySublabel(t("settings.savingDataSub"));
               try {
-                await pushProgressToCloudWithRetry();
+                await pushProgressToCloudWithRetry().catch(() => undefined);
                 setBusyLabel(t("settings.loggingOut"));
                 setBusySublabel(t("settings.endingSession"));
-                await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+                const response = await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+                if (!response.ok) throw new Error("logout_failed");
+                resetAuthMeCache();
+                clearLocalUserProgress();
+                window.sessionStorage.clear();
+                await clearOfflineUserCache();
                 onClose();
                 router.replace("/login");
               } catch {

@@ -15,19 +15,15 @@ export async function POST(request: NextRequest) {
   }
 
   const validated = await validateSessionTokens(payload.access_token, payload.refresh_token);
-
-  const session = validated ?? {
-    access_token: payload.access_token,
-    refresh_token: payload.refresh_token,
-    expires_in: payload.expires_in ?? 3600,
-  };
+  if (!validated) {
+    return NextResponse.json({ error: "invalid_session" }, { status: 401 });
+  }
 
   const response = NextResponse.json({
     ok: true,
-    user: validated ? { id: validated.user.id, email: validated.user.email } : null,
-    sessionUnverified: !validated,
+    user: { id: validated.user.id, email: validated.user.email },
   });
-  applySessionCookies(response, session, request);
+  applySessionCookies(response, validated, request);
 
   return response;
 }

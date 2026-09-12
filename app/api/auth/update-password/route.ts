@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     };
     user = refreshCheck.user;
   } else if (resolvedEmail) {
-    const reauth = await passwordGrant(resolvedEmail, password, { autoConfirm: true });
+    const reauth = await passwordGrant(resolvedEmail, password);
     if ("error" in reauth) {
       return NextResponse.json({ error: "reauth_failed", message: reauth.error }, { status: 401 });
     }

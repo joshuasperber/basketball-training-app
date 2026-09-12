@@ -6,6 +6,7 @@ import InitialSetupWizard from "@/components/InitialSetupWizard";
 import { INITIAL_SETUP_UPDATED_EVENT, isInitialSetupComplete } from "@/lib/onboarding-gate";
 import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { ensureInitialCloudSync } from "@/lib/progress-sync";
+import { fetchAuthMe } from "@/lib/auth-session-align";
 
 const HIDDEN_PREFIXES = ["/login", "/auth/"];
 
@@ -31,10 +32,10 @@ export default function OnboardingGateLauncher() {
     const run = async () => {
       setAuthReady(false);
 
-      const meRes = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
+      const me = await fetchAuthMe();
       if (cancelled) return;
 
-      if (!meRes.ok) {
+      if (!me) {
         if (!navigator.onLine && hasOfflineSessionHint()) {
           setLoggedIn(true);
           setShowWizard(!isInitialSetupComplete(null));
@@ -47,7 +48,6 @@ export default function OnboardingGateLauncher() {
         return;
       }
 
-      const me = (await meRes.json()) as { email?: string };
       setLoggedIn(true);
       setAuthEmail(me.email?.trim().toLowerCase() ?? null);
 
@@ -63,7 +63,7 @@ export default function OnboardingGateLauncher() {
     return () => {
       cancelled = true;
     };
-  }, [pathname, hiddenRoute]);
+  }, [hiddenRoute]);
 
   useEffect(() => {
     const refresh = () => {
@@ -81,7 +81,11 @@ export default function OnboardingGateLauncher() {
     };
   }, [showWizard, loggedIn]);
 
-  if (hiddenRoute || !loggedIn || !authReady || !showWizard) return null;
+  if (hiddenRoute) return null;
+  // Der lokale Seiteninhalt bleibt während der Hintergrundprüfung sichtbar.
+  // Nur ein tatsächlich nötiges Onboarding öffnet anschließend den Wizard.
+  if (!authReady) return null;
+  if (!loggedIn || !showWizard) return null;
 
   return (
     <InitialSetupWizard

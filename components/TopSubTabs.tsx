@@ -52,6 +52,7 @@ export default function TopSubTabs({ items, variant = "default", className = "" 
             <Link
               key={item.labelKey}
               href={href}
+              prefetch={true}
               className={`top-tabs__btn ${isActive ? `top-tabs__btn--active ${accent}`.trim() : ""}`}
               aria-current={isActive ? "page" : undefined}
             >

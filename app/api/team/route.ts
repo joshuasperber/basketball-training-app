@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, getSupabaseServiceConfig, supabaseRest } from "@/lib/server/supabase-admin";
 import { createInviteToken } from "@/lib/server/team-progress";
 import type { TeamRole, TeamSummary } from "@/lib/team-types";
+import { postgrestPath } from "@/lib/server/postgrest-query";
 
 type TeamRow = {
   id: string;
@@ -24,7 +25,10 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const memberships = await supabaseRest<MembershipRow[]>(
-    `team_members?user_id=eq.${user.id}&select=id,team_id,user_id,role,teams(id,name,season,club_name)`,
+    postgrestPath("team_members", {
+      user_id: `eq.${user.id}`,
+      select: "id,team_id,user_id,role,teams(id,name,season,club_name)",
+    }),
   );
   if (!memberships.ok) return NextResponse.json({ error: "read_failed" }, { status: 500 });
 
@@ -33,7 +37,10 @@ export async function GET(request: NextRequest) {
   const counts = new Map<string, number>();
   if (teamIds.length > 0) {
     const countRes = await supabaseRest<Array<{ team_id: string }>>(
-      `team_members?team_id=in.(${teamIds.join(",")})&select=team_id`,
+      postgrestPath("team_members", {
+        team_id: `in.(${teamIds.join(",")})`,
+        select: "team_id",
+      }),
     );
     (countRes.data ?? []).forEach((row) => {
       counts.set(row.team_id, (counts.get(row.team_id) ?? 0) + 1);

@@ -176,6 +176,7 @@ function TrainingPageContent() {
   const [catalogNotice, setCatalogNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [newWorkoutError, setNewWorkoutError] = useState<string | null>(null);
   const completedParam = searchParams.get("completed");
+  const createParam = searchParams.get("create");
   const completionMessage = useMemo(() => {
     if (completedParam === "workout") return "Workout abgeschlossen ✅";
     if (completedParam === "exercise") return "Übung abgeschlossen ✅";
@@ -194,6 +195,14 @@ function TrainingPageContent() {
       );
     }
   }, [tabParam, completedParam, router]);
+
+  useEffect(() => {
+    if (createParam !== "1") return;
+    setActiveTab("Exercises");
+    persistTrainingTab("Exercises");
+    setCreateOpen(true);
+    router.replace(buildTrainingHref("Exercises"), { scroll: false });
+  }, [createParam, router]);
 
   useEffect(() => {
     if (!catalogNotice || catalogNotice.tone !== "success") return;

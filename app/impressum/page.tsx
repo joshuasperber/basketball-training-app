@@ -23,7 +23,7 @@ export default function ImpressumPage() {
           <h2 className="font-semibold text-strong">Kontakt</h2>
           <p className="mt-1">
             E-Mail:{" "}
-            <a href={`mailto:${legalConfig.operatorEmail}`} className="text-[var(--brand-400)] underline">
+            <a href={`mailto:${legalConfig.operatorEmail}`} className="text-link underline">
               {legalConfig.operatorEmail}
             </a>
           </p>
@@ -61,7 +61,7 @@ export default function ImpressumPage() {
             Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit:{" "}
             <a
               href="https://ec.europa.eu/consumers/odr/"
-              className="text-[var(--brand-400)] underline"
+              className="text-link underline"
               target="_blank"
               rel="noreferrer"
             >

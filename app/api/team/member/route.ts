@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, supabaseRest } from "@/lib/server/supabase-admin";
 import type { TeamRole, TeamShareLevel } from "@/lib/team-types";
+import { isUuid, postgrestPath } from "@/lib/server/postgrest-query";
 
 type MemberRow = { id: string; user_id: string; role: TeamRole; share_level: TeamShareLevel };
 
@@ -20,10 +21,15 @@ export async function PATCH(request: NextRequest) {
   } | null;
 
   const teamId = body?.teamId?.trim();
-  if (!teamId) return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
+  if (!isUuid(teamId)) return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
 
   const membership = await supabaseRest<MemberRow[]>(
-    `team_members?team_id=eq.${teamId}&user_id=eq.${user.id}&select=id,user_id,role,share_level&limit=1`,
+    postgrestPath("team_members", {
+      team_id: `eq.${teamId}`,
+      user_id: `eq.${user.id}`,
+      select: "id,user_id,role,share_level",
+      limit: 1,
+    }),
   );
   const self = membership.data?.[0];
   if (!membership.ok || !self) {
@@ -31,6 +37,9 @@ export async function PATCH(request: NextRequest) {
   }
 
   const targetUserId = body?.memberUserId?.trim() || user.id;
+  if (!isUuid(targetUserId)) {
+    return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
+  }
   const isSelf = targetUserId === user.id;
 
   if (body?.shareLevel != null) {
@@ -40,7 +49,10 @@ export async function PATCH(request: NextRequest) {
     if (body.shareLevel !== "summary" && body.shareLevel !== "full") {
       return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
     }
-    const update = await supabaseRest<MemberRow[]>(`team_members?team_id=eq.${teamId}&user_id=eq.${user.id}`, {
+    const update = await supabaseRest<MemberRow[]>(postgrestPath("team_members", {
+      team_id: `eq.${teamId}`,
+      user_id: `eq.${user.id}`,
+    }), {
       method: "PATCH",
       prefer: "return=representation",
       body: JSON.stringify({ share_level: body.shareLevel }),
@@ -63,7 +75,12 @@ export async function PATCH(request: NextRequest) {
     }
 
     const target = await supabaseRest<MemberRow[]>(
-      `team_members?team_id=eq.${teamId}&user_id=eq.${targetUserId}&select=id,user_id,role,share_level&limit=1`,
+      postgrestPath("team_members", {
+        team_id: `eq.${teamId}`,
+        user_id: `eq.${targetUserId}`,
+        select: "id,user_id,role,share_level",
+        limit: 1,
+      }),
     );
     const targetMember = target.data?.[0];
     if (!targetMember) return NextResponse.json({ error: "member_not_found" }, { status: 404 });
@@ -74,7 +91,10 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "captain_promote_owner_only" }, { status: 403 });
     }
 
-    const update = await supabaseRest<MemberRow[]>(`team_members?team_id=eq.${teamId}&user_id=eq.${targetUserId}`, {
+    const update = await supabaseRest<MemberRow[]>(postgrestPath("team_members", {
+      team_id: `eq.${teamId}`,
+      user_id: `eq.${targetUserId}`,
+    }), {
       method: "PATCH",
       prefer: "return=representation",
       body: JSON.stringify({ role: body.role }),

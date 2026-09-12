@@ -1,4 +1,5 @@
 import { getSupabaseServiceConfig, supabaseRest } from "@/lib/server/supabase-admin";
+import { postgrestPath } from "@/lib/server/postgrest-query";
 
 const GAME_PHOTOS_BUCKET = "game-photos";
 
@@ -48,14 +49,19 @@ export async function deleteUserGamePhotos(userId: string): Promise<boolean> {
 /** Überträgt gemeinsame Teams bevorzugt an Captains, bevor ein Owner gelöscht wird. */
 export async function transferOrDeleteTeamsOwnedByUser(userId: string): Promise<boolean> {
   const owned = await supabaseRest<Array<{ team_id: string }>>(
-    `team_members?user_id=eq.${userId}&role=eq.owner&select=team_id`,
+    postgrestPath("team_members", { user_id: `eq.${userId}`, role: "eq.owner", select: "team_id" }),
   );
   if (!owned.ok) return false;
   if (!owned.data?.length) return true;
 
   for (const row of owned.data) {
     const successors = await supabaseRest<Array<{ user_id: string; role: string; joined_at: string }>>(
-      `team_members?team_id=eq.${row.team_id}&user_id=neq.${userId}&select=user_id,role,joined_at&order=joined_at.asc`,
+      postgrestPath("team_members", {
+        team_id: `eq.${row.team_id}`,
+        user_id: `neq.${userId}`,
+        select: "user_id,role,joined_at",
+        order: "joined_at.asc",
+      }),
     );
     if (!successors.ok) return false;
     const successor = [
@@ -64,12 +70,15 @@ export async function transferOrDeleteTeamsOwnedByUser(userId: string): Promise<
     ][0];
     if (successor) {
       const transfer = await supabaseRest(
-        `team_members?team_id=eq.${row.team_id}&user_id=eq.${successor.user_id}`,
+        postgrestPath("team_members", {
+          team_id: `eq.${row.team_id}`,
+          user_id: `eq.${successor.user_id}`,
+        }),
         { method: "PATCH", body: JSON.stringify({ role: "owner" }) },
       );
       if (!transfer.ok) return false;
     } else {
-      const remove = await supabaseRest(`teams?id=eq.${row.team_id}`, { method: "DELETE" });
+      const remove = await supabaseRest(postgrestPath("teams", { id: `eq.${row.team_id}` }), { method: "DELETE" });
       if (!remove.ok) return false;
     }
   }
@@ -78,11 +87,25 @@ export async function transferOrDeleteTeamsOwnedByUser(userId: string): Promise<
 
 export async function deleteUserProgressRows(userId: string, email: string): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
-  const byId = await supabaseRest(`user_progress?user_id=eq.${userId}`, { method: "DELETE" });
+  const byId = await supabaseRest(postgrestPath("user_progress", { user_id: `eq.${userId}` }), { method: "DELETE" });
   if (!byId.ok) return false;
   if (normalizedEmail) {
-    const byEmail = await supabaseRest(`user_progress?email=eq.${encodeURIComponent(normalizedEmail)}`, { method: "DELETE" });
+    const byEmail = await supabaseRest(postgrestPath("user_progress", { email: `eq.${normalizedEmail}` }), { method: "DELETE" });
     if (!byEmail.ok) return false;
   }
   return true;
+}
+
+/** Uses one database transaction when the migration is deployed. `null` means legacy schema. */
+export async function deleteUserDatabaseDataAtomically(
+  userId: string,
+  email: string,
+): Promise<boolean | null> {
+  const result = await supabaseRest<{ ok?: boolean }>("rpc/prepare_account_deletion", {
+    method: "POST",
+    body: JSON.stringify({ target_user_id: userId, target_email: email.trim().toLowerCase() }),
+  });
+  if (result.ok) return true;
+  if (result.status === 404 || result.error?.includes("PGRST202")) return null;
+  return false;
 }

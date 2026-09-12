@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, supabaseRest } from "@/lib/server/supabase-admin";
 import { getOrCreateTeamInviteToken } from "@/lib/server/team-invite";
 import type { TeamRole } from "@/lib/team-types";
+import { isUuid, postgrestPath } from "@/lib/server/postgrest-query";
 
 type MemberRow = { role: string };
 
@@ -15,10 +16,15 @@ export async function POST(request: NextRequest) {
   } | null;
   const teamId = body?.teamId?.trim();
   const inviteRole = body?.inviteRole === "coach" ? "coach" : "player";
-  if (!teamId) return NextResponse.json({ error: "invalid_team" }, { status: 400 });
+  if (!isUuid(teamId)) return NextResponse.json({ error: "invalid_team" }, { status: 400 });
 
   const membership = await supabaseRest<MemberRow[]>(
-    `team_members?team_id=eq.${teamId}&user_id=eq.${user.id}&select=role&limit=1`,
+    postgrestPath("team_members", {
+      team_id: `eq.${teamId}`,
+      user_id: `eq.${user.id}`,
+      select: "role",
+      limit: 1,
+    }),
   );
   const role = membership.data?.[0]?.role;
   if (!role || !["owner", "captain"].includes(role)) {

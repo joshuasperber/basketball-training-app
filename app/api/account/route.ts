@@ -3,6 +3,7 @@ import {
   transferOrDeleteTeamsOwnedByUser,
   deleteUserGamePhotos,
   deleteUserProgressRows,
+  deleteUserDatabaseDataAtomically,
 } from "@/lib/server/account-delete";
 import { clearSessionCookies } from "@/lib/server/session-cookies";
 import { getRequestUser, getSupabaseServiceConfig, supabaseRest } from "@/lib/server/supabase-admin";
@@ -20,21 +21,23 @@ export async function DELETE(request: NextRequest) {
   if (!config) return NextResponse.json({ error: "supabase_not_configured" }, { status: 503 });
 
   const photosDeleted = await deleteUserGamePhotos(user.id);
-  const teamsTransferred = await transferOrDeleteTeamsOwnedByUser(user.id);
-  const progressDeleted = await deleteUserProgressRows(user.id, user.email);
-  const profileDeleted = await supabaseRest(`profiles?id=eq.${user.id}`, { method: "DELETE" });
-  const membershipsDeleted = await supabaseRest(`team_members?user_id=eq.${user.id}`, { method: "DELETE" });
-  const exercisesDeleted = await supabaseRest(`exercises?user_id=eq.${user.id}`, { method: "DELETE" });
-
-  if (
-    !photosDeleted ||
-    !teamsTransferred ||
-    !progressDeleted ||
-    !profileDeleted.ok ||
-    !membershipsDeleted.ok ||
-    !exercisesDeleted.ok
-  ) {
+  if (!photosDeleted) {
     return NextResponse.json({ error: "data_delete_incomplete" }, { status: 502 });
+  }
+
+  const atomicCleanup = await deleteUserDatabaseDataAtomically(user.id, user.email);
+  if (atomicCleanup === false) {
+    return NextResponse.json({ error: "data_delete_incomplete" }, { status: 502 });
+  }
+  if (atomicCleanup === null) {
+    const teamsTransferred = await transferOrDeleteTeamsOwnedByUser(user.id);
+    const progressDeleted = await deleteUserProgressRows(user.id, user.email);
+    const profileDeleted = await supabaseRest(`profiles?id=eq.${user.id}`, { method: "DELETE" });
+    const membershipsDeleted = await supabaseRest(`team_members?user_id=eq.${user.id}`, { method: "DELETE" });
+    const exercisesDeleted = await supabaseRest(`exercises?user_id=eq.${user.id}`, { method: "DELETE" });
+    if (!teamsTransferred || !progressDeleted || !profileDeleted.ok || !membershipsDeleted.ok || !exercisesDeleted.ok) {
+      return NextResponse.json({ error: "data_delete_incomplete" }, { status: 502 });
+    }
   }
 
   const authDelete = await fetch(`${config.url}/auth/v1/admin/users/${encodeURIComponent(user.id)}`, {

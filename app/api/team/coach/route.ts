@@ -8,6 +8,7 @@ import { buildTeamCoachHeuristic } from "@/lib/team-coach-heuristic";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import type { TeamCoachResponse, TeamMemberView, TeamRole } from "@/lib/team-types";
 import { checkRateLimit, rateLimitHeaders } from "@/lib/server/rate-limit";
+import { isUuid, postgrestPath } from "@/lib/server/postgrest-query";
 
 type MemberRow = {
   id: string;
@@ -97,16 +98,23 @@ export async function POST(request: NextRequest) {
     opponentStyles?: string[];
   } | null;
   const teamId = body?.teamId?.trim();
-  if (!teamId) return NextResponse.json({ error: "invalid_team" }, { status: 400 });
+  if (!isUuid(teamId)) return NextResponse.json({ error: "invalid_team" }, { status: 400 });
 
   const membership = await supabaseRest<MemberRow[]>(
-    `team_members?team_id=eq.${teamId}&user_id=eq.${user.id}&select=*&limit=1`,
+    postgrestPath("team_members", {
+      team_id: `eq.${teamId}`,
+      user_id: `eq.${user.id}`,
+      select: "*",
+      limit: 1,
+    }),
   );
   if (!membership.ok || !membership.data?.[0]) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const membersRes = await supabaseRest<MemberRow[]>(`team_members?team_id=eq.${teamId}&select=*`);
+  const membersRes = await supabaseRest<MemberRow[]>(
+    postgrestPath("team_members", { team_id: `eq.${teamId}`, select: "*" }),
+  );
   const memberRows = membersRes.data ?? [];
   const userIds = memberRows.map((row) => row.user_id);
   const emailByUserId = Object.fromEntries(
@@ -123,7 +131,12 @@ export async function POST(request: NextRequest) {
   const opponentName = body?.opponentName?.trim();
   if (opponentName) {
     const scoutingRes = await supabaseRest<ScoutingRow[]>(
-      `opponent_scouting?team_id=eq.${teamId}&opponent_name=eq.${encodeURIComponent(opponentName)}&select=opponent_name,styles&limit=1`,
+      postgrestPath("opponent_scouting", {
+        team_id: `eq.${teamId}`,
+        opponent_name: `eq.${opponentName}`,
+        select: "opponent_name,styles",
+        limit: 1,
+      }),
     );
     const scoutingStyles = normalizeOpponentStyles(scoutingRes.data?.[0]?.styles ?? []);
     opponentStyles = [...new Set([...opponentStyles, ...scoutingStyles])];

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, supabaseRest } from "@/lib/server/supabase-admin";
+import { postgrestPath } from "@/lib/server/postgrest-query";
 
 type ProfilePayload = {
   username?: string;
@@ -8,6 +9,25 @@ type ProfilePayload = {
   height_cm?: number | null;
   weight_kg?: number | null;
 };
+
+type ProfileRow = Required<Pick<ProfilePayload, "username">> & Omit<ProfilePayload, "username">;
+
+export async function GET(request: NextRequest) {
+  const user = await getRequestUser(request);
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const result = await supabaseRest<ProfileRow[]>(
+    postgrestPath("profiles", {
+      id: `eq.${user.id}`,
+      select: "username,full_name,favorite_position,height_cm,weight_kg",
+      limit: 1,
+    }),
+  );
+  if (!result.ok) {
+    return NextResponse.json({ error: "read_failed" }, { status: 502 });
+  }
+  return NextResponse.json({ profile: result.data?.[0] ?? null });
+}
 
 export async function POST(request: NextRequest) {
   const user = await getRequestUser(request);
@@ -34,7 +54,11 @@ export async function POST(request: NextRequest) {
   });
 
   if (!result.ok) {
-    return NextResponse.json({ error: "upsert_failed", detail: result.error }, { status: 502 });
+    const duplicate = result.status === 409 || result.error?.includes("23505") || result.error?.includes("profiles_username_key");
+    return NextResponse.json(
+      { error: duplicate ? "username_taken" : "upsert_failed" },
+      { status: duplicate ? 409 : 502 },
+    );
   }
 
   return NextResponse.json({ ok: true });

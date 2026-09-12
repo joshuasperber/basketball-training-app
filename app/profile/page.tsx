@@ -1,7 +1,6 @@
 "use client";
 
 import GradientFadeList from "@/components/GradientFadeList";
-import { supabase } from "@/lib/supabase";
 import {
   buildWeeklyPlan,
   formatPlannedDayDuration,
@@ -97,11 +96,6 @@ type ProfileLocalCache = {
   };
   /** yyyy-mm-dd Tage, die nicht per weekConfig überschrieben werden sollen. */
   manualPlanOverrides?: string[];
-};
-
-type SupabaseAuthUser = {
-  id?: string;
-  email?: string | null;
 };
 
 function getDefaultPlayStyle(position: string | null) {
@@ -455,11 +449,10 @@ export default function ProfilePage() {
     const resolvedWeekConfig = resolveWeekConfigFromStorage(localCache, latestDailyPlan);
     const setupComplete = isInitialSetupComplete();
 
-    const authApi = (supabase as unknown as { auth?: { getUser?: () => Promise<{ data?: { user?: SupabaseAuthUser | null } }> } }).auth;
-    const authData = authApi?.getUser ? await authApi.getUser() : null;
-    const authUserId = authData?.data?.user?.id ?? null;
+    const authUser = isAppOnline() ? await fetchAuthMe() : null;
+    const authUserId = authUser?.id ?? null;
     const cachedLoginEmail = typeof window !== "undefined" ? window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY) : null;
-    const authEmail = authData?.data?.user?.email ?? cachedLoginEmail ?? null;
+    const authEmail = authUser?.email ?? cachedLoginEmail ?? null;
 
     if (localCache && setupComplete) {
       setProfile(localCache.profile);
@@ -493,22 +486,11 @@ export default function ProfilePage() {
 
     let data: ProfileRow | null = null;
     if (authUserId && setupComplete && isAppOnline()) {
-      const byId = await supabase
-        .from("profiles")
-        .select("username, full_name, favorite_position, height_cm, weight_kg")
-        .eq("id", authUserId)
-        .limit(1)
-        .maybeSingle<ProfileRow>();
-      data = byId.data ?? null;
-      if (!data && username) {
-        const byUsername = await supabase
-          .from("profiles")
-          .select("username, full_name, favorite_position, height_cm, weight_kg")
-          .eq("username", username)
-          .limit(1)
-          .maybeSingle<ProfileRow>();
-        data = byUsername.data ?? null;
-      }
+      const response = await fetch("/api/profile", { cache: "no-store", credentials: "same-origin" });
+      const result = response.ok
+        ? await response.json() as { profile?: Omit<ProfileRow, "email"> | null }
+        : null;
+      data = result?.profile ? { ...result.profile, email: authEmail } : null;
     }
 
     if (data && setupComplete) {
@@ -798,15 +780,7 @@ export default function ProfilePage() {
     if (!profileResponse.ok) {
       const profileJson = (await profileResponse.json().catch(() => null)) as { detail?: string; error?: string } | null;
       const errorMessage = profileJson?.detail ?? profileJson?.error ?? `HTTP ${profileResponse.status}`;
-      const isDuplicateUsername =
-        errorMessage.toLowerCase().includes("profiles_username_key") ||
-        errorMessage.toLowerCase().includes("duplicate key value");
-      if (profileResponse.status === 401 || profileResponse.status === 502) {
-        window.localStorage.setItem(PROFILE_USERNAME_KEY, username);
-        saveLocalCache({ profile: { ...profile, username, full_name: fullName, email: profile.email ?? null }, playStyle, weekConfig, weeklyGoalSessions, bodyMetrics });
-        return true;
-      }
-      if (isDuplicateUsername) {
+      if (profileResponse.status === 409 || profileJson?.error === "username_taken") {
         showProfileFeedback("Username bereits vergeben. Bitte wähle einen anderen Username.", "error");
         return false;
       }

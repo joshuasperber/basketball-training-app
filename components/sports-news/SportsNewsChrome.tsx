@@ -23,12 +23,14 @@ export function SportsNewsSegmentNav({ trailing }: { trailing?: ReactNode }) {
       <nav className="top-tabs flex min-w-0 flex-1" aria-label="NBA Sports Hub">
         <Link
           href="/sports-news"
+          prefetch={true}
           className={`top-tabs__btn flex-1 text-center ${hubActive ? "top-tabs__btn--active" : ""}`}
         >
           Ergebnisse
         </Link>
         <Link
           href="/sports-news/upcoming"
+          prefetch={true}
           className={`top-tabs__btn flex-1 text-center ${upcomingActive ? "top-tabs__btn--active" : ""}`}
         >
           Kommende

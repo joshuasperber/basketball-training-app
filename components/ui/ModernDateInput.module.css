@@ -109,8 +109,6 @@
 .calendar {
   width: 100%;
   margin: 0;
-  --rdp-animation_duration: 0.18s;
-  --rdp-animation_timing: ease-out;
 }
 
 .months,

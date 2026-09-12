@@ -70,6 +70,21 @@ async function fetchAuthUser(accessToken: string): Promise<{ id: string; email: 
   }
 }
 
+/** Validates only the access token and never rotates the refresh token. */
+export async function validateAccessToken(
+  accessToken: string,
+  refreshToken: string,
+): Promise<ValidatedSession | null> {
+  const user = await fetchAuthUser(accessToken);
+  if (!user) return null;
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_in: 3600,
+    user,
+  };
+}
+
 async function refreshSupabaseSession(refreshToken: string): Promise<SupabaseSession | null> {
   if (!supabaseUrl || !supabaseAnonKey) return null;
 
@@ -103,15 +118,8 @@ export async function validateSessionTokens(
   accessToken: string,
   refreshToken: string,
 ): Promise<ValidatedSession | null> {
-  const directUser = await fetchAuthUser(accessToken);
-  if (directUser) {
-    return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      expires_in: 3600,
-      user: directUser,
-    };
-  }
+  const directSession = await validateAccessToken(accessToken, refreshToken);
+  if (directSession) return directSession;
 
   const refreshed = await refreshSupabaseSession(refreshToken);
   if (!refreshed) return null;

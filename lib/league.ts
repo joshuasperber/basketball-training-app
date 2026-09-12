@@ -6,6 +6,7 @@ import { findGameStatByDateAndContext, findGameStatByLeagueGameId, upsertGameSta
 export const LEAGUE_STORAGE_KEY = "bt.league.v1";
 export const LEAGUE_UPDATED_EVENT = "bt:league-updated";
 export const LEAGUE_OWN_TEAM_ID = "league-own-team";
+export const LEAGUE_DEFAULT_ID = "league-default";
 
 export type LeagueGameKind = "game" | "game_training";
 export type LeagueGameStatus = "scheduled" | "live" | "postponed" | "cancelled" | "final";
@@ -35,8 +36,19 @@ export type LeagueLiveState = {
   events: LeagueLiveEvent[];
 };
 
+export type LeagueDefinition = {
+  id: string;
+  name: string;
+  region?: string;
+  level?: string;
+  notes?: string;
+  createdAt: string;
+};
+
 export type LeagueSeason = {
   id: string;
+  /** Optional for legacy in-memory fixtures; persisted data is normalized. */
+  leagueId?: string;
   name: string;
   startDate?: string;
   endDate?: string;
@@ -47,6 +59,8 @@ export type LeagueSeason = {
 export type LeagueOwnTeam = {
   id: string;
   name: string;
+  /** Team-ID from the cloud-backed Team area. */
+  sourceTeamId?: string;
   bestPlayerIds: string[];
 };
 
@@ -114,7 +128,9 @@ export type LeagueScheduleEntry = {
 };
 
 export type LeagueBundle = {
+  activeLeagueId: string | null;
   activeSeasonId: string | null;
+  leagues: LeagueDefinition[];
   seasons: LeagueSeason[];
   ownTeam: LeagueOwnTeam;
   opponents: LeagueOpponent[];
@@ -162,7 +178,9 @@ export type LeaguePlayerSeasonSummary = {
 
 export function createEmptyLeagueBundle(): LeagueBundle {
   return {
+    activeLeagueId: null,
     activeSeasonId: null,
+    leagues: [],
     seasons: [],
     ownTeam: { id: LEAGUE_OWN_TEAM_ID, name: "Mein Team", bestPlayerIds: [] },
     opponents: [],
@@ -252,6 +270,7 @@ export function normalizeLeagueBundle(value: unknown): LeagueBundle {
         name: typeof parsed.ownTeam.name === "string" && parsed.ownTeam.name.trim()
           ? parsed.ownTeam.name
           : empty.ownTeam.name,
+        sourceTeamId: typeof parsed.ownTeam.sourceTeamId === "string" ? parsed.ownTeam.sourceTeamId : undefined,
         bestPlayerIds: stringArray(parsed.ownTeam.bestPlayerIds),
       }
     : empty.ownTeam;
@@ -280,9 +299,49 @@ export function normalizeLeagueBundle(value: unknown): LeagueBundle {
         };
       })
     : [];
+  const rawSeasons = Array.isArray(parsed.seasons)
+    ? parsed.seasons.filter((season): season is LeagueSeason => Boolean(
+        season && typeof season === "object" && typeof season.id === "string" && typeof season.name === "string",
+      ))
+    : [];
+  const rawLeagues = Array.isArray(parsed.leagues)
+    ? parsed.leagues.filter((league): league is LeagueDefinition => Boolean(
+        league && typeof league === "object" && typeof league.id === "string" && typeof league.name === "string",
+      ))
+    : [];
+  const needsDefaultLeague = rawSeasons.some((season) => !season.leagueId) || (rawSeasons.length > 0 && rawLeagues.length === 0);
+  const leagues: LeagueDefinition[] = [
+    ...rawLeagues.map((league) => ({
+      id: league.id,
+      name: league.name.trim() || "Unbenannte Liga",
+      region: typeof league.region === "string" ? league.region : undefined,
+      level: typeof league.level === "string" ? league.level : undefined,
+      notes: typeof league.notes === "string" ? league.notes : undefined,
+      createdAt: typeof league.createdAt === "string" ? league.createdAt : new Date(0).toISOString(),
+    })),
+    ...(needsDefaultLeague && !rawLeagues.some((league) => league.id === LEAGUE_DEFAULT_ID)
+      ? [{ id: LEAGUE_DEFAULT_ID, name: "Meine Liga", createdAt: new Date(0).toISOString() }]
+      : []),
+  ];
+  const leagueIds = new Set(leagues.map((league) => league.id));
+  const fallbackLeagueId = leagues[0]?.id;
+  const seasons = rawSeasons.map((season) => ({
+    ...season,
+    leagueId: season.leagueId && leagueIds.has(season.leagueId) ? season.leagueId : fallbackLeagueId,
+  }));
+  const requestedSeasonId = typeof parsed.activeSeasonId === "string" ? parsed.activeSeasonId : null;
+  const requestedLeagueId = typeof parsed.activeLeagueId === "string" && leagueIds.has(parsed.activeLeagueId)
+    ? parsed.activeLeagueId
+    : seasons.find((season) => season.id === requestedSeasonId)?.leagueId ?? fallbackLeagueId ?? null;
+  const activeSeasonId = seasons.some((season) => season.id === requestedSeasonId && season.leagueId === requestedLeagueId)
+    ? requestedSeasonId
+    : seasons.find((season) => season.leagueId === requestedLeagueId)?.id ?? null;
+
   return {
-    activeSeasonId: typeof parsed.activeSeasonId === "string" ? parsed.activeSeasonId : null,
-    seasons: Array.isArray(parsed.seasons) ? parsed.seasons : [],
+    activeLeagueId: requestedLeagueId,
+    activeSeasonId,
+    leagues,
+    seasons,
     ownTeam,
     opponents,
     players: Array.isArray(parsed.players) ? parsed.players : [],
@@ -316,8 +375,28 @@ export function createId(prefix: string) {
 }
 
 export function getActiveSeason(bundle: LeagueBundle): LeagueSeason | null {
-  if (!bundle.activeSeasonId) return bundle.seasons[0] ?? null;
-  return bundle.seasons.find((season) => season.id === bundle.activeSeasonId) ?? bundle.seasons[0] ?? null;
+  const leagueId = getActiveLeague(bundle)?.id;
+  const seasons = leagueId ? seasonsForLeague(bundle, leagueId) : bundle.seasons;
+  if (!bundle.activeSeasonId) return seasons[0] ?? null;
+  return seasons.find((season) => season.id === bundle.activeSeasonId) ?? seasons[0] ?? null;
+}
+
+export function getActiveLeague(bundle: LeagueBundle): LeagueDefinition | null {
+  if (!bundle.activeLeagueId) return bundle.leagues[0] ?? null;
+  return bundle.leagues.find((league) => league.id === bundle.activeLeagueId) ?? bundle.leagues[0] ?? null;
+}
+
+export function seasonsForLeague(bundle: LeagueBundle, leagueId: string) {
+  return bundle.seasons
+    .filter((season) => season.leagueId === leagueId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export function connectLeagueOwnTeam(bundle: LeagueBundle, team: { id: string; name: string } | null): LeagueBundle {
+  if (!team) return { ...bundle, ownTeam: { ...bundle.ownTeam, sourceTeamId: undefined } };
+  const name = team.name.trim();
+  if (!name) return bundle;
+  return { ...bundle, ownTeam: { ...bundle.ownTeam, sourceTeamId: team.id, name } };
 }
 
 export function opponentsForSeason(bundle: LeagueBundle, seasonId: string) {

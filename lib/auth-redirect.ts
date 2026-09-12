@@ -12,7 +12,7 @@ export function buildPasswordResetRedirectUrl(email?: string) {
 /** @deprecated Nur noch für Signup/E-Mail-Bestätigung — Reset nutzt buildPasswordResetRedirectUrl. */
 export function buildAuthConfirmUrl(nextPath = "/dashboard", email?: string) {
   if (typeof window === "undefined") return undefined;
-  const next = nextPath.startsWith("/") ? nextPath : "/dashboard";
+  const next = safeInternalPath(nextPath);
   const url = new URL(`${window.location.origin}/auth/confirm`);
   url.searchParams.set("next", next);
   const normalizedEmail = email?.trim().toLowerCase();
@@ -25,3 +25,4 @@ export function buildAuthConfirmUrl(nextPath = "/dashboard", email?: string) {
 export function buildPasswordResetConfirmUrl(email?: string) {
   return buildPasswordResetRedirectUrl(email);
 }
+import { safeInternalPath } from "@/lib/safe-redirect";

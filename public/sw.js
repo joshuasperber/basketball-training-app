@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v11";
+const CACHE_NAME = "bt-app-cache-v12";
 
 const INSTALL_SHELL = [
   "/manifest.webmanifest",
@@ -22,7 +22,6 @@ const WARM_ROUTES = [
   "/level",
   "/liga",
   "/review",
-  "/create-exercise",
 ];
 
 /** @type {Map<string, ReturnType<typeof setTimeout>>} */
@@ -78,6 +77,7 @@ function isStaticAsset(pathname) {
 
 function isRedirectResponse(response) {
   if (!response) return false;
+  if (response.redirected) return true;
   if (response.type === "opaqueredirect") return true;
   return response.status >= 300 && response.status < 400;
 }
@@ -235,7 +235,9 @@ async function warmPath(cache, path) {
   try {
     const docRequest = new Request(path, { credentials: "include" });
     const docResponse = await fetch(docRequest);
-    if (isHtmlResponse(docResponse)) await cache.put(docRequest, docResponse.clone());
+    if (!isRedirectResponse(docResponse) && isHtmlResponse(docResponse) && !isAuthPath(new URL(docResponse.url).pathname)) {
+      await cache.put(docRequest, docResponse.clone());
+    }
 
     const rscRequest = new Request(path, {
       credentials: "include",
@@ -246,7 +248,12 @@ async function warmPath(cache, path) {
       },
     });
     const rscResponse = await fetch(rscRequest);
-    if (isCacheableResponse(rscResponse)) await cache.put(rscRequest, rscResponse.clone());
+    if (
+      isCacheableResponse(rscResponse) &&
+      !isAuthPath(new URL(rscResponse.url).pathname)
+    ) {
+      await cache.put(rscRequest, rscResponse.clone());
+    }
   } catch {
     /* offline during warm */
   }
@@ -262,6 +269,20 @@ async function warmRoutesFromClient(extraPaths = []) {
     seen.add(key);
     await warmPath(cache, path);
   }
+}
+
+async function clearUserCacheEntries() {
+  const cache = await caches.open(CACHE_NAME);
+  const requests = await cache.keys();
+  await Promise.all(
+    requests.map((request) => {
+      const pathname = new URL(request.url).pathname;
+      const isUserRoute = WARM_ROUTES.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+      );
+      return isUserRoute ? cache.delete(request) : Promise.resolve(false);
+    }),
+  );
 }
 
 self.addEventListener("install", (event) => {
@@ -324,6 +345,12 @@ self.addEventListener("message", (event) => {
 
   if (data.type === "clear-reminders") {
     clearPendingReminders();
+    return;
+  }
+
+  if (data.type === "clear-user-data") {
+    clearPendingReminders();
+    event.waitUntil(clearUserCacheEntries());
     return;
   }
 

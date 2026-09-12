@@ -1,9 +1,6 @@
 import type { NextRequest } from "next/server";
-import { refreshSessionFromRequest, validateSessionTokens } from "@/lib/server/session-cookies";
+import { validateAccessToken } from "@/lib/server/session-cookies";
 import { normalizeSupabaseProjectUrl } from "@/lib/supabase-env";
-
-const supabaseUrl = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export type AuthedUser = { id: string; email: string };
 
@@ -12,34 +9,13 @@ export async function getRequestUser(request: NextRequest): Promise<AuthedUser |
   const accessToken = request.cookies.get("sb-access-token")?.value;
   const refreshToken = request.cookies.get("sb-refresh-token")?.value;
 
-  if (accessToken && refreshToken) {
-    const validated = await validateSessionTokens(accessToken, refreshToken);
+  if (accessToken) {
+    const validated = await validateAccessToken(accessToken, refreshToken ?? "");
     if (validated) {
       return { id: validated.user.id, email: validated.user.email };
     }
   }
-
-  const refreshed = await refreshSessionFromRequest(request);
-  if (refreshed) {
-    return { id: refreshed.user.id, email: refreshed.user.email };
-  }
-
-  if (!accessToken || !supabaseUrl || !supabaseAnonKey) return null;
-
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) return null;
-  const user = (await response.json()) as { id?: string; email?: string };
-  const id = user.id?.trim();
-  const email = user.email?.trim().toLowerCase();
-  if (!id || !email) return null;
-  return { id, email };
+  return null;
 }
 
 export function getSupabaseServiceConfig() {
@@ -73,6 +49,9 @@ export async function supabaseRest<T>(
   const config = getSupabaseServiceConfig();
   if (!config) {
     return { ok: false, status: 503, data: null, error: "SUPABASE_SERVICE_ROLE_KEY fehlt" };
+  }
+  if (!path || path.startsWith("/") || path.includes("#") || path.includes("\\") || /[\r\n]/.test(path)) {
+    return { ok: false, status: 400, data: null, error: "invalid_rest_path" };
   }
 
   const headers: Record<string, string> = {

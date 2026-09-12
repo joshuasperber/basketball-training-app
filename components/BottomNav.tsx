@@ -8,6 +8,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
+import { isProtectedAppPath } from "@/lib/app-routes";
 
 type NavItem = {
   labelKey: MessageKey;
@@ -87,8 +88,10 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
   // Der erste Client-Render muss exakt dem serverseitigen Cookie-Snapshot entsprechen.
   const [isAuthenticated, setIsAuthenticated] = useState(initialAuthenticated);
   const [offline, setOffline] = useState(false);
+  const shouldResolveAuth = initialAuthenticated || isProtectedAppPath(pathname);
 
   useEffect(() => {
+    if (!shouldResolveAuth) return;
     const syncOffline = () => {
       const nextOffline = !navigator.onLine;
       setOffline(nextOffline);
@@ -101,9 +104,10 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
       window.removeEventListener("online", syncOffline);
       window.removeEventListener("offline", syncOffline);
     };
-  }, []);
+  }, [shouldResolveAuth]);
 
   useEffect(() => {
+    if (!shouldResolveAuth) return;
     let cancelled = false;
 
     const refreshAuth = () => {
@@ -128,9 +132,9 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
       cancelled = true;
       window.removeEventListener("online", refreshAuth);
     };
-  }, [initialAuthenticated]);
+  }, [initialAuthenticated, shouldResolveAuth]);
 
-  if (pathname.startsWith("/login")) return null;
+  if (pathname.startsWith("/login") || (!shouldResolveAuth && !isAuthenticated)) return null;
 
   return (
     <nav className="bottom-nav" aria-label={t("nav.aria")}>
@@ -149,6 +153,7 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
             <Link
               key={item.href}
               href={isLocked ? "/login?next=" + encodeURIComponent(item.href) : item.href}
+              prefetch={true}
               title={label}
               aria-label={label}
               aria-disabled={isLocked}

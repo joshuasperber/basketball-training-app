@@ -11,6 +11,8 @@ import { hasOfflineSessionHint } from "@/lib/offline-session";
 import { createClient } from "@/lib/supabase";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { useRouter } from "next/navigation";
+import { safeInternalPath } from "@/lib/safe-redirect";
+import { isValidEmailAddress } from "@/lib/auth-validation";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
@@ -84,7 +86,7 @@ export default function LoginPage() {
         setMessage(t("login.signInToContinue"));
       }
       const next = params.get("next");
-      setNextPath(next && next.startsWith("/") ? next : null);
+      setNextPath(next ? safeInternalPath(next) : null);
       const savedEmail = window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY);
       if (savedEmail) setEmail(savedEmail);
     }, 0);
@@ -135,6 +137,25 @@ export default function LoginPage() {
         body: JSON.stringify({ email: trimmedEmail, password }),
       });
 
+      if (!response.ok) {
+        const authError = (await response.clone().json().catch(() => null)) as { error?: string } | null;
+        if (authError?.error === "email_not_confirmed") {
+          const resend = await supabase.auth.resendSignupConfirmation({ email: trimmedEmail });
+          setMode("otp");
+          setVerificationType("signup");
+          setCodeSent(true);
+          setAccountJustCreated(false);
+          setOtpCode("");
+          setMessage(
+            resend.error
+              ? "Deine E-Mail-Adresse ist noch nicht bestätigt. Fordere über „Code erneut senden“ einen neuen Code an."
+              : "Deine E-Mail-Adresse ist noch nicht bestätigt. Ein neuer Bestätigungscode wurde gesendet.",
+          );
+          setLoading(false);
+          return;
+        }
+      }
+
       setBusyLabel(t("login.busyLoadingData"));
       setBusySublabel(t("login.busySyncing"));
 
@@ -163,6 +184,11 @@ export default function LoginPage() {
     setMessage(null);
 
     const trimmedEmail = email.trim();
+    if (!isValidEmailAddress(trimmedEmail)) {
+      setMessage("Bitte gib eine gültige E-Mail-Adresse ein.");
+      setLoading(false);
+      return;
+    }
     if (!acceptedLegal) {
       setMessage(t("login.legalRequired"));
       setLoading(false);
@@ -239,21 +265,25 @@ export default function LoginPage() {
       return;
     }
 
-    window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmed);
+    try {
+      window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmed);
+      const { error } = await supabase.auth.resetPasswordForEmail({
+        email: trimmed,
+        redirectTo: buildPasswordResetConfirmUrl(trimmed),
+      });
 
-    const { error } = await supabase.auth.resetPasswordForEmail({
-      email: trimmed,
-      redirectTo: buildPasswordResetConfirmUrl(trimmed),
-    });
-
-    if (error) {
-      setMessage(friendlyAuthErrorMessage(error.message, "signin"));
-    } else {
-      setMessage(
-        "Falls ein Konto mit dieser E-Mail existiert, wurde ein Reset-Link gesendet — prüfe Posteingang und Spam (max. ca. 2–4 Mails/Stunde).",
-      );
+      if (error) {
+        setMessage(friendlyAuthErrorMessage(error.message, "signin"));
+      } else {
+        setMessage(
+          "Falls ein Konto mit dieser E-Mail existiert, wurde ein Reset-Link gesendet — prüfe Posteingang und Spam (max. ca. 2–4 Mails/Stunde).",
+        );
+      }
+    } catch {
+      setMessage("Reset-Link konnte nicht gesendet werden. Bitte prüfe deine Verbindung und versuche es erneut.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const sendCode = async (event: SyntheticEvent<HTMLFormElement>) => {
@@ -269,24 +299,28 @@ export default function LoginPage() {
       return;
     }
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: undefined },
-    });
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: undefined },
+      });
 
-    if (error) {
-      const friendly = error.message.toLowerCase().includes("rate limit")
-        ? `Zu viele Versuche. ${RATE_LIMIT_HINT}`
-        : error.message;
-      setMessage(friendly);
-    } else {
-      setVerificationType("email");
-      setAccountJustCreated(false);
-      setCodeSent(true);
-      setMessage("Code wurde gesendet. Bitte gib den 8-stelligen Bestätigungscode aus der E-Mail ein.");
+      if (error) {
+        const friendly = error.message.toLowerCase().includes("rate limit")
+          ? `Zu viele Versuche. ${RATE_LIMIT_HINT}`
+          : friendlyAuthErrorMessage(error.message, "otp");
+        setMessage(friendly);
+      } else {
+        setVerificationType("email");
+        setAccountJustCreated(false);
+        setCodeSent(true);
+        setMessage("Code wurde gesendet. Bitte gib den Bestätigungscode aus der E-Mail ein.");
+      }
+    } catch {
+      setMessage("Code konnte nicht gesendet werden. Bitte prüfe deine Verbindung und versuche es erneut.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const verifyCode = async (event: SyntheticEvent<HTMLFormElement>) => {
@@ -327,11 +361,16 @@ export default function LoginPage() {
   const resendCode = async () => {
     setLoading(true);
     setMessage(null);
-    const { error } = verificationType === "signup"
-      ? await supabase.auth.resendSignupConfirmation({ email: email.trim() })
-      : await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: undefined } });
-    setMessage(error ? friendlyAuthErrorMessage(error.message, "signup") : "Ein neuer Code wurde gesendet. Bitte prüfe auch deinen Spam-Ordner.");
-    setLoading(false);
+    try {
+      const { error } = verificationType === "signup"
+        ? await supabase.auth.resendSignupConfirmation({ email: email.trim() })
+        : await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: undefined } });
+      setMessage(error ? friendlyAuthErrorMessage(error.message, "signup") : "Ein neuer Code wurde gesendet. Bitte prüfe auch deinen Spam-Ordner.");
+    } catch {
+      setMessage("Code konnte nicht erneut gesendet werden. Bitte prüfe deine Verbindung.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -419,7 +458,7 @@ export default function LoginPage() {
                   type="button"
                   disabled={loading || Boolean(configError) || !email.trim()}
                   onClick={() => void requestPasswordReset()}
-                  className="text-xs text-[var(--brand-400)] hover:underline disabled:opacity-50"
+                  className="text-link text-xs hover:underline disabled:opacity-50"
                 >
                   {t("login.forgotPassword")}
                 </button>
@@ -448,11 +487,11 @@ export default function LoginPage() {
               <span>
                 {t("login.legalCheckbox")}{" "}
                 (
-                <Link href="/nutzungsbedingungen" className="text-[var(--brand-400)] underline">
+                <Link href="/nutzungsbedingungen" className="text-link underline">
                   {t("login.terms")}
                 </Link>
                 {" / "}
-                <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
+                <Link href="/datenschutz" className="text-link underline">
                   {t("login.privacy")}
                 </Link>
                 )
@@ -493,11 +532,11 @@ export default function LoginPage() {
               <span>
                 {t("login.legalCheckboxOtp")}{" "}
                 (
-                <Link href="/nutzungsbedingungen" className="text-[var(--brand-400)] underline">
+                <Link href="/nutzungsbedingungen" className="text-link underline">
                   {t("login.terms")}
                 </Link>
                 {" / "}
-                <Link href="/datenschutz" className="text-[var(--brand-400)] underline">
+                <Link href="/datenschutz" className="text-link underline">
                   {t("login.privacy")}
                 </Link>
                 )
@@ -533,7 +572,7 @@ export default function LoginPage() {
                 required
                 className="input text-center text-lg font-semibold tracking-[0.4em]"
                 maxLength={8}
-                placeholder="12345678"
+                placeholder="123456 oder 12345678"
               />
             </div>
             <button

@@ -677,7 +677,7 @@ export default function WeeklyWorkoutPage() {
   const t = useT();
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
   const [todayIndex, setTodayIndex] = useState<(typeof weekdayOrder)[number]>(
-    () => new Date().getDay() as (typeof weekdayOrder)[number],
+    1,
   );
 
   useEffect(() => {

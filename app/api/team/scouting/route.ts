@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, supabaseRest } from "@/lib/server/supabase-admin";
 import { normalizeOpponentStyles, type OpponentStyleTag } from "@/lib/opponent-styles";
+import { isUuid, postgrestPath } from "@/lib/server/postgrest-query";
 
 type MemberRow = { role: string };
 type ScoutingRow = { id: string; opponent_name: string };
@@ -22,12 +23,17 @@ export async function POST(request: NextRequest) {
 
   const teamId = body?.teamId?.trim();
   const opponentName = body?.opponentName?.trim();
-  if (!teamId || !opponentName) {
+  if (!isUuid(teamId) || !opponentName) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
   }
 
   const membership = await supabaseRest<MemberRow[]>(
-    `team_members?team_id=eq.${teamId}&user_id=eq.${user.id}&select=role&limit=1`,
+    postgrestPath("team_members", {
+      team_id: `eq.${teamId}`,
+      user_id: `eq.${user.id}`,
+      select: "role",
+      limit: 1,
+    }),
   );
   const role = membership.data?.[0]?.role;
   if (!role || !["owner", "captain"].includes(role)) {
@@ -36,7 +42,10 @@ export async function POST(request: NextRequest) {
 
   const styles = normalizeOpponentStyles(body?.styles ?? []);
   const existing = await supabaseRest<ScoutingRow[]>(
-    `opponent_scouting?team_id=eq.${teamId}&select=id,opponent_name`,
+    postgrestPath("opponent_scouting", {
+      team_id: `eq.${teamId}`,
+      select: "id,opponent_name",
+    }),
   );
   if (!existing.ok) return NextResponse.json({ error: "save_failed" }, { status: 500 });
 
@@ -51,7 +60,7 @@ export async function POST(request: NextRequest) {
     updated_at: new Date().toISOString(),
   });
   const upsertRes = matching
-    ? await supabaseRest(`opponent_scouting?id=eq.${matching.id}`, {
+    ? await supabaseRest(postgrestPath("opponent_scouting", { id: `eq.${matching.id}` }), {
         method: "PATCH",
         prefer: "return=representation",
         body: payload,

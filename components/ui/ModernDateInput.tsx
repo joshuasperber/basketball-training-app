@@ -147,7 +147,6 @@ export default function ModernDateInput({
         endMonth={maxDate}
         showOutsideDays
         fixedWeeks
-        animate
         autoFocus
         classNames={{
           root: styles.calendar,

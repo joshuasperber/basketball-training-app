@@ -105,10 +105,13 @@ export default function WorkoutReminderSettings({ weekConfig }: { weekConfig: We
       <h2 className="section-title mt-1">Trainings-Erinnerung</h2>
       <p className="text-xs text-muted">
         An aktiven Tagen bekommst du eine Browser-Notification, sobald der Browser die App im Hintergrund ausführen darf. Details in der{" "}
-        <a href="/datenschutz" className="text-[var(--brand-400)] underline">
+        <a href="/datenschutz" className="text-link underline">
           Datenschutzerklärung
         </a>
         .
+      </p>
+      <p className="mt-1 text-[11px] text-faint">
+        Hinweis: Ohne Push-Dienst sind Erinnerungen nicht garantiert, wenn App und Browser vollständig geschlossen sind.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

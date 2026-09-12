@@ -54,6 +54,7 @@ async function runDirectChecks() {
     "team_members",
     "team_invites",
     "opponent_scouting",
+    "team_league_data",
   ];
 
   const issues = [];
@@ -78,6 +79,16 @@ async function runDirectChecks() {
     if (!result.ok) allOk = false;
   }
 
+  for (const table of required) {
+    const response = await fetch(`${supabaseUrl}/rest/v1/${table}?select=*&limit=1`, {
+      headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+    });
+    const data = await response.json().catch(() => null);
+    const protectedAndHealthy = response.ok && Array.isArray(data) && data.length === 0;
+    console.log(`${protectedAndHealthy ? "✅" : "❌"} RLS public.${table}: anonym geschützt (HTTP ${response.status})`);
+    allOk = allOk && protectedAndHealthy;
+  }
+
   const leagueColumnUrl = new URL(`${supabaseUrl}/rest/v1/user_progress`);
   leagueColumnUrl.searchParams.set("select", "league_data");
   leagueColumnUrl.searchParams.set("limit", "0");
@@ -95,15 +106,19 @@ async function runDirectChecks() {
   allOk = allOk && bucketRes.ok;
 
   if (!allOk) {
-    console.error("\n→ SQL in Supabase SQL Editor ausführen: supabase/launch-bootstrap.sql");
+    console.error("\n→ Fehlende versionierte SQL-Migrationen aus supabase/migrations deployen.");
     process.exit(1);
   }
   console.log("\n✅ Supabase Launch-Check bestanden.");
 }
 
 async function runRemoteCheck(baseUrl) {
+  const headers = process.env.HEALTHCHECK_TOKEN
+    ? { "x-healthcheck-token": process.env.HEALTHCHECK_TOKEN }
+    : undefined;
   const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/health/supabase`, {
     cache: "no-store",
+    headers,
   });
   const json = await response.json();
   for (const check of json.checks ?? []) {
