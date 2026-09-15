@@ -5,16 +5,20 @@ import { isUuid, postgrestPath } from "@/lib/server/postgrest-query";
 import type { TeamRole } from "@/lib/team-types";
 import {
   isOwnedTeamVideoPath,
+  isTeamMediaKind,
+  isTeamMediaMimeType,
   isTeamVideoCategory,
-  isTeamVideoMimeType,
+  maxBytesForMediaKind,
+  mimeTypeMatchesMediaKind,
+  normalizeTeamMediaLink,
   normalizeTeamVideoText,
   TEAM_VIDEO_BUCKET,
   TEAM_VIDEO_DESCRIPTION_MAX_LENGTH,
-  TEAM_VIDEO_MAX_BYTES,
   TEAM_VIDEO_TITLE_MAX_LENGTH,
   teamVideoExtension,
+  type TeamMediaKind,
+  type TeamMediaMimeType,
   type TeamVideoCategory,
-  type TeamVideoMimeType,
   type TeamVideoView,
 } from "@/lib/team-video";
 
@@ -32,14 +36,16 @@ type VideoRow = {
   title: string;
   description: string | null;
   category: TeamVideoCategory;
-  storage_path: string;
-  mime_type: TeamVideoMimeType;
-  file_size: number;
+  media_kind: TeamMediaKind | null;
+  storage_path: string | null;
+  link_url: string | null;
+  mime_type: TeamMediaMimeType | null;
+  file_size: number | null;
   duration_seconds: number | null;
   created_at: string;
 };
 
-const VIDEO_SELECT = "id,team_id,uploaded_by,uploader_name,title,description,category,storage_path,mime_type,file_size,duration_seconds,created_at";
+const VIDEO_SELECT = "id,team_id,uploaded_by,uploader_name,title,description,category,media_kind,storage_path,link_url,mime_type,file_size,duration_seconds,created_at";
 
 async function getMembership(teamId: string, userId: string): Promise<MemberRow | null> {
   const result = await supabaseRest<MemberRow[]>(postgrestPath("team_members", {
@@ -78,7 +84,8 @@ async function createSignedUploadUrl(path: string): Promise<string | null> {
   return data.url.startsWith("http") ? data.url : `${config.url}/storage/v1${data.url}`;
 }
 
-async function createSignedPlaybackUrl(path: string): Promise<string | null> {
+async function createSignedPlaybackUrl(path: string | null): Promise<string | null> {
+  if (!path) return null;
   const config = getSupabaseServiceConfig();
   if (!config) return null;
   const response = await fetch(
@@ -101,7 +108,8 @@ async function createSignedPlaybackUrl(path: string): Promise<string | null> {
   return relative.startsWith("http") ? relative : `${config.url}/storage/v1${relative}`;
 }
 
-async function deleteStoragePath(path: string): Promise<boolean> {
+async function deleteStoragePath(path: string | null): Promise<boolean> {
+  if (!path) return true;
   const config = getSupabaseServiceConfig();
   if (!config) return false;
   const response = await fetch(`${config.url}/storage/v1/object/${encodeURIComponent(TEAM_VIDEO_BUCKET)}`, {
@@ -126,7 +134,9 @@ function toView(row: VideoRow, signedUrl: string | null, userId: string, role: T
     title: row.title,
     description: row.description,
     category: row.category,
+    mediaKind: isTeamMediaKind(row.media_kind) ? row.media_kind : "video_upload",
     storagePath: row.storage_path,
+    linkUrl: row.link_url,
     mimeType: row.mime_type,
     fileSize: row.file_size,
     durationSeconds: row.duration_seconds,
@@ -172,18 +182,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const user = await getRequestUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  if (!getSupabaseServiceConfig()) return NextResponse.json({ error: "storage_unconfigured" }, { status: 503 });
 
   const body = (await request.json().catch(() => null)) as {
-    action?: "prepare" | "complete";
+    action?: "prepare" | "complete" | "link";
     teamId?: string;
     title?: string;
     description?: string;
     category?: string;
+    mediaKind?: string;
     mimeType?: string;
     fileSize?: number;
     durationSeconds?: number | null;
     storagePath?: string;
+    linkUrl?: string;
   } | null;
   const teamId = body?.teamId?.trim() ?? "";
   if (!isUuid(teamId)) return NextResponse.json({ error: "invalid_team" }, { status: 400 });
@@ -192,14 +203,55 @@ export async function POST(request: NextRequest) {
 
   const title = normalizeTeamVideoText(body?.title, TEAM_VIDEO_TITLE_MAX_LENGTH);
   const description = normalizeTeamVideoText(body?.description, TEAM_VIDEO_DESCRIPTION_MAX_LENGTH);
+  const mediaKind: TeamMediaKind = isTeamMediaKind(body?.mediaKind) ? body.mediaKind : "video_upload";
+  if (!title || !isTeamVideoCategory(body?.category)) {
+    return NextResponse.json({ error: "invalid_video" }, { status: 400 });
+  }
+
+  const insertBase = {
+    team_id: teamId,
+    uploaded_by: user.id,
+    uploader_name: normalizeTeamVideoText(membership.display_name, 80) || user.email.split("@")[0],
+    title,
+    description: description || null,
+    category: body.category,
+  };
+
+  if (mediaKind === "video_link") {
+    const link = normalizeTeamMediaLink(body?.linkUrl);
+    if (body?.action !== "link" || !link) return NextResponse.json({ error: "invalid_link" }, { status: 400 });
+    const inserted = await supabaseRest<VideoRow[]>("team_videos", {
+      method: "POST",
+      prefer: "return=representation",
+      body: JSON.stringify({
+        ...insertBase,
+        media_kind: mediaKind,
+        link_url: link.url,
+        storage_path: null,
+        mime_type: null,
+        file_size: null,
+        duration_seconds: null,
+      }),
+    });
+    const row = inserted.data?.[0];
+    if (!inserted.ok || !row) {
+      return NextResponse.json(
+        { error: schemaMissing(inserted.status, inserted.error) ? "schema_missing" : "save_failed" },
+        { status: schemaMissing(inserted.status, inserted.error) ? 503 : 502 },
+      );
+    }
+    return NextResponse.json({ video: toView(row, null, user.id, membership.role) });
+  }
+
+  if (!getSupabaseServiceConfig()) return NextResponse.json({ error: "storage_unconfigured" }, { status: 503 });
+
   const fileSize = Number(body?.fileSize);
   if (
-    !title
-    || !isTeamVideoCategory(body?.category)
-    || !isTeamVideoMimeType(body?.mimeType)
+    !isTeamMediaMimeType(body?.mimeType)
+    || !mimeTypeMatchesMediaKind(body.mimeType, mediaKind)
     || !Number.isInteger(fileSize)
     || fileSize <= 0
-    || fileSize > TEAM_VIDEO_MAX_BYTES
+    || fileSize > maxBytesForMediaKind(mediaKind)
   ) {
     return NextResponse.json({ error: "invalid_video" }, { status: 400 });
   }
@@ -216,20 +268,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_upload" }, { status: 400 });
   }
 
-  const durationSeconds = Number.isFinite(body.durationSeconds)
-    ? Math.max(0, Math.round(Number(body.durationSeconds)))
-    : null;
+  const durationSeconds = mediaKind === "image" || !Number.isFinite(body.durationSeconds)
+    ? null
+    : Math.max(0, Math.round(Number(body.durationSeconds)));
   const inserted = await supabaseRest<VideoRow[]>("team_videos", {
     method: "POST",
     prefer: "return=representation",
     body: JSON.stringify({
-      team_id: teamId,
-      uploaded_by: user.id,
-      uploader_name: normalizeTeamVideoText(membership.display_name, 80) || user.email.split("@")[0],
-      title,
-      description: description || null,
-      category: body.category,
+      ...insertBase,
+      media_kind: mediaKind,
       storage_path: storagePath,
+      link_url: null,
       mime_type: body.mimeType,
       file_size: fileSize,
       duration_seconds: durationSeconds,

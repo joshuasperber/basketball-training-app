@@ -1445,6 +1445,21 @@ button.team-opponent-card:hover {
   min-width: 13rem;
 }
 
+.team-video-kind .segmented {
+  width: 100%;
+}
+
+.team-video-kind .segmented__btn {
+  flex: 1;
+}
+
+.team-video-link-field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 0.2rem;
+}
+
 .team-video-category .segmented {
   width: 100%;
 }
@@ -1581,6 +1596,51 @@ button.team-opponent-card:hover {
   object-fit: contain;
 }
 
+.team-video-card__photo,
+.team-video-card__link {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.team-video-card__photo img,
+.team-video-card__link img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.team-video-card__photo img {
+  object-fit: contain;
+}
+
+.team-video-card__link {
+  position: relative;
+  background: #1f2937;
+}
+
+.team-video-card__link-badge {
+  position: absolute;
+  bottom: 0.7rem;
+  left: 0.7rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.82);
+  padding: 0.25rem 0.7rem;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  backdrop-filter: blur(8px);
+}
+
+.team-video-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .team-video-card__unavailable {
   display: grid;
   height: 100%;
@@ -1707,6 +1767,10 @@ button.team-opponent-card:hover {
 
   .team-video-library-header {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .team-video-filters {
     flex-direction: column;
   }
 
@@ -3381,6 +3445,45 @@ button.team-opponent-card:hover {
   padding: 1rem;
 }
 
+.league-export-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) auto;
+  align-items: end;
+  gap: 0.75rem 1rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.9rem;
+  background: var(--bg-muted);
+  padding: 0.8rem 0.9rem;
+}
+
+.league-export-bar__select {
+  display: grid;
+  min-width: 0;
+}
+
+.league-export-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.league-export-bar__hint {
+  grid-column: 1 / -1;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+@media (max-width: 639px) {
+  .league-export-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .league-export-bar__actions .btn {
+    flex: 1;
+  }
+}
+
 .league-history {
   overflow: hidden;
   border: 1px solid var(--surface-border);
@@ -3863,20 +3966,20 @@ button.team-opponent-card:hover {
 .readiness-check > div:first-child strong, .readiness-check > div:first-child small { display: block; }
 .readiness-check > div:first-child strong { color: var(--fg-strong); font-size: 0.82rem; }
 .readiness-check > div:first-child small { margin-top: 0.15rem; color: var(--fg-muted); font-size: 0.68rem; }
-.readiness-row { display: grid; grid-template-columns: 6.5rem 3.4rem minmax(13rem, 20rem) 3.4rem; align-items: center; gap: 0.5rem; margin-top: 0.75rem; }
-.readiness-row legend { float: left; width: 6.5rem; color: var(--fg-strong); font-size: 0.74rem; font-weight: 750; }
-.readiness-row > span { color: var(--fg-muted); font-size: 0.62rem; text-align: center; }
-.readiness-row > div { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.35rem; }
-.readiness-row button { display: grid; min-width: 2.5rem; min-height: 2.5rem; place-items: center; border: 1px solid var(--surface-border); border-radius: 0.7rem; background: var(--surface); color: var(--fg-default); font-size: 0.75rem; font-weight: 800; }
+.readiness-row { display: grid; grid-template-columns: 6.5rem minmax(2.75rem, auto) minmax(0, 18rem) minmax(2.75rem, auto); justify-content: start; align-items: center; gap: 0.5rem 0.65rem; margin-top: 0.75rem; }
+.readiness-row__label { color: var(--fg-strong); font-size: 0.74rem; font-weight: 750; }
+.readiness-row__hint { color: var(--fg-muted); font-size: 0.62rem; text-align: center; }
+.readiness-row__scale { display: grid; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem; }
+.readiness-row button { display: grid; width: 100%; min-height: 2.5rem; place-items: center; border: 1px solid var(--surface-border); border-radius: 0.7rem; background: var(--surface); color: var(--fg-default); font-size: 0.75rem; font-weight: 800; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease; }
+.readiness-row button:hover { border-color: rgba(255, 107, 0, 0.45); background: #fffaf6; }
+.readiness-row button:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
 .readiness-row button.is-active { border-color: var(--brand-500); background: #fff2e8; color: var(--brand-600); box-shadow: 0 0 0 2px rgba(255, 107, 0, 0.1); }
 
 @media (max-width: 639px) {
   .btn-xs { min-height: 2.5rem; }
   .dashboard-focus__main { align-items: stretch; flex-direction: column; }
-  .readiness-row { grid-template-columns: 1fr; gap: 0.3rem; }
-  .readiness-row legend { float: none; width: auto; }
-  .readiness-row > span { display: none; }
-  .readiness-row > div { width: 100%; }
+  .readiness-row { grid-template-columns: minmax(2.75rem, auto) minmax(0, 1fr) minmax(2.75rem, auto); gap: 0.35rem 0.5rem; }
+  .readiness-row__label { grid-column: 1 / -1; }
 }
 
 .signup-confirmation-banner {

@@ -62,6 +62,7 @@ import {
 } from "@/lib/league-calendar";
 import {
   applyLeagueScheduleCsv,
+  buildLeagueScheduleCsv,
   LEAGUE_CSV_TEMPLATE,
   parseLeagueScheduleCsv,
   type LeagueCsvImportPlan,
@@ -194,6 +195,7 @@ export default function LigaPage() {
   const [gameCenterId, setGameCenterId] = useState("");
   const [csvPreview, setCsvPreview] = useState<LeagueCsvImportPlan | null>(null);
   const [csvFileName, setCsvFileName] = useState("");
+  const [exportTeamId, setExportTeamId] = useState<string>(LEAGUE_OWN_TEAM_ID);
   const [teamAreaTeams, setTeamAreaTeams] = useState<TeamSummary[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [sharedLeagueCanEdit, setSharedLeagueCanEdit] = useState(false);
@@ -330,6 +332,16 @@ export default function LigaPage() {
   const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
   const ownTeamPlayers = useMemo(() => playersForTeam(bundle, LEAGUE_OWN_TEAM_ID), [bundle]);
   const ownSchedule = useMemo(() => schedule.filter(gameInvolvesOwnTeam), [schedule]);
+  const exportSchedule = useMemo(
+    () => exportTeamId === "all"
+      ? schedule
+      : schedule.filter((entry) => entry.homeTeamId === exportTeamId || entry.awayTeamId === exportTeamId),
+    [exportTeamId, schedule],
+  );
+  const exportTeamName = useMemo(
+    () => exportTeamId === "all" ? "Alle Teams" : teams.find((team) => team.id === exportTeamId)?.name ?? "Team",
+    [exportTeamId, teams],
+  );
   const gameCenterEntry = useMemo(() => {
     const selected = ownSchedule.find((entry) => entry.id === gameCenterId);
     if (selected) return selected;
@@ -352,6 +364,10 @@ export default function LigaPage() {
     () => bundle.opponents.filter((opponent) => !activeSeason || !opponent.seasonIds.includes(activeSeason.id)),
     [activeSeason, bundle.opponents],
   );
+
+  useEffect(() => {
+    if (exportTeamId !== "all" && !teams.some((team) => team.id === exportTeamId)) setExportTeamId(LEAGUE_OWN_TEAM_ID);
+  }, [exportTeamId, teams]);
 
   useEffect(() => {
     if (!teams.some((team) => team.id === playerTeamId)) setPlayerTeamId(teams[0]?.id ?? LEAGUE_OWN_TEAM_ID);
@@ -529,6 +545,79 @@ export default function LigaPage() {
       setMessage(`Liga „${name}“ angelegt.`);
     }
     resetLeagueForm();
+  }
+
+  /** Games of removed seasons must also disappear from the personal week plan. */
+  function detachSeasonGames(seasonIds: Set<string>) {
+    const affected = bundle.schedule.filter((game) => seasonIds.has(game.seasonId));
+    const affectedIds = new Set(affected.map((game) => game.id));
+    for (const game of affected) {
+      if (game.syncedAt) cleanupSyncedGame(game, affectedIds);
+    }
+    return affected;
+  }
+
+  function withoutSeasonReferences(next: LeagueBundle, seasonIds: Set<string>): LeagueBundle {
+    return {
+      ...next,
+      seasons: next.seasons.filter((season) => !seasonIds.has(season.id)),
+      schedule: next.schedule.filter((game) => !seasonIds.has(game.seasonId)),
+      opponents: next.opponents.map((opponent) => ({
+        ...opponent,
+        seasonId: opponent.seasonId && seasonIds.has(opponent.seasonId) ? undefined : opponent.seasonId,
+        seasonIds: opponent.seasonIds.filter((id) => !seasonIds.has(id)),
+      })),
+    };
+  }
+
+  async function deleteLeague(league: LeagueDefinition) {
+    const affectedSeasons = seasonsForLeague(bundle, league.id);
+    const seasonIds = new Set(affectedSeasons.map((season) => season.id));
+    const affectedGames = bundle.schedule.filter((game) => seasonIds.has(game.seasonId));
+    const confirmed = await appDialog.confirm({
+      message: `Liga „${league.name}“ mit ${affectedSeasons.length} Saison${affectedSeasons.length === 1 ? "" : "s"} und ${affectedGames.length} Spiel${affectedGames.length === 1 ? "" : "en"} löschen? Teams und Spieler bleiben erhalten.`,
+      confirmLabel: "Liga löschen",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    detachSeasonGames(seasonIds);
+    const cleaned = withoutSeasonReferences(bundle, seasonIds);
+    const remainingLeagues = cleaned.leagues.filter((entry) => entry.id !== league.id);
+    const nextLeagueId = bundle.activeLeagueId === league.id ? remainingLeagues[0]?.id ?? null : bundle.activeLeagueId;
+    const nextSeasonId = cleaned.seasons.find((season) => season.leagueId === nextLeagueId)?.id ?? null;
+    persist({
+      ...cleaned,
+      leagues: remainingLeagues,
+      activeLeagueId: nextLeagueId,
+      activeSeasonId: bundle.activeSeasonId && !seasonIds.has(bundle.activeSeasonId) && nextLeagueId === bundle.activeLeagueId
+        ? bundle.activeSeasonId
+        : nextSeasonId,
+    }, `Liga „${league.name}“ gelöscht`);
+    if (leagueEditId === league.id) resetLeagueForm();
+    resetSeasonForm();
+    setMessage(`Liga „${league.name}“ gelöscht.`);
+  }
+
+  async function deleteSeason(season: LeagueSeason) {
+    const affectedGames = bundle.schedule.filter((game) => game.seasonId === season.id);
+    const confirmed = await appDialog.confirm({
+      message: `Saison „${season.name}“ mit ${affectedGames.length} Spiel${affectedGames.length === 1 ? "" : "en"} löschen? Teams und Spieler bleiben erhalten.`,
+      confirmLabel: "Saison löschen",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    const seasonIds = new Set([season.id]);
+    detachSeasonGames(seasonIds);
+    const cleaned = withoutSeasonReferences(bundle, seasonIds);
+    const fallbackSeasonId = cleaned.seasons.find(
+      (entry) => entry.leagueId === (season.leagueId ?? bundle.activeLeagueId),
+    )?.id ?? null;
+    persist({
+      ...cleaned,
+      activeSeasonId: bundle.activeSeasonId === season.id ? fallbackSeasonId : bundle.activeSeasonId,
+    }, `Saison „${season.name}“ gelöscht`);
+    if (seasonEditId === season.id) resetSeasonForm();
+    setMessage(`Saison „${season.name}“ gelöscht.`);
   }
 
   function resetSeasonForm() {
@@ -1021,13 +1110,34 @@ export default function LigaPage() {
     setMessage(`${result.imported} Spiele importiert${result.createdOpponentNames.length ? ` · ${result.createdOpponentNames.length} neue Teams angelegt` : ""}${result.skippedLines.length ? ` · ${result.skippedLines.length} Dubletten übersprungen` : ""}.`);
   }
 
+  function exportFileName(extension: string) {
+    const slug = (value: string) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return [slug(activeSeason?.name ?? "saison") || "saison", slug(exportTeamName) || "team", `spielplan.${extension}`]
+      .join("-");
+  }
+
   function exportCalendar() {
-    if (!activeSeason || ownSchedule.length === 0) return setMessage("Keine eigenen Saisonspiele für den Kalender vorhanden.");
+    if (!activeSeason) return setMessage("Bitte zuerst eine Saison anlegen.");
+    if (exportSchedule.length === 0) return setMessage(`Keine Saisonspiele für „${exportTeamName}“ vorhanden.`);
     const resolveTeamName = (id: string | undefined) => teamById.get(id ?? "")?.name ?? "";
-    const content = buildLeagueCalendarIcs(ownSchedule, resolveTeamName);
-    const filename = `${activeSeason.name.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "saison"}-spielplan.ics`;
-    downloadLeagueCalendar(filename, content);
-    setMessage(`${ownSchedule.length} eigene Spiele als iCal exportiert.`);
+    const content = buildLeagueCalendarIcs(exportSchedule, resolveTeamName);
+    downloadLeagueCalendar(exportFileName("ics"), content);
+    setMessage(`${exportSchedule.length} Spiele von „${exportTeamName}“ als iCal exportiert.`);
+  }
+
+  function exportScheduleCsv() {
+    if (!activeSeason) return setMessage("Bitte zuerst eine Saison anlegen.");
+    if (exportSchedule.length === 0) return setMessage(`Keine Saisonspiele für „${exportTeamName}“ vorhanden.`);
+    const content = buildLeagueScheduleCsv(exportSchedule, (id) => teamById.get(id ?? "")?.name ?? "");
+    const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = exportFileName("csv");
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setMessage(`${exportSchedule.length} Spiele von „${exportTeamName}“ als CSV exportiert.`);
   }
 
   async function createCalendarSubscription() {
@@ -1078,13 +1188,6 @@ export default function LigaPage() {
         <TopSubTabs variant="team-liga" items={[{ labelKey: "tabs.team", href: "/team" }, { labelKey: "tabs.liga", href: "/liga" }]} />
       </div>
 
-      {message ? (
-        <div className="mt-3 app-card--accent-cyan flex items-center justify-between gap-2" role="status">
-          <p className="text-sm text-strong">{message}</p>
-          <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMessage(null)}>{t("common.close")}</button>
-        </div>
-      ) : null}
-
       <div className="segmented-wrap mt-4 overflow-x-auto">
         <div className="segmented min-w-max">
           {([
@@ -1098,6 +1201,13 @@ export default function LigaPage() {
           ))}
         </div>
       </div>
+
+      {message ? (
+        <div className="mt-3 app-card--accent-cyan flex items-center justify-between gap-2" role="status">
+          <p className="text-sm text-strong">{message}</p>
+          <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMessage(null)}>{t("common.close")}</button>
+        </div>
+      ) : null}
 
       <section className="league-context-bar mt-3" aria-label="Aktive Liga und Saison">
         <label className="league-context-bar__select">
@@ -1134,23 +1244,6 @@ export default function LigaPage() {
         </section>
       ) : null}
 
-      {bundle.ownTeam.sourceTeamId && sharedLeagueHistory.length > 0 ? (
-        <details className="league-history mt-3">
-          <summary>
-            <span>Änderungsverlauf</span>
-            <span className="chip">Version {sharedLeagueVersion}</span>
-          </summary>
-          <ol>
-            {[...sharedLeagueHistory].reverse().slice(0, 8).map((entry) => (
-              <li key={entry.id}>
-                <span>{entry.summary}</span>
-                <small>{entry.userLabel} · {formatLeagueHistoryDate(entry.at)}</small>
-              </li>
-            ))}
-          </ol>
-        </details>
-      ) : null}
-
       {tab === "season" ? (
         <section className="mt-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
@@ -1171,13 +1264,19 @@ export default function LigaPage() {
               <p className="section-eyebrow">Deine Ligen</p>
               <h2 className="section-title mt-1">Auswählen und bearbeiten</h2>
               {bundle.leagues.length === 0 ? <p className="mt-3 text-sm text-muted">Lege zuerst eine Liga an. Danach kannst du darin Saisons erstellen.</p> : (
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">{bundle.leagues.map((league) => {
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">{bundle.leagues.map((league) => {
                   const seasonCount = seasonsForLeague(bundle, league.id).length;
                   const selected = activeLeague?.id === league.id;
-                  return <button key={league.id} type="button" className={`league-select-card ${selected ? "league-select-card--active" : ""}`} onClick={() => { activateLeague(league.id); beginLeagueEdit(league); }}>
-                    <span><strong>{league.name}</strong><small>{[league.region, league.level].filter(Boolean).join(" · ") || "Keine Zusatzangaben"}</small></span>
-                    <span className={`chip ${selected ? "chip-active" : ""}`}>{seasonCount} Saison{seasonCount === 1 ? "" : "s"}</span>
-                  </button>;
+                  return <div key={league.id} className="grid gap-1.5">
+                    <button type="button" className={`league-select-card ${selected ? "league-select-card--active" : ""}`} onClick={() => { activateLeague(league.id); beginLeagueEdit(league); }}>
+                      <span><strong>{league.name}</strong><small>{[league.region, league.level].filter(Boolean).join(" · ") || "Keine Zusatzangaben"}</small></span>
+                      <span className={`chip ${selected ? "chip-active" : ""}`}>{seasonCount} Saison{seasonCount === 1 ? "" : "s"}</span>
+                    </button>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" className="btn btn-outline btn-xs" onClick={() => { activateLeague(league.id); beginLeagueEdit(league); }}>Bearbeiten</button>
+                      <button type="button" className="btn btn-danger-outline btn-xs" onClick={() => void deleteLeague(league)}>Liga löschen</button>
+                    </div>
+                  </div>;
                 })}</div>
               )}
             </div>
@@ -1212,17 +1311,42 @@ export default function LigaPage() {
               <p className="section-eyebrow">Saisons in {activeLeague.name}</p>
               <h2 className="section-title mt-1">Zum Öffnen anklicken</h2>
               {leagueSeasons.length === 0 ? <p className="mt-3 text-sm text-muted">Lege die erste Saison dieser Liga an.</p> : (
-                <div className="mt-3 space-y-2">{leagueSeasons.map((season) => {
+                <div className="mt-3 space-y-3">{leagueSeasons.map((season) => {
                   const selected = activeSeason?.id === season.id;
                   const count = teamsForSeason(bundle, season.id).length;
-                  return <button key={season.id} type="button" className={`league-season-card ${selected ? "league-season-card--active" : ""}`} onClick={() => beginSeasonEdit(season)}>
-                    <span><strong>{season.name}</strong><small>{season.startDate ? formatDateLabel(season.startDate) : "Start offen"} – {season.endDate ? formatDateLabel(season.endDate) : "Ende offen"}</small>{season.notes ? <small>{season.notes}</small> : null}</span>
-                    <span className={`chip ${selected ? "chip-active" : ""}`}>{count} Teams · {selected ? "Aktiv" : "Bearbeiten"}</span>
-                  </button>;
+                  const gameCount = bundle.schedule.filter((game) => game.seasonId === season.id).length;
+                  return <div key={season.id} className="grid gap-1.5">
+                    <button type="button" className={`league-season-card ${selected ? "league-season-card--active" : ""}`} onClick={() => beginSeasonEdit(season)}>
+                      <span><strong>{season.name}</strong><small>{season.startDate ? formatDateLabel(season.startDate) : "Start offen"} – {season.endDate ? formatDateLabel(season.endDate) : "Ende offen"}</small>{season.notes ? <small>{season.notes}</small> : null}</span>
+                      <span className={`chip ${selected ? "chip-active" : ""}`}>{count} Teams · {selected ? "Aktiv" : "Bearbeiten"}</span>
+                    </button>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" className="btn btn-outline btn-xs" onClick={() => beginSeasonEdit(season)}>Bearbeiten</button>
+                      <button type="button" className="btn btn-danger-outline btn-xs" onClick={() => void deleteSeason(season)}>Saison löschen</button>
+                      <span className="text-xs text-faint">{gameCount} Spiel{gameCount === 1 ? "" : "e"}</span>
+                    </div>
+                  </div>;
                 })}</div>
               )}
             </div>
           </div> : <div className="app-card"><p className="text-sm text-muted">Lege eine Liga an, um eine Saison zu erstellen.</p></div>}
+
+          {bundle.ownTeam.sourceTeamId && sharedLeagueHistory.length > 0 ? (
+            <details className="league-history">
+              <summary>
+                <span>Änderungsverlauf anzeigen</span>
+                <span className="chip">Version {sharedLeagueVersion}</span>
+              </summary>
+              <ol>
+                {[...sharedLeagueHistory].reverse().slice(0, 8).map((entry) => (
+                  <li key={entry.id}>
+                    <span>{entry.summary}</span>
+                    <small>{entry.userLabel} · {formatLeagueHistoryDate(entry.at)}</small>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          ) : null}
         </section>
       ) : null}
 
@@ -1403,7 +1527,22 @@ export default function LigaPage() {
           )}
 
           <div className="app-card">
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="section-eyebrow">Saison-Spielplan</p><h2 className="section-title mt-1">Chronologischer Spielplan</h2><p className="mt-1 text-xs text-muted">{schedule.length} Spiele · {schedule.filter(isCompletedLeagueGame).length} gültige Ergebnisse</p></div><div className="flex flex-wrap gap-2"><button type="button" className="btn btn-outline btn-sm" onClick={exportCalendar}>iCal exportieren</button><button type="button" className="btn btn-outline btn-sm" onClick={() => void createCalendarSubscription()}>Kalender abonnieren</button><button type="button" className="btn btn-outline btn-sm" onClick={handleSyncAllUpcoming}>Eigene anstehende → Wochenplan</button></div></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="section-eyebrow">Saison-Spielplan</p><h2 className="section-title mt-1">Chronologischer Spielplan</h2><p className="mt-1 text-xs text-muted">{schedule.length} Spiele · {schedule.filter(isCompletedLeagueGame).length} gültige Ergebnisse</p></div><div className="flex flex-wrap gap-2"><button type="button" className="btn btn-outline btn-sm" onClick={() => void createCalendarSubscription()}>Kalender abonnieren</button><button type="button" className="btn btn-outline btn-sm" onClick={handleSyncAllUpcoming}>Eigene anstehende → Wochenplan</button></div></div>
+            <div className="league-export-bar mt-3">
+              <label className="league-export-bar__select">
+                <span className="input-label">Spielplan exportieren für</span>
+                <select value={exportTeamId} onChange={(event) => setExportTeamId(event.target.value)} className="select app-modern-select mt-1">
+                  <option value={LEAGUE_OWN_TEAM_ID}>{bundle.ownTeam.name} (mein Team)</option>
+                  {teams.filter((team) => team.id !== LEAGUE_OWN_TEAM_ID).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                  <option value="all">Alle Teams der Saison</option>
+                </select>
+              </label>
+              <div className="league-export-bar__actions">
+                <button type="button" className="btn btn-outline btn-sm" disabled={exportSchedule.length === 0} onClick={exportCalendar}>iCal exportieren</button>
+                <button type="button" className="btn btn-outline btn-sm" disabled={exportSchedule.length === 0} onClick={exportScheduleCsv}>CSV exportieren</button>
+              </div>
+              <p className="league-export-bar__hint">{exportSchedule.length} Spiel{exportSchedule.length === 1 ? "" : "e"} in der Auswahl · {exportTeamName}</p>
+            </div>
             {calendarFeedUrl ? <div className="calendar-feed-panel mt-3"><div><strong>Automatisches Kalender-Abo</strong><p>Dieser private Link aktualisiert den Spielplan in Apple Kalender, Google Kalender und anderen Kalender-Apps.</p><code>{calendarFeedUrl}</code></div><div className="flex flex-wrap gap-2"><a href={calendarFeedUrl.replace(/^https:/, "webcal:")} className="btn btn-primary btn-sm">In Kalender öffnen</a><button type="button" className="btn btn-outline btn-sm" onClick={() => void navigator.clipboard.writeText(calendarFeedUrl).then(() => setMessage("Kalender-Link kopiert."))}>Link kopieren</button><button type="button" className="btn btn-danger-outline btn-sm" onClick={() => void revokeCalendarSubscription()}>Widerrufen</button></div></div> : null}
             {schedule.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Spiele geplant.</p> : (
               <div className="league-fixture-board mt-4">{scheduleDays.map((day) => {

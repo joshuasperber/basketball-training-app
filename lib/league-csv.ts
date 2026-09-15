@@ -202,3 +202,37 @@ export const LEAGUE_CSV_TEMPLATE = [
   "Datum;Spielzeit;Art;Heimteam;Auswärtsteam;Spielort;Adresse;Treffpunkt;Anfahrtszeit",
   "10.10.2026;18:00;Ligaspiel;Mein Team;City Falcons;Sporthalle Mitte;Musterstraße 1;16:45;35",
 ].join("\n");
+
+const CSV_EXPORT_HEADER = "Datum;Spielzeit;Art;Heimteam;Auswärtsteam;Spielort;Adresse;Treffpunkt;Anfahrtszeit;Ergebnis";
+
+function csvCell(value: string | number | null | undefined) {
+  const text = value == null ? "" : String(value);
+  return /[";\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function germanDate(dateKeyValue: string) {
+  const [year, month, day] = dateKeyValue.split("-");
+  return year && month && day ? `${day}.${month}.${year}` : dateKeyValue;
+}
+
+/** Same column layout as the import template, so an export can be re-imported. */
+export function buildLeagueScheduleCsv(
+  entries: LeagueScheduleEntry[],
+  resolveTeamName: (teamId: string | undefined) => string,
+): string {
+  const rows = [...entries]
+    .sort((left, right) => `${left.date}${left.startTime ?? ""}`.localeCompare(`${right.date}${right.startTime ?? ""}`))
+    .map((entry) => [
+      germanDate(entry.date),
+      entry.startTime ?? "",
+      entry.kind === "game_training" ? "Testspiel" : "Ligaspiel",
+      resolveTeamName(entry.homeTeamId),
+      resolveTeamName(entry.awayTeamId),
+      entry.venueName ?? "",
+      entry.venueAddress ?? "",
+      entry.meetingTime ?? "",
+      entry.travelMinutes ?? "",
+      entry.homeScore != null && entry.awayScore != null ? `${entry.homeScore}:${entry.awayScore}` : "",
+    ].map(csvCell).join(";"));
+  return [CSV_EXPORT_HEADER, ...rows].join("\n");
+}

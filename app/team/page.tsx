@@ -661,7 +661,7 @@ export default function TeamPage() {
                 </div>
               ) : null}
 
-              {viewerMember ? (
+              {tab === "overview" && viewerMember ? (
                 <section className="mt-4 app-card">
                   <p className="section-eyebrow">Datenschutz im Team</p>
                   <h2 className="section-title mt-1">Was Teammitglieder sehen</h2>

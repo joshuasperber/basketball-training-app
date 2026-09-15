@@ -95,7 +95,27 @@ export default function DashboardFocusCard({
       {editing ? (
         <div className="readiness-check mt-4">
           <div><strong>30-Sekunden-Check-in</strong><small>Nur ein kurzer Hinweis für deine Trainingssteuerung – keine medizinische Bewertung.</small></div>
-          {CHECKS.map((check) => <fieldset key={check.key} className="readiness-row"><legend>{check.label}</legend><span>{check.low}</span><div>{[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" className={entry?.[check.key] === value ? "is-active" : ""} aria-label={`${check.label} ${value} von 5`} aria-pressed={entry?.[check.key] === value} onClick={() => setScore(check.key, value)}>{value}</button>)}</div><span>{check.high}</span></fieldset>)}
+          {CHECKS.map((check) => (
+            <div key={check.key} className="readiness-row" role="group" aria-label={check.label}>
+              <span className="readiness-row__label">{check.label}</span>
+              <span className="readiness-row__hint">{check.low}</span>
+              <div className="readiness-row__scale">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={entry?.[check.key] === value ? "is-active" : ""}
+                    aria-label={`${check.label} ${value} von 5`}
+                    aria-pressed={entry?.[check.key] === value}
+                    onClick={() => setScore(check.key, value)}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+              <span className="readiness-row__hint">{check.high}</span>
+            </div>
+          ))}
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>Fertig</button>
         </div>
       ) : null}
