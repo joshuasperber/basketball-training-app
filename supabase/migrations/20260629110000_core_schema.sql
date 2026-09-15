@@ -23,6 +23,7 @@ create table if not exists public.user_progress (
   custom_subcategories text,
   workout_history text,
   reminder_prefs text,
+  readiness_history text,
   coach_weekly_note text,
   training_exercises text,
   training_workouts text,

@@ -62,6 +62,20 @@ export default function LoginPage() {
   const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [nextPath, setNextPath] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [otpTouched, setOtpTouched] = useState(false);
+  const [clientReady, setClientReady] = useState(false);
+
+  const emailFieldError = emailTouched && email.trim() && !isValidEmailAddress(email)
+    ? "Bitte prüfe das Format deiner E-Mail-Adresse."
+    : null;
+  const passwordFieldError = passwordTouched && password.length > 0 && password.length < 6
+    ? "Das Passwort muss mindestens 6 Zeichen lang sein."
+    : null;
+  const otpFieldError = otpTouched && otpCode.length > 0 && otpCode.length < 6
+    ? "Der Bestätigungscode besteht aus 6 oder 8 Ziffern."
+    : null;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -89,6 +103,7 @@ export default function LoginPage() {
       setNextPath(next ? safeInternalPath(next) : null);
       const savedEmail = window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY);
       if (savedEmail) setEmail(savedEmail);
+      setClientReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [router, t]);
@@ -127,6 +142,13 @@ export default function LoginPage() {
     setMessage(null);
 
     const trimmedEmail = email.trim();
+    setEmailTouched(true);
+    setPasswordTouched(true);
+    if (!isValidEmailAddress(trimmedEmail) || password.length < 6) {
+      setMessage("Bitte korrigiere die markierten Felder.");
+      setLoading(false);
+      return;
+    }
 
     try {
       window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmedEmail);
@@ -184,6 +206,8 @@ export default function LoginPage() {
     setMessage(null);
 
     const trimmedEmail = email.trim();
+    setEmailTouched(true);
+    setPasswordTouched(true);
     if (!isValidEmailAddress(trimmedEmail)) {
       setMessage("Bitte gib eine gültige E-Mail-Adresse ein.");
       setLoading(false);
@@ -201,6 +225,12 @@ export default function LoginPage() {
     }
 
     try {
+      setEmailTouched(true);
+      if (!isValidEmailAddress(email)) {
+        setMessage("Bitte gib eine gültige E-Mail-Adresse ein.");
+        setLoading(false);
+        return;
+      }
       window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, trimmedEmail);
       const response = await fetch("/api/auth/signup", {
         method: "POST",
@@ -257,10 +287,11 @@ export default function LoginPage() {
     setBusySublabel(t("login.busyMoment"));
     setLoading(true);
     setMessage(null);
+    setEmailTouched(true);
 
     const trimmed = email.trim();
-    if (!trimmed) {
-      setMessage("Bitte zuerst deine E-Mail-Adresse eingeben.");
+    if (!isValidEmailAddress(trimmed)) {
+      setMessage("Bitte zuerst eine gültige E-Mail-Adresse eingeben.");
       setLoading(false);
       return;
     }
@@ -292,7 +323,13 @@ export default function LoginPage() {
     setBusySublabel(t("login.busyCheckInbox"));
     setLoading(true);
     setMessage(null);
+    setEmailTouched(true);
 
+    if (!isValidEmailAddress(email)) {
+      setMessage("Bitte gib eine gültige E-Mail-Adresse ein.");
+      setLoading(false);
+      return;
+    }
     if (!acceptedLegal) {
       setMessage(t("login.legalRequired"));
       setLoading(false);
@@ -329,7 +366,13 @@ export default function LoginPage() {
     setBusySublabel(t("login.busyPreparing"));
     setLoading(true);
     setMessage(null);
+    setOtpTouched(true);
 
+    if (otpCode.length < 6) {
+      setMessage("Bitte gib den vollständigen Bestätigungscode ein.");
+      setLoading(false);
+      return;
+    }
     if (!acceptedLegal) {
       setMessage(t("login.legalRequired"));
       setLoading(false);
@@ -376,7 +419,7 @@ export default function LoginPage() {
   return (
     <>
       <AppBusyOverlay open={loading} label={busyLabel} sublabel={busySublabel} />
-    <main className="flex min-h-screen items-center justify-center px-4">
+    <main className="flex min-h-screen items-center justify-center px-4" data-client-ready={clientReady ? "true" : "false"}>
       <div className="w-full max-w-md app-card animate-in">
         <div className="flex items-center gap-3">
           <div className="avatar-bubble" aria-hidden>
@@ -443,11 +486,15 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                onBlur={() => setEmailTouched(true)}
                 required
-                className="input"
+                className={`input ${emailFieldError ? "input--error" : ""}`}
+                aria-invalid={Boolean(emailFieldError)}
+                aria-describedby={emailFieldError ? "login-email-error" : undefined}
                 placeholder={t("login.emailPlaceholder")}
                 autoComplete="email"
               />
+              {emailFieldError ? <p id="login-email-error" className="field-error" role="status">{emailFieldError}</p> : emailTouched && isValidEmailAddress(email) ? <p className="field-success">E-Mail-Adresse sieht gut aus.</p> : null}
             </div>
             <div>
               <div className="flex items-center justify-between gap-2">
@@ -468,11 +515,15 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                onBlur={() => setPasswordTouched(true)}
                 required
                 minLength={6}
-                className="input"
+                className={`input ${passwordFieldError ? "input--error" : ""}`}
+                aria-invalid={Boolean(passwordFieldError)}
+                aria-describedby={passwordFieldError ? "login-password-error" : undefined}
                 autoComplete="current-password"
               />
+              {passwordFieldError ? <p id="login-password-error" className="field-error" role="status">{passwordFieldError}</p> : passwordTouched && password.length >= 6 ? <p className="field-success">Passwortlänge passt.</p> : null}
             </div>
             <button type="submit" disabled={loading || Boolean(configError)} className="btn btn-primary btn-block">
               {loading ? t("login.signingIn") : t("login.signIn")}
@@ -517,10 +568,13 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                onBlur={() => setEmailTouched(true)}
                 required
-                className="input"
+                className={`input ${emailFieldError ? "input--error" : ""}`}
+                aria-invalid={Boolean(emailFieldError)}
                 placeholder={t("login.emailPlaceholder")}
               />
+              {emailFieldError ? <p className="field-error" role="status">{emailFieldError}</p> : null}
             </div>
             <label className="flex items-start gap-2 text-xs text-muted">
               <input
@@ -569,16 +623,19 @@ export default function LoginPage() {
                 autoComplete="one-time-code"
                 value={otpCode}
                 onChange={(event) => setOtpCode(normalizeCodeInput(event.target.value))}
+                onBlur={() => setOtpTouched(true)}
                 required
-                className="input text-center text-lg font-semibold tracking-[0.4em]"
+                className={`input text-center text-lg font-semibold tracking-[0.4em] ${otpFieldError ? "input--error" : ""}`}
+                aria-invalid={Boolean(otpFieldError)}
                 maxLength={8}
                 placeholder="123456 oder 12345678"
               />
+              {otpFieldError ? <p className="field-error" role="status">{otpFieldError}</p> : otpTouched && otpCode.length >= 6 ? <p className="field-success">Code ist vollständig.</p> : null}
             </div>
             <button
               type="submit"
               disabled={loading || otpCode.length < 6 || Boolean(configError) || !acceptedLegal}
-              className="btn btn-cyan btn-block"
+              className="btn btn-primary btn-block"
             >
               {loading ? t("login.checking") : t("login.verifyCode")}
             </button>

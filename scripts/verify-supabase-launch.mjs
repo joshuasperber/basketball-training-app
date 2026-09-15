@@ -55,6 +55,8 @@ async function runDirectChecks() {
     "team_invites",
     "opponent_scouting",
     "team_league_data",
+    "push_subscriptions",
+    "calendar_feed_tokens",
   ];
 
   const issues = [];
@@ -84,20 +86,31 @@ async function runDirectChecks() {
       headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
     });
     const data = await response.json().catch(() => null);
-    const protectedAndHealthy = response.ok && Array.isArray(data) && data.length === 0;
+    const accessDenied = response.status === 401 || response.status === 403;
+    const protectedAndHealthy = accessDenied || (response.ok && Array.isArray(data) && data.length === 0);
     console.log(`${protectedAndHealthy ? "✅" : "❌"} RLS public.${table}: anonym geschützt (HTTP ${response.status})`);
     allOk = allOk && protectedAndHealthy;
   }
 
   const leagueColumnUrl = new URL(`${supabaseUrl}/rest/v1/user_progress`);
-  leagueColumnUrl.searchParams.set("select", "league_data");
+  leagueColumnUrl.searchParams.set("select", "league_data,readiness_history");
   leagueColumnUrl.searchParams.set("limit", "0");
   const leagueColumnRes = await fetch(leagueColumnUrl, {
     method: "HEAD",
     headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
   });
-  console.log(`${leagueColumnRes.ok ? "✅" : "❌"} Spalte public.user_progress.league_data (HTTP ${leagueColumnRes.status})`);
+  console.log(`${leagueColumnRes.ok ? "✅" : "❌"} Spalten public.user_progress.league_data/readiness_history (HTTP ${leagueColumnRes.status})`);
   allOk = allOk && leagueColumnRes.ok;
+
+  const teamLeagueColumnsUrl = new URL(`${supabaseUrl}/rest/v1/team_league_data`);
+  teamLeagueColumnsUrl.searchParams.set("select", "version,change_log");
+  teamLeagueColumnsUrl.searchParams.set("limit", "0");
+  const teamLeagueColumnsRes = await fetch(teamLeagueColumnsUrl, {
+    method: "HEAD",
+    headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+  });
+  console.log(`${teamLeagueColumnsRes.ok ? "✅" : "❌"} Konfliktschutz public.team_league_data.version/change_log (HTTP ${teamLeagueColumnsRes.status})`);
+  allOk = allOk && teamLeagueColumnsRes.ok;
 
   const bucketRes = await fetch(`${supabaseUrl}/storage/v1/bucket/game-photos`, {
     headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },

@@ -16,9 +16,14 @@ export default function ServiceWorkerRegister() {
     }
 
     let reloadScheduled = false;
+    // A first-time installation takes control via clients.claim(). Reloading in
+    // that case can wipe input that a fast user has already entered (notably on
+    // the login form). Only reload when an already controlled page receives an
+    // actual worker update.
+    const hadControllerAtMount = Boolean(navigator.serviceWorker.controller);
 
     const scheduleReloadForNewWorker = () => {
-      if (reloadScheduled) return;
+      if (!hadControllerAtMount || reloadScheduled) return;
       reloadScheduled = true;
       window.location.reload();
     };
@@ -47,6 +52,8 @@ export default function ServiceWorkerRegister() {
       .catch(() => {
         // noop
       });
+
+    return () => navigator.serviceWorker.removeEventListener("controllerchange", scheduleReloadForNewWorker);
   }, []);
 
   return null;

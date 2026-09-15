@@ -21,6 +21,8 @@ const REQUIRED_TABLES = [
   "team_invites",
   "opponent_scouting",
   "team_league_data",
+  "push_subscriptions",
+  "calendar_feed_tokens",
 ] as const;
 
 const PRIVATE_TABLES = [
@@ -32,6 +34,8 @@ const PRIVATE_TABLES = [
   "team_invites",
   "opponent_scouting",
   "team_league_data",
+  "push_subscriptions",
+  "calendar_feed_tokens",
 ] as const;
 
 function envCheck(id: string, present: boolean, label: string): SupabaseHealthCheck {
@@ -116,7 +120,8 @@ async function probeAnonymousRls(
       cache: "no-store",
     });
     const data = await response.json().catch(() => null);
-    const protectedAndHealthy = response.ok && Array.isArray(data) && data.length === 0;
+    const accessDenied = response.status === 401 || response.status === 403;
+    const protectedAndHealthy = accessDenied || (response.ok && Array.isArray(data) && data.length === 0);
     return {
       id: `rls_anon_${table}`,
       ok: protectedAndHealthy,
@@ -138,19 +143,41 @@ async function probeLeagueDataColumn(
   serviceRoleKey: string,
 ): Promise<SupabaseHealthCheck> {
   try {
-    const response = await fetch(`${supabaseUrl}/rest/v1/user_progress?select=league_data&limit=0`, {
+    const response = await fetch(`${supabaseUrl}/rest/v1/user_progress?select=league_data,readiness_history&limit=0`, {
       method: "HEAD",
       headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
       cache: "no-store",
     });
     return response.ok
-      ? { id: "column_league_data", ok: true, detail: "Spalte user_progress.league_data erreichbar" }
-      : { id: "column_league_data", ok: false, detail: `Spalte user_progress.league_data — HTTP ${response.status}` };
+      ? { id: "column_league_data", ok: true, detail: "Spalten user_progress.league_data/readiness_history erreichbar" }
+      : { id: "column_league_data", ok: false, detail: `Cloud-Sync-Spalten — HTTP ${response.status}` };
   } catch (error) {
     return {
       id: "column_league_data",
       ok: false,
       detail: error instanceof Error ? error.message : "Liga-Cloudspalte nicht erreichbar",
+    };
+  }
+}
+
+async function probeTeamLeagueVersionColumns(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<SupabaseHealthCheck> {
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/team_league_data?select=version,change_log&limit=0`, {
+      method: "HEAD",
+      headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+      cache: "no-store",
+    });
+    return response.ok
+      ? { id: "columns_team_league_version", ok: true, detail: "Konfliktschutz team_league_data.version/change_log erreichbar" }
+      : { id: "columns_team_league_version", ok: false, detail: `Konfliktschutz der Team-Liga — HTTP ${response.status}` };
+  } catch (error) {
+    return {
+      id: "columns_team_league_version",
+      ok: false,
+      detail: error instanceof Error ? error.message : "Konfliktschutz der Team-Liga nicht erreichbar",
     };
   }
 }
@@ -202,6 +229,7 @@ export async function runSupabaseLaunchHealthChecks(): Promise<SupabaseLaunchHea
     checks.push(await probeAnonymousRls(supabaseUrl, anonKey, table));
   }
   checks.push(await probeLeagueDataColumn(supabaseUrl, serviceRoleKey));
+  checks.push(await probeTeamLeagueVersionColumns(supabaseUrl, serviceRoleKey));
   checks.push(await probeGamePhotosBucket(supabaseUrl, serviceRoleKey));
 
   return {

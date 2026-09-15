@@ -379,7 +379,7 @@ export default function WorkoutExecutionPanel({
                   Workout beenden
                 </button>
               ) : null}
-              <button type="button" onClick={onFinishSet} className="btn btn-emerald btn-sm">
+              <button type="button" onClick={onFinishSet} className="btn btn-primary btn-sm">
                 Satz abschließen
               </button>
             </div>

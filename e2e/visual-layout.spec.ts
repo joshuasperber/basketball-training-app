@@ -1,0 +1,76 @@
+import { expect, test } from "@playwright/test";
+
+const TRAINING_HEADER_FIXTURE = `
+  <main class="app-container">
+    <div class="training-top">
+      <div class="training-top__main">
+        <div>
+          <p class="page-eyebrow">Bibliothek</p>
+          <h1 class="page-title">Training</h1>
+          <p class="page-subtitle">Workouts und Übungen verwalten, filtern und starten.</p>
+        </div>
+        <div class="training-top__nav-row">
+          <div class="top-tabs-wrap"><div class="top-tabs top-tabs--training">
+            <a class="top-tabs__btn">Woche</a><a class="top-tabs__btn top-tabs__btn--active">Katalog</a>
+          </div></div>
+          <div class="training-top__tools"><button class="icon-btn">⌕</button><button class="icon-btn icon-btn--primary">+</button></div>
+        </div>
+        <div class="training-top__nav-row training-top__nav-row--tabs">
+          <div class="segmented-wrap"><div class="segmented segmented--brand">
+            <button class="segmented__btn segmented__btn--active">Workouts</button><button class="segmented__btn">Übungen</button>
+          </div></div>
+          <div class="training-top__game-actions">
+            <div><button class="btn btn-outline btn-xs btn-block">Spieltag starten</button></div>
+            <div><button class="btn btn-outline btn-xs btn-block">Spieltraining starten</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>`;
+
+test("training header controls stay separated and aligned at every relevant width", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("bt.consent.ui-decided.v1", "1"));
+  await page.goto("/login");
+  await expect(page.locator('main[data-client-ready="true"]')).toBeVisible();
+
+  for (const width of [320, 390, 768, 1024, 1864]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate((markup) => { document.body.innerHTML = markup; }, TRAINING_HEADER_FIXTURE);
+    const layout = await page.evaluate(() => {
+      const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const firstTabs = rect(".top-tabs");
+      const secondTabs = rect(".segmented");
+      const gameActions = rect(".training-top__game-actions");
+      const gameButtons = [...document.querySelectorAll<HTMLElement>(".training-top__game-actions .btn")]
+        .map((button) => button.getBoundingClientRect().height);
+      return {
+        firstBottom: firstTabs.bottom,
+        secondTop: secondTabs.top,
+        secondBottom: secondTabs.bottom,
+        actionsTop: gameActions.top,
+        actionsBottom: gameActions.bottom,
+        gameButtons,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+
+    expect(layout.secondTop, `Umschalter überlagern sich bei ${width}px`).toBeGreaterThanOrEqual(layout.firstBottom);
+    expect(layout.actionsTop, `Spielaktionen überlagern Katalog-Tabs bei ${width}px`).toBeGreaterThanOrEqual(layout.firstBottom);
+    expect(layout.overflow, `Horizontaler Überlauf bei ${width}px`).toBeLessThanOrEqual(1);
+    expect(Math.max(...layout.gameButtons) - Math.min(...layout.gameButtons), `Ungleiche Spiel-Buttons bei ${width}px`).toBeLessThanOrEqual(1);
+    if (width >= 900) {
+      expect(Math.abs(layout.actionsBottom - layout.secondBottom), `Unsaubere Grundlinie bei ${width}px`).toBeLessThanOrEqual(1);
+    } else {
+      expect(layout.actionsTop, `Spielaktionen überlagern die Untertabs bei ${width}px`).toBeGreaterThanOrEqual(layout.secondBottom);
+    }
+  }
+});
+
+test("public application pages do not overflow horizontally", async ({ page }) => {
+  for (const path of ["/login", "/datenschutz", "/impressum", "/nutzungsbedingungen"]) {
+    await page.goto(path);
+    await expect(page.locator("main")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `Horizontaler Überlauf auf ${path}`).toBeLessThanOrEqual(1);
+  }
+});

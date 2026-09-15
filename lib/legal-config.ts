@@ -16,7 +16,7 @@ export const legalConfig = {
   /** Verantwortlich für Inhalte (§ 18 MStV), falls abweichend */
   contentResponsible: "Joshua Sperber" as string | undefined,
   /** Stand der Datenschutzerklärung */
-  privacyPolicyDate: "Juli 2026",
+  privacyPolicyDate: "September 2026",
 };
 
 export function isLegalConfigComplete() {

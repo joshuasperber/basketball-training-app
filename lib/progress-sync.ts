@@ -22,6 +22,7 @@ import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
 import { REMINDER_PREFS_KEY } from "@/lib/workout-reminders";
+import { READINESS_STORAGE_KEY } from "@/lib/readiness";
 import { SessionDatabase } from "@/lib/session-types";
 import { WORKOUT_HISTORY_KEY as LEGACY_WORKOUT_HISTORY_KEY, WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
 
@@ -62,6 +63,7 @@ type RemoteProgress = {
   customSubcategories: string | null;
   workoutHistory: string | null;
   reminderPrefs: string | null;
+  readinessHistory: string | null;
   coachWeeklyNote: string | null;
   trainingExercises: string | null;
   trainingWorkouts: string | null;
@@ -140,6 +142,7 @@ export function buildLocalProgressSnapshot(): RemoteProgress {
     customSubcategories: readRawString(CUSTOM_SUBCATEGORY_KEY),
     workoutHistory: readRawString(WORKOUT_HISTORY_KEY) ?? readRawString(LEGACY_WORKOUT_HISTORY_KEY),
     reminderPrefs: readReminderPrefsRaw(),
+    readinessHistory: readRawString(READINESS_STORAGE_KEY),
     coachWeeklyNote: readRawString(COACH_WEEKLY_NOTE_STORAGE_KEY),
     trainingExercises: readRawString(TRAINING_EXERCISES_KEY),
     trainingWorkouts: readRawString(TRAINING_WORKOUTS_KEY),
@@ -170,6 +173,7 @@ function hasLocalUserData(snapshot: RemoteProgress) {
     Boolean(snapshot.customSubcategories) ||
     Boolean(snapshot.workoutHistory) ||
     Boolean(snapshot.reminderPrefs) ||
+    Boolean(snapshot.readinessHistory) ||
     Boolean(snapshot.coachWeeklyNote) ||
     Boolean(snapshot.trainingExercises) ||
     Boolean(snapshot.trainingWorkouts) ||
@@ -280,6 +284,7 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   writeRawStringIfPresent(CUSTOM_SUBCATEGORY_KEY, remote.customSubcategories);
   writeRawStringIfPresent(WORKOUT_HISTORY_KEY, remote.workoutHistory);
   writeRawStringIfPresent(REMINDER_PREFS_KEY, remote.reminderPrefs);
+  writeRawStringIfPresent(READINESS_STORAGE_KEY, remote.readinessHistory);
   writeRawStringIfPresent(COACH_WEEKLY_NOTE_STORAGE_KEY, remote.coachWeeklyNote);
   writeRawStringIfPresent(TRAINING_EXERCISES_KEY, remote.trainingExercises);
   writeRawStringIfPresent(TRAINING_WORKOUTS_KEY, remote.trainingWorkouts);

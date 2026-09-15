@@ -11,6 +11,7 @@ import { LEAGUE_STORAGE_KEY } from "@/lib/league";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
 import { TEAM_LIST_CACHE_KEY } from "@/lib/team-local-cache";
 import { REMINDER_PREFS_KEY } from "@/lib/workout-reminders";
+import { READINESS_STORAGE_KEY } from "@/lib/readiness";
 import { WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
 
 const EXERCISE_HISTORY_KEY = "bt.exercise-history.v1";
@@ -47,6 +48,7 @@ const STRING_KEYS = [
   CUSTOM_SUBCATEGORY_KEY,
   WORKOUT_HISTORY_KEY,
   REMINDER_PREFS_KEY,
+  READINESS_STORAGE_KEY,
   LEGACY_REMINDER_PREFS_KEY,
   COACH_WEEKLY_NOTE_STORAGE_KEY,
   TRAINING_EXERCISES_KEY,

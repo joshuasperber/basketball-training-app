@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -51,3 +53,4 @@ lighthouse-report.html
 .restore-backup-latest/
 .restore-manifest*.txt
 .cursor/
+supabase/.temp/

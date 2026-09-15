@@ -410,7 +410,7 @@ export default function GameTrackPage() {
           <button
             type="button"
             disabled={saving}
-            className="btn btn-violet btn-block mt-5"
+            className="btn btn-primary btn-block mt-5"
             onClick={() => {
               setSaving(true);
               const batch = normalizeGameStatBatch({

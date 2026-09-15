@@ -70,6 +70,13 @@ import { getTodayDateKey } from "@/lib/workout";
 import { loadLigaTab, persistLigaTab, type LigaTab } from "@/lib/ui-navigation-state";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { normalizeTeamOpponentName } from "@/lib/team-league-opponents";
+import {
+  formatLeagueHistoryDate,
+  normalizeLeagueHistory,
+  summarizeLeagueChange,
+  type LeagueChangeEntry,
+  type SharedLeagueConflict,
+} from "@/lib/team-league-version";
 
 type Tab = LigaTab;
 type NumericStatKey = Exclude<keyof LeaguePlayerStatLine, "playerId">;
@@ -182,13 +189,23 @@ export default function LigaPage() {
   const [gameAddress, setGameAddress] = useState("");
   const [gameMeetingTime, setGameMeetingTime] = useState("");
   const [gameTravelMinutes, setGameTravelMinutes] = useState("");
+  const [gameDeadlineDate, setGameDeadlineDate] = useState("");
+  const [gameDeadlineTime, setGameDeadlineTime] = useState("");
+  const [gameCenterId, setGameCenterId] = useState("");
   const [csvPreview, setCsvPreview] = useState<LeagueCsvImportPlan | null>(null);
   const [csvFileName, setCsvFileName] = useState("");
   const [teamAreaTeams, setTeamAreaTeams] = useState<TeamSummary[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [sharedLeagueCanEdit, setSharedLeagueCanEdit] = useState(false);
   const [sharedLeagueStatus, setSharedLeagueStatus] = useState<string | null>(null);
+  const [sharedLeagueVersion, setSharedLeagueVersion] = useState(0);
+  const [sharedLeagueHistory, setSharedLeagueHistory] = useState<LeagueChangeEntry[]>([]);
+  const [sharedLeagueConflict, setSharedLeagueConflict] = useState<SharedLeagueConflict | null>(null);
+  const [calendarFeedUrl, setCalendarFeedUrl] = useState<string | null>(null);
   const sharedLeagueLoadedRef = useRef<string | null>(null);
+  const sharedLeagueVersionRef = useRef(0);
+  const sharedLeagueConflictRef = useRef(false);
+  const sharedLeagueSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const refresh = useCallback(() => setBundle(loadLeagueBundle()), []);
 
@@ -221,8 +238,13 @@ export default function LigaPage() {
     const teamId = bundle.ownTeam.sourceTeamId;
     if (!teamId) {
       sharedLeagueLoadedRef.current = null;
+      sharedLeagueVersionRef.current = 0;
+      sharedLeagueConflictRef.current = false;
       setSharedLeagueCanEdit(false);
       setSharedLeagueStatus(null);
+      setSharedLeagueVersion(0);
+      setSharedLeagueHistory([]);
+      setSharedLeagueConflict(null);
       return;
     }
     if (sharedLeagueLoadedRef.current === teamId) return;
@@ -236,11 +258,16 @@ export default function LigaPage() {
     })
       .then(async (response) => {
         if (!response.ok) throw new Error("shared_league_load_failed");
-        return await response.json() as { bundle?: unknown; canEdit?: boolean };
+        return await response.json() as { bundle?: unknown; canEdit?: boolean; version?: number; history?: unknown };
       })
       .then((payload) => {
         if (!active) return;
         const canEdit = Boolean(payload.canEdit);
+        const version = Number.isInteger(payload.version) ? Math.max(0, payload.version ?? 0) : 0;
+        const history = normalizeLeagueHistory(payload.history);
+        sharedLeagueVersionRef.current = version;
+        setSharedLeagueVersion(version);
+        setSharedLeagueHistory(history);
         setSharedLeagueCanEdit(canEdit);
         if (payload.bundle && typeof payload.bundle === "object") {
           const remote = normalizeLeagueBundle(payload.bundle);
@@ -257,7 +284,14 @@ export default function LigaPage() {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
-            body: JSON.stringify({ teamId, bundle }),
+            body: JSON.stringify({ teamId, bundle, expectedVersion: 0, summary: "Team-Liga verbunden" }),
+          }).then(async (response) => {
+            const result = await response.json().catch(() => null) as { version?: number; history?: unknown } | null;
+            if (!active || !response.ok || !result) return;
+            const nextVersion = Number(result.version) || 1;
+            sharedLeagueVersionRef.current = nextVersion;
+            setSharedLeagueVersion(nextVersion);
+            setSharedLeagueHistory(normalizeLeagueHistory(result.history));
           });
         }
       })
@@ -296,6 +330,19 @@ export default function LigaPage() {
   const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
   const ownTeamPlayers = useMemo(() => playersForTeam(bundle, LEAGUE_OWN_TEAM_ID), [bundle]);
   const ownSchedule = useMemo(() => schedule.filter(gameInvolvesOwnTeam), [schedule]);
+  const gameCenterEntry = useMemo(() => {
+    const selected = ownSchedule.find((entry) => entry.id === gameCenterId);
+    if (selected) return selected;
+    const today = getTodayDateKey();
+    return ownSchedule.find((entry) => entry.date >= today && entry.status !== "cancelled") ?? ownSchedule.at(-1) ?? null;
+  }, [gameCenterId, ownSchedule]);
+  const gameCenterOpponent = useMemo(() => {
+    if (!gameCenterEntry) return null;
+    const opponentId = gameCenterEntry.homeTeamId === LEAGUE_OWN_TEAM_ID
+      ? gameCenterEntry.awayTeamId
+      : gameCenterEntry.homeTeamId;
+    return bundle.opponents.find((entry) => entry.id === opponentId) ?? null;
+  }, [bundle.opponents, gameCenterEntry]);
   const playerById = useMemo(() => new Map(bundle.players.map((player) => [player.id, player])), [bundle.players]);
   const playerSeasonSummaries = useMemo(
     () => activeSeason ? buildPlayerSeasonSummaries(bundle, activeSeason.id) : new Map(),
@@ -312,27 +359,118 @@ export default function LigaPage() {
     if (!teams.some((team) => team.id === awayTeamId)) setAwayTeamId(teams[1]?.id ?? "");
   }, [awayTeamId, homeTeamId, playerTeamId, teams]);
 
-  function persist(next: LeagueBundle) {
+  function persist(next: LeagueBundle, explicitSummary?: string) {
+    const summary = explicitSummary ?? summarizeLeagueChange(bundle, next);
     saveLeagueBundle(next);
     setBundle(next);
     const teamId = next.ownTeam.sourceTeamId;
     if (teamId && sharedLeagueCanEdit) {
-      void fetch("/api/team/league", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ teamId, bundle: next }),
-      })
-        .then((response) => {
-          setSharedLeagueStatus(response.ok ? "Mit dem Team synchronisiert." : "Team-Sync fehlgeschlagen · lokal gespeichert.");
-        })
-        .catch(() => setSharedLeagueStatus("Team-Sync fehlgeschlagen · lokal gespeichert."));
+      if (sharedLeagueConflictRef.current) {
+        setSharedLeagueConflict((current) => current ? { ...current, localBundle: next } : current);
+        setSharedLeagueStatus("Lokale Änderungen warten auf die Konfliktauflösung.");
+        return;
+      }
+      sharedLeagueSyncQueueRef.current = sharedLeagueSyncQueueRef.current.then(async () => {
+        const expectedVersion = sharedLeagueVersionRef.current;
+        setSharedLeagueStatus("Team-Liga wird synchronisiert …");
+        const response = await fetch("/api/team/league", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ teamId, bundle: next, expectedVersion, summary }),
+        });
+        const payload = await response.json().catch(() => null) as {
+          bundle?: unknown;
+          updatedAt?: string | null;
+          version?: number;
+          history?: unknown;
+        } | null;
+        if (response.status === 409) {
+          const remoteVersion = Number(payload?.version) || expectedVersion + 1;
+          const remoteBundle = payload?.bundle && typeof payload.bundle === "object"
+            ? connectLeagueOwnTeam(normalizeLeagueBundle(payload.bundle), { id: teamId, name: next.ownTeam.name })
+            : null;
+          const conflict: SharedLeagueConflict = {
+            localBundle: next,
+            remoteBundle,
+            remoteVersion,
+            remoteUpdatedAt: payload?.updatedAt ?? null,
+            history: normalizeLeagueHistory(payload?.history),
+          };
+          sharedLeagueConflictRef.current = true;
+          setSharedLeagueConflict(conflict);
+          setSharedLeagueStatus("Konflikt erkannt · es wurde nichts überschrieben.");
+          return;
+        }
+        if (!response.ok) throw new Error("shared_league_write_failed");
+        const version = Number(payload?.version) || expectedVersion + 1;
+        sharedLeagueVersionRef.current = version;
+        setSharedLeagueVersion(version);
+        setSharedLeagueHistory(normalizeLeagueHistory(payload?.history));
+        setSharedLeagueStatus("Mit dem Team synchronisiert.");
+      }).catch(() => setSharedLeagueStatus("Team-Sync fehlgeschlagen · lokal gespeichert."));
     }
+  }
+
+  function acceptRemoteLeagueVersion() {
+    if (!sharedLeagueConflict?.remoteBundle) {
+      setSharedLeagueStatus("Der aktuelle Teamstand muss erneut geladen werden.");
+      sharedLeagueLoadedRef.current = null;
+      window.location.reload();
+      return;
+    }
+    saveLeagueBundle(sharedLeagueConflict.remoteBundle);
+    setBundle(sharedLeagueConflict.remoteBundle);
+    sharedLeagueVersionRef.current = sharedLeagueConflict.remoteVersion;
+    sharedLeagueConflictRef.current = false;
+    setSharedLeagueVersion(sharedLeagueConflict.remoteVersion);
+    setSharedLeagueHistory(sharedLeagueConflict.history);
+    setSharedLeagueConflict(null);
+    setSharedLeagueStatus("Aktueller Teamstand wurde geladen.");
+  }
+
+  async function overwriteRemoteLeagueVersion() {
+    const conflict = sharedLeagueConflict;
+    const teamId = conflict?.localBundle.ownTeam.sourceTeamId;
+    if (!conflict || !teamId) return;
+    setSharedLeagueStatus("Lokale Änderungen werden übernommen …");
+    const response = await fetch("/api/team/league", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        teamId,
+        bundle: conflict.localBundle,
+        expectedVersion: conflict.remoteVersion,
+        summary: "Konflikt gelöst · lokale Änderungen übernommen",
+      }),
+    });
+    const payload = await response.json().catch(() => null) as { version?: number; history?: unknown } | null;
+    if (!response.ok) {
+      setSharedLeagueStatus(response.status === 409 ? "Der Teamstand wurde erneut geändert · bitte neu laden." : "Konflikt konnte nicht aufgelöst werden.");
+      return;
+    }
+    const version = Number(payload?.version) || conflict.remoteVersion + 1;
+    sharedLeagueVersionRef.current = version;
+    sharedLeagueConflictRef.current = false;
+    setSharedLeagueVersion(version);
+    setSharedLeagueHistory(normalizeLeagueHistory(payload?.history));
+    setSharedLeagueConflict(null);
+    setSharedLeagueStatus("Lokale Änderungen wurden konfliktfrei übernommen.");
   }
 
   function handleTabChange(next: Tab) {
     setTab(next);
     persistLigaTab(next);
+  }
+
+  function openGameDetails(gameId: string) {
+    setGameCenterId(gameId);
+    window.requestAnimationFrame(() => {
+      const details = document.getElementById(`league-game-${gameId}`) as HTMLDetailsElement | null;
+      if (details) details.open = true;
+      details?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   function resetLeagueForm() {
@@ -723,6 +861,8 @@ export default function LigaPage() {
     event.preventDefault();
     if (!activeSeason) return setMessage("Bitte zuerst eine Saison anlegen.");
     if (!gameDate || !gameTime || !homeTeamId || !awayTeamId) return setMessage("Bitte Datum, Spielzeit und beide Teams vollständig auswählen.");
+    if (Boolean(gameDeadlineDate) !== Boolean(gameDeadlineTime)) return setMessage("Bitte Datum und Uhrzeit der Zusagefrist vollständig angeben.");
+    if (gameDeadlineDate && `${gameDeadlineDate}T${gameDeadlineTime}` > `${gameDate}T${gameTime}`) return setMessage("Die Zusagefrist muss vor dem Spielbeginn liegen.");
     if (homeTeamId === awayTeamId) return setMessage("Heim- und Auswärtsteam müssen unterschiedlich sein.");
     if ((activeSeason.startDate && gameDate < activeSeason.startDate) || (activeSeason.endDate && gameDate > activeSeason.endDate)) {
       return setMessage("Das Spieldatum liegt außerhalb des eingetragenen Saisonzeitraums.");
@@ -751,6 +891,7 @@ export default function LigaPage() {
       venueName: gameVenue.trim() || undefined,
       venueAddress: gameAddress.trim() || undefined,
       meetingTime: gameMeetingTime || undefined,
+      attendanceDeadline: gameDeadlineDate && gameDeadlineTime ? `${gameDeadlineDate}T${gameDeadlineTime}` : undefined,
       travelMinutes: nullableInteger(gameTravelMinutes),
       homeScore: null,
       awayScore: null,
@@ -765,6 +906,8 @@ export default function LigaPage() {
     setGameAddress("");
     setGameMeetingTime("");
     setGameTravelMinutes("");
+    setGameDeadlineDate("");
+    setGameDeadlineTime("");
     setMessage("Spiel zum Saisonplan hinzugefügt.");
   }
 
@@ -812,6 +955,13 @@ export default function LigaPage() {
     updateGame(entry.id, {
       attendance: [...(entry.attendance?.filter((item) => item.playerId !== playerId) ?? []), next],
     });
+  }
+
+  function updateAttendanceDeadline(entry: LeagueScheduleEntry, part: "date" | "time", value: string) {
+    const [currentDate = "", currentTime = ""] = (entry.attendanceDeadline ?? "").split("T");
+    const date = part === "date" ? value : currentDate || entry.date;
+    const time = part === "time" ? value : currentTime || (value ? "18:00" : "");
+    updateGame(entry.id, { attendanceDeadline: date && time ? `${date}T${time}` : undefined });
   }
 
   function cleanupSyncedGame(entry: LeagueScheduleEntry, removedIds = new Set([entry.id])) {
@@ -880,6 +1030,35 @@ export default function LigaPage() {
     setMessage(`${ownSchedule.length} eigene Spiele als iCal exportiert.`);
   }
 
+  async function createCalendarSubscription() {
+    const teamId = bundle.ownTeam.sourceTeamId;
+    if (!teamId) return setMessage("Verbinde zuerst dein Liga-Team mit einem Team aus dem Team-Reiter.");
+    const response = await fetch("/api/calendar/feed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ teamId }),
+    });
+    const payload = await response.json().catch(() => null) as { url?: string } | null;
+    if (!response.ok || !payload?.url) return setMessage("Kalender-Abo konnte nicht erstellt werden.");
+    setCalendarFeedUrl(payload.url);
+    setMessage("Kalender-Abo ist bereit. Änderungen am Team-Spielplan werden automatisch übernommen.");
+  }
+
+  async function revokeCalendarSubscription() {
+    const teamId = bundle.ownTeam.sourceTeamId;
+    if (!teamId) return;
+    const response = await fetch("/api/calendar/feed", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ teamId }),
+    });
+    if (!response.ok) return setMessage("Kalender-Abo konnte nicht widerrufen werden.");
+    setCalendarFeedUrl(null);
+    setMessage("Kalender-Abo wurde widerrufen.");
+  }
+
   function downloadCsvTemplate() {
     const content = LEAGUE_CSV_TEMPLATE.replaceAll("Mein Team", bundle.ownTeam.name);
     const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
@@ -940,6 +1119,37 @@ export default function LigaPage() {
         </div>
         <button type="button" className="btn btn-outline btn-sm" onClick={() => handleTabChange("season")}>Liga & Saison bearbeiten</button>
       </section>
+
+      {sharedLeagueConflict ? (
+        <section className="league-conflict-card mt-3" role="alert" aria-labelledby="league-conflict-title">
+          <div>
+            <p className="section-eyebrow">Synchronisierung angehalten</p>
+            <h2 id="league-conflict-title" className="section-title mt-1">Ein Teammitglied war schneller</h2>
+            <p className="mt-1 text-sm text-muted">Deine lokale Version wurde nicht überschrieben. Wähle bewusst, welcher Stand weiterverwendet werden soll.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn btn-outline btn-sm" onClick={acceptRemoteLeagueVersion}>Teamstand laden</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => void overwriteRemoteLeagueVersion()}>Meine Änderungen übernehmen</button>
+          </div>
+        </section>
+      ) : null}
+
+      {bundle.ownTeam.sourceTeamId && sharedLeagueHistory.length > 0 ? (
+        <details className="league-history mt-3">
+          <summary>
+            <span>Änderungsverlauf</span>
+            <span className="chip">Version {sharedLeagueVersion}</span>
+          </summary>
+          <ol>
+            {[...sharedLeagueHistory].reverse().slice(0, 8).map((entry) => (
+              <li key={entry.id}>
+                <span>{entry.summary}</span>
+                <small>{entry.userLabel} · {formatLeagueHistoryDate(entry.at)}</small>
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
 
       {tab === "season" ? (
         <section className="mt-4 space-y-4">
@@ -1106,6 +1316,10 @@ export default function LigaPage() {
               <label className="league-game-field"><span className="input-label">Heimteam</span><select value={homeTeamId} onChange={(event) => setHomeTeamId(event.target.value)} className="select league-game-control" required>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
               <label className="league-game-field"><span className="input-label">Auswärtsteam</span><select value={awayTeamId} onChange={(event) => setAwayTeamId(event.target.value)} className="select league-game-control" required><option value="">Team wählen</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:max-w-xl">
+              <ModernDateInput value={gameDeadlineDate} onChange={setGameDeadlineDate} label="Zusagefrist (Datum)" max={gameDate || undefined} className="league-game-field" controlClassName="league-game-control" />
+              <ModernTimeInput value={gameDeadlineTime} onChange={setGameDeadlineTime} label="Zusagefrist (Uhrzeit)" className="league-game-field" controlClassName="league-game-control" />
+            </div>
             <div className="league-game-form__controls grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <label className="league-game-field"><span className="input-label">Spielort / Halle</span><input value={gameVenue} onChange={(event) => setGameVenue(event.target.value)} className="input league-game-control" placeholder="z. B. Sporthalle Mitte" /></label>
               <label className="league-game-field md:col-span-2"><span className="input-label">Hallenadresse</span><input value={gameAddress} onChange={(event) => setGameAddress(event.target.value)} className="input league-game-control" placeholder="Straße, PLZ, Ort" /></label>
@@ -1145,8 +1359,52 @@ export default function LigaPage() {
             ) : null}
           </div>
 
+          {gameCenterEntry ? (() => {
+            const home = teamById.get(gameCenterEntry.homeTeamId ?? "");
+            const away = teamById.get(gameCenterEntry.awayTeamId ?? "");
+            const attendance = gameCenterEntry.attendance ?? [];
+            const yesCount = attendance.filter((entry) => entry.status === "yes").length;
+            const openCount = Math.max(0, ownTeamPlayers.length - attendance.filter((entry) => entry.status !== "pending").length);
+            const googleCalendarUrl = buildGoogleCalendarUrl(gameCenterEntry, (id) => teamById.get(id ?? "")?.name ?? "");
+            return <section className="game-center" aria-labelledby="game-center-title">
+              <div className="game-center__header">
+                <div>
+                  <p className="section-eyebrow">Game Center</p>
+                  <h2 id="game-center-title" className="section-title mt-1">{home?.name ?? "Heimteam"} – {away?.name ?? "Auswärtsteam"}</h2>
+                  <p className="mt-1 text-xs text-muted">{formatGameDateTimeLabel(gameCenterEntry.date, gameCenterEntry.startTime)} · {gameStatusLabel(gameCenterEntry.status)}</p>
+                </div>
+                <label className="game-center__select">
+                  <span className="sr-only">Spiel im Game Center auswählen</span>
+                  <select value={gameCenterEntry.id} onChange={(event) => setGameCenterId(event.target.value)} className="select app-modern-select">
+                    {ownSchedule.map((entry) => <option key={entry.id} value={entry.id}>{entry.date} · {teamById.get(entry.homeTeamId ?? "")?.name} – {teamById.get(entry.awayTeamId ?? "")?.name}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="game-center__steps mt-4">
+                <article><span>1</span><div><strong>Organisation</strong><small>{gameCenterEntry.venueName || "Spielort offen"}{gameCenterEntry.meetingTime ? ` · Treffen ${gameCenterEntry.meetingTime}` : ""}</small></div></article>
+                <article><span>2</span><div><strong>Teilnahme</strong><small>{yesCount} Zusagen · {openCount} offen</small></div></article>
+                <article><span>3</span><div><strong>Vorbereitung</strong><small>{gameCenterOpponent?.strengths || gameCenterOpponent?.defenseNotes || "Scouting ergänzen"}</small></div></article>
+                <article><span>4</span><div><strong>Live-Spiel</strong><small>{gameCenterEntry.status === "final" ? "Live-Feed abgeschlossen" : "Uhr, Fouls und Punkte"}</small></div></article>
+                <article><span>5</span><div><strong>Auswertung</strong><small>{isCompletedLeagueGame(gameCenterEntry) ? `${gameCenterEntry.homeScore} : ${gameCenterEntry.awayScore}` : "Boxscore nach dem Spiel"}</small></div></article>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => openGameDetails(gameCenterEntry.id)}>Organisation & Kader</button>
+                {gameCenterEntry.status !== "cancelled" && gameCenterEntry.status !== "postponed" ? <Link href={`/liga/live/${encodeURIComponent(gameCenterEntry.id)}`} className="btn btn-primary btn-sm">{gameCenterEntry.status === "live" ? "Live fortsetzen" : gameCenterEntry.status === "final" ? "Live-Feed ansehen" : "Live-Modus starten"}</Link> : null}
+                <Link href={`/game-track?date=${encodeURIComponent(gameCenterEntry.date)}&context=${gameCenterEntry.kind}`} className="btn btn-outline btn-sm">Persönliche Stats</Link>
+                <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm">Kalender öffnen</a>
+              </div>
+            </section>;
+          })() : (
+            <section className="game-center game-center--empty">
+              <p className="section-eyebrow">Game Center</p>
+              <h2 className="section-title mt-1">Dein nächstes Spiel an einem Ort</h2>
+              <p className="mt-1 text-sm text-muted">Sobald ein Spiel deines Teams im Saisonplan steht, bündelt das Game Center Organisation, Teilnahme, Scouting, Live-Modus und Auswertung.</p>
+            </section>
+          )}
+
           <div className="app-card">
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="section-eyebrow">Saison-Spielplan</p><h2 className="section-title mt-1">Chronologischer Spielplan</h2><p className="mt-1 text-xs text-muted">{schedule.length} Spiele · {schedule.filter(isCompletedLeagueGame).length} gültige Ergebnisse</p></div><div className="flex flex-wrap gap-2"><button type="button" className="btn btn-cyan btn-sm" onClick={exportCalendar}>iCal exportieren</button><button type="button" className="btn btn-outline btn-sm" onClick={handleSyncAllUpcoming}>Eigene anstehende → Wochenplan</button></div></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="section-eyebrow">Saison-Spielplan</p><h2 className="section-title mt-1">Chronologischer Spielplan</h2><p className="mt-1 text-xs text-muted">{schedule.length} Spiele · {schedule.filter(isCompletedLeagueGame).length} gültige Ergebnisse</p></div><div className="flex flex-wrap gap-2"><button type="button" className="btn btn-outline btn-sm" onClick={exportCalendar}>iCal exportieren</button><button type="button" className="btn btn-outline btn-sm" onClick={() => void createCalendarSubscription()}>Kalender abonnieren</button><button type="button" className="btn btn-outline btn-sm" onClick={handleSyncAllUpcoming}>Eigene anstehende → Wochenplan</button></div></div>
+            {calendarFeedUrl ? <div className="calendar-feed-panel mt-3"><div><strong>Automatisches Kalender-Abo</strong><p>Dieser private Link aktualisiert den Spielplan in Apple Kalender, Google Kalender und anderen Kalender-Apps.</p><code>{calendarFeedUrl}</code></div><div className="flex flex-wrap gap-2"><a href={calendarFeedUrl.replace(/^https:/, "webcal:")} className="btn btn-primary btn-sm">In Kalender öffnen</a><button type="button" className="btn btn-outline btn-sm" onClick={() => void navigator.clipboard.writeText(calendarFeedUrl).then(() => setMessage("Kalender-Link kopiert."))}>Link kopieren</button><button type="button" className="btn btn-danger-outline btn-sm" onClick={() => void revokeCalendarSubscription()}>Widerrufen</button></div></div> : null}
             {schedule.length === 0 ? <p className="mt-3 text-sm text-muted">Noch keine Spiele geplant.</p> : (
               <div className="league-fixture-board mt-4">{scheduleDays.map((day) => {
                 const dateParts = formatScheduleDateParts(day.date);
@@ -1161,7 +1419,7 @@ export default function LigaPage() {
                     const away = teamById.get(entry.awayTeamId ?? "");
                     const finished = isCompletedLeagueGame(entry);
                     const attendance = entry.attendance ?? [];
-                    return <article key={entry.id} className={`league-fixture league-fixture--${entry.status ?? "scheduled"}`}><div className="league-fixture__time"><strong>{entry.startTime ?? "–:–"}</strong><span>{entry.meetingTime ? `Treffen ${entry.meetingTime}` : entry.startTime ? "Uhr" : "Zeit offen"}</span></div><div className="league-fixture__teams"><span>{home?.name ?? "Heimteam"}</span><span>{away?.name ?? "Auswärtsteam"}</span>{entry.venueName ? <small>{entry.venueName}{entry.travelMinutes != null ? ` · ${entry.travelMinutes} Min. Anfahrt` : ""}</small> : null}</div><div className={`league-fixture__result ${finished ? "league-fixture__result--final" : ""}`}><strong>{finished ? `${entry.homeScore} : ${entry.awayScore}` : gameStatusLabel(entry.status)}</strong><span>{entry.kind === "game" ? "Liga" : "Testspiel"}{attendance.length ? ` · ${attendance.filter((item) => item.status === "yes").length} Zusagen` : ""}</span></div></article>;
+                    return <article key={entry.id} className={`league-fixture league-fixture--${entry.status ?? "scheduled"}`}><div className="league-fixture__time"><strong>{entry.startTime ?? "–:–"}</strong><span>{entry.meetingTime ? `Treffen ${entry.meetingTime}` : entry.startTime ? "Uhr" : "Zeit offen"}</span></div><div className="league-fixture__teams"><span>{home?.name ?? "Heimteam"}</span><span>{away?.name ?? "Auswärtsteam"}</span>{entry.venueName ? <small>{entry.venueName}{entry.travelMinutes != null ? ` · ${entry.travelMinutes} Min. Anfahrt` : ""}</small> : null}</div><div className={`league-fixture__result ${finished ? "league-fixture__result--final" : ""}`}><strong>{finished ? `${entry.homeScore} : ${entry.awayScore}` : gameStatusLabel(entry.status)}</strong><span>{entry.kind === "game" ? "Liga" : "Testspiel"}{attendance.length ? ` · ${attendance.filter((item) => item.status === "yes").length} Zusagen` : ""}</span></div>{gameInvolvesOwnTeam(entry) ? <button type="button" className="btn btn-outline btn-xs league-fixture__open" onClick={() => { setGameCenterId(entry.id); openGameDetails(entry.id); }}>Öffnen</button> : null}</article>;
                   })}</div>
                 </section>;
               })}</div>
@@ -1177,7 +1435,7 @@ export default function LigaPage() {
                 const gamePlayers = bundle.players.filter((player) => player.teamId === entry.homeTeamId || player.teamId === entry.awayTeamId);
                 const validationIssues = validateLeagueGame(entry, gamePlayers);
                 const googleCalendarUrl = buildGoogleCalendarUrl(entry, (id) => teamById.get(id ?? "")?.name ?? "");
-                return <details key={entry.id} className="league-game-card"><summary className="league-game-card__summary"><div><p className="font-bold text-strong">{home?.name ?? "Heimteam"} <span className="league-score">{entry.homeScore ?? "–"} : {entry.awayScore ?? "–"}</span> {away?.name ?? "Auswärtsteam"}</p><p className="mt-1 text-xs text-muted">{formatGameDateTimeLabel(entry.date, entry.startTime)} · {entry.kind === "game" ? "Ligaspiel" : "Test-/Trainingsspiel"} · {gameStatusLabel(entry.status)}{entry.syncedAt ? " · Im Wochenplan" : ""}</p></div><span className={`chip ${validationIssues.length ? "chip-warning" : ""}`}>{validationIssues.length ? `${validationIssues.length} Hinweise` : "Details"}</span></summary>
+                return <details id={`league-game-${entry.id}`} key={entry.id} className="league-game-card scroll-mt-6"><summary className="league-game-card__summary"><div><p className="font-bold text-strong">{home?.name ?? "Heimteam"} <span className="league-score">{entry.homeScore ?? "–"} : {entry.awayScore ?? "–"}</span> {away?.name ?? "Auswärtsteam"}</p><p className="mt-1 text-xs text-muted">{formatGameDateTimeLabel(entry.date, entry.startTime)} · {entry.kind === "game" ? "Ligaspiel" : "Test-/Trainingsspiel"} · {gameStatusLabel(entry.status)}{entry.syncedAt ? " · Im Wochenplan" : ""}</p></div><span className={`chip ${validationIssues.length ? "chip-warning" : ""}`}>{validationIssues.length ? `${validationIssues.length} Hinweise` : "Details"}</span></summary>
                   <div className="league-game-card__body league-game-form">
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                       <ModernDateInput value={entry.date} onChange={(value) => updateGame(entry.id, { date: value })} label="Datum" className="league-game-field" controlClassName="league-game-control" />
@@ -1193,6 +1451,10 @@ export default function LigaPage() {
                       <ModernTimeInput value={entry.meetingTime ?? ""} onChange={(value) => updateGame(entry.id, { meetingTime: value || undefined })} label="Treffpunkt" className="league-game-field" controlClassName="league-game-control" />
                       <label className="league-game-field"><span className="input-label">Anfahrt (Min.)</span><input type="number" min="0" step="1" value={entry.travelMinutes ?? ""} onChange={(event) => updateGame(entry.id, { travelMinutes: nullableInteger(event.target.value) })} className="input league-game-control" /></label>
                     </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:max-w-xl">
+                      <ModernDateInput value={entry.attendanceDeadline?.split("T")[0] ?? ""} onChange={(value) => updateAttendanceDeadline(entry, "date", value)} label="Zusagefrist (Datum)" max={entry.date} className="league-game-field" controlClassName="league-game-control" />
+                      <ModernTimeInput value={entry.attendanceDeadline?.split("T")[1] ?? ""} onChange={(value) => updateAttendanceDeadline(entry, "time", value)} label="Zusagefrist (Uhrzeit)" className="league-game-field" controlClassName="league-game-control" />
+                    </div>
                     {validationIssues.length > 0 ? <div className="hint-warning mt-3" role="status"><strong>Bitte prüfen:</strong>{validationIssues.map((issue) => <p key={issue}>{issue}</p>)}</div> : null}
                     <div className="mt-3 grid gap-3 md:grid-cols-2"><label><span className="input-label">Sonstiges / Auszeichnungen</span><textarea value={entry.awards ?? ""} onChange={(event) => updateGame(entry.id, { awards: event.target.value })} rows={2} className="textarea" placeholder="Viele Dreier, Game-Winner, Career High …" /></label><label><span className="input-label">Spielnotiz</span><textarea value={entry.notes ?? ""} onChange={(event) => updateGame(entry.id, { notes: event.target.value })} rows={2} className="textarea" /></label></div>
                     {gameInvolvesOwnTeam(entry) && ownTeamPlayers.length > 0 ? <div className="league-attendance mt-4"><div><p className="section-eyebrow">Kaderstatus</p><h3 className="section-title mt-1">Zu-/Absagen & erwartete Start-Five</h3></div><div className="mt-3 grid gap-2 md:grid-cols-2">{ownTeamPlayers.map((player) => { const response = entry.attendance?.find((item) => item.playerId === player.id) ?? { playerId: player.id, status: "pending" as LeagueAttendanceStatus }; return <div key={player.id} className="league-attendance-row"><div><strong>{player.jerseyNumber ? `#${player.jerseyNumber} · ` : ""}{player.name}</strong><small>{player.position || "Position offen"}</small></div><select aria-label={`Teilnahme ${player.name}`} value={response.status} onChange={(event) => updateAttendance(entry, player.id, { status: event.target.value as LeagueAttendanceStatus })} className="select app-unified-control"><option value="pending">Offen</option><option value="yes">Zusage</option><option value="maybe">Vielleicht</option><option value="no">Absage</option></select><label className="league-starter-check"><input type="checkbox" checked={Boolean(response.expectedStarter)} disabled={response.status === "no"} onChange={(event) => updateAttendance(entry, player.id, { expectedStarter: event.target.checked })} /><span>Starter</span></label></div>; })}</div><p className="mt-2 text-xs text-muted">{entry.attendance?.filter((item) => item.status === "yes").length ?? 0} Zusagen · {entry.attendance?.filter((item) => item.status === "maybe").length ?? 0} vielleicht · {entry.attendance?.filter((item) => item.expectedStarter && item.status !== "no").length ?? 0} Starter</p></div> : null}
@@ -1206,10 +1468,6 @@ export default function LigaPage() {
         </section>
       ) : null}
 
-      <section className="mt-5 app-card--accent-violet">
-        <p className="section-eyebrow">Nächste sinnvolle Ausbaustufe</p>
-        <p className="mt-2 text-sm text-muted">Teamweit synchronisierte Zu-/Absagen, ein gemeinsamer Live-Boxscore und automatische Benachrichtigungen bei Spielplanänderungen.</p>
-      </section>
     </main>
   );
 }

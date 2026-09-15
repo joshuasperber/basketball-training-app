@@ -56,8 +56,14 @@ create table if not exists public.team_league_data (
   team_id uuid primary key references public.teams(id) on delete cascade,
   league_data jsonb not null default '{}'::jsonb,
   updated_by uuid references auth.users(id) on delete set null,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  version bigint not null default 1,
+  change_log jsonb not null default '[]'::jsonb
 );
+
+alter table public.team_league_data
+  add column if not exists version bigint not null default 1,
+  add column if not exists change_log jsonb not null default '[]'::jsonb;
 
 alter table public.teams enable row level security;
 alter table public.team_members enable row level security;

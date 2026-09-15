@@ -38,6 +38,8 @@ export default function DatenschutzPage() {
             <li>Spiel-Fotos (optional): Upload in Supabase Storage (Bucket „game-photos“)</li>
             <li>Eigene Übungs-Videos können lokal im Browser gespeichert werden</li>
             <li>Technisch: Session-Cookies, Service-Worker-Cache, optional Sentry-Fehlerberichte</li>
+            <li>Benachrichtigungen (optional): verschlüsseltes Push-Abonnement, Zeitzone und Reminder-Einstellungen</li>
+            <li>Kalender-Abo (optional): widerrufbarer, privater Feed-Link für den Team-Spielplan</li>
           </ul>
         </div>
 
@@ -121,7 +123,9 @@ export default function DatenschutzPage() {
           <p className="mt-1">
             Die App kann als PWA installiert werden. Ein Service Worker cached technische App-Dateien für Offline-Nutzung.
             Trainings-Erinnerungen nutzen die Browser-Benachrichtigungs-API — nur nach deiner Freigabe in den
-            Geräteeinstellungen.
+            Geräteeinstellungen. Wenn du Server-Push aktivierst, wird das verschlüsselte Push-Abonnement in Supabase
+            gespeichert und für Trainings-Erinnerungen, Spielplanänderungen und Zusagefristen genutzt. Beim Deaktivieren
+            wird das Abonnement entfernt. Private Kalender-Feeds können jederzeit im Liga-Bereich widerrufen werden.
           </p>
         </div>
 

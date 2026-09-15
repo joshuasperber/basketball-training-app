@@ -33,6 +33,7 @@ import { gamePlanId } from "@/lib/game-plan-ids";
 import { buildDayWorkoutCardsForToday, isEmptyRestDayCard, type DayWorkoutCard } from "@/lib/day-workout-cards";
 import { buildWeeklyWorkoutNavPath } from "@/lib/weekly-workout-nav";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
+import DashboardFocusCard from "@/components/DashboardFocusCard";
 
 const dayByIndex: Record<number, import("@/lib/planner").DayKey> = {
   0: "sunday",
@@ -360,11 +361,20 @@ export default function DashboardPage({
       {forceProfileSetup ? (
         <section className="mt-5 app-card--accent-violet">
           <p className="text-sm text-strong">{t("dashboard.setupHint")}</p>
-          <Link href="/profile?setup=1" className="btn btn-violet btn-sm mt-3">
+          <Link href="/profile?setup=1" className="btn btn-primary btn-sm mt-3">
             {t("dashboard.setupCta")}
           </Link>
         </section>
       ) : null}
+
+      <div className="mt-5">
+        <DashboardFocusCard
+          dateKey={dateKey}
+          completed={weeklyCompleted}
+          planned={weeklyPlannedCount}
+          hasTodayPlan={hasWorkoutPlanned}
+        />
+      </div>
 
       {/* Hero: today's workouts */}
       <section className="mt-6">
@@ -446,7 +456,7 @@ export default function DashboardPage({
             <h2 className="mt-1 text-xl font-bold">{t("dashboard.emptyTitle")}</h2>
             <p className="mt-2 text-sm text-muted">{t("dashboard.emptyHint")}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Link href="/workouts" className="btn btn-violet">
+              <Link href="/workouts" className="btn btn-primary">
                 {t("dashboard.trainAnyway")}
               </Link>
               <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost">

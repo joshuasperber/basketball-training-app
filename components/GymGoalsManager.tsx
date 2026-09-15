@@ -291,7 +291,7 @@ export default function GymGoalsManager() {
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" onClick={() => void handleCreateGoal()} className="btn btn-violet btn-sm" disabled={!exerciseId}>
+        <button type="button" onClick={() => void handleCreateGoal()} className="btn btn-primary btn-sm" disabled={!exerciseId}>
           Ziel anlegen
         </button>
         <button type="button" onClick={() => void handleSeed()} className="btn btn-outline btn-sm">

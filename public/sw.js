@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v12";
+const CACHE_NAME = "bt-app-cache-v13";
 
 const INSTALL_SHELL = [
   "/manifest.webmanifest",
@@ -385,4 +385,20 @@ self.addEventListener("notificationclick", (event) => {
       return undefined;
     }),
   );
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(self.registration.showNotification(payload.title || "Basketball Training", {
+    body: payload.body || "Es gibt ein Update für dich.",
+    tag: payload.tag || "bt-push-update",
+    icon: "/icon.png",
+    badge: "/icon.png",
+    data: { url: payload.url || "/dashboard" },
+  }));
 });

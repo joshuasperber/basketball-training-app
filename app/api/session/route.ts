@@ -30,6 +30,7 @@ type ProgressRecord = {
   customSubcategories: string | null;
   workoutHistory: string | null;
   reminderPrefs: string | null;
+  readinessHistory: string | null;
   coachWeeklyNote: string | null;
   trainingExercises: string | null;
   trainingWorkouts: string | null;
@@ -60,6 +61,7 @@ type ProgressRow = {
   custom_subcategories: string | null;
   workout_history: string | null;
   reminder_prefs: string | null;
+  readiness_history: string | null;
   coach_weekly_note: string | null;
   training_exercises: string | null;
   training_workouts: string | null;
@@ -95,6 +97,7 @@ function getDefaultProgress(): ProgressRecord {
     customSubcategories: null,
     workoutHistory: null,
     reminderPrefs: null,
+    readinessHistory: null,
     coachWeeklyNote: null,
     trainingExercises: null,
     trainingWorkouts: null,
@@ -127,6 +130,7 @@ function mapRowToProgressRecord(row: ProgressRow | null): ProgressRecord {
     customSubcategories: row.custom_subcategories ?? null,
     workoutHistory: row.workout_history ?? null,
     reminderPrefs: row.reminder_prefs ?? null,
+    readinessHistory: row.readiness_history ?? null,
     coachWeeklyNote: row.coach_weekly_note ?? null,
     trainingExercises: row.training_exercises ?? null,
     trainingWorkouts: row.training_workouts ?? null,
@@ -196,6 +200,7 @@ function mergeProgressWithExisting(existing: ProgressRecord | null, incoming: Pr
     customSubcategories: mergeCloudTextField(incoming.customSubcategories, existing.customSubcategories),
     workoutHistory: mergeCloudTextField(incoming.workoutHistory, existing.workoutHistory),
     reminderPrefs: mergeCloudTextField(incoming.reminderPrefs, existing.reminderPrefs),
+    readinessHistory: mergeCloudTextField(incoming.readinessHistory, existing.readinessHistory),
     coachWeeklyNote: mergeCloudTextField(incoming.coachWeeklyNote, existing.coachWeeklyNote),
     trainingExercises: mergeCloudTextField(incoming.trainingExercises, existing.trainingExercises),
     trainingWorkouts: mergeCloudTextField(incoming.trainingWorkouts, existing.trainingWorkouts),
@@ -235,6 +240,7 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
     custom_subcategories: merged.customSubcategories ?? null,
     workout_history: merged.workoutHistory ?? null,
     reminder_prefs: merged.reminderPrefs ?? null,
+    readiness_history: merged.readinessHistory ?? null,
     coach_weekly_note: merged.coachWeeklyNote ?? null,
     training_exercises: merged.trainingExercises ?? null,
     training_workouts: merged.trainingWorkouts ?? null,

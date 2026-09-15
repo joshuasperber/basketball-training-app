@@ -121,6 +121,8 @@ export type LeagueScheduleEntry = {
   venueName?: string;
   venueAddress?: string;
   meetingTime?: string;
+  /** Lokale Wandzeit im Format YYYY-MM-DDTHH:mm. */
+  attendanceDeadline?: string;
   travelMinutes?: number | null;
   attendance?: LeagueAttendanceResponse[];
   liveState?: LeagueLiveState;
@@ -283,6 +285,9 @@ export function normalizeLeagueBundle(value: unknown): LeagueBundle {
           ...entry,
           startTime: normalizeLeagueStartTime(entry.startTime),
           meetingTime: normalizeLeagueStartTime(entry.meetingTime),
+          attendanceDeadline: typeof entry.attendanceDeadline === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(entry.attendanceDeadline)
+            ? entry.attendanceDeadline
+            : undefined,
           status: normalizeGameStatus(entry.status, hasScore),
           venueName: typeof entry.venueName === "string" ? entry.venueName : undefined,
           venueAddress: typeof entry.venueAddress === "string" ? entry.venueAddress : undefined,
@@ -485,6 +490,10 @@ export function validateLeagueGame(entry: LeagueScheduleEntry, players: LeaguePl
   if (hasAwayScore && (!Number.isInteger(entry.awayScore) || (entry.awayScore ?? -1) < 0)) issues.push("Auswärtspunkte müssen eine ganze positive Zahl sein.");
   if (entry.kind === "game" && hasHomeScore && entry.homeScore === entry.awayScore) {
     issues.push("Ein Ligaspiel benötigt nach Verlängerung einen Sieger.");
+  }
+  if (entry.attendanceDeadline) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(entry.attendanceDeadline)) issues.push("Die Zusagefrist ist ungültig.");
+    else if (entry.attendanceDeadline > `${entry.date}T${entry.startTime ?? "23:59"}`) issues.push("Die Zusagefrist muss vor dem Spielbeginn liegen.");
   }
   const playerIds = new Set(players.map((player) => player.id));
   for (const line of entry.playerStats ?? []) {

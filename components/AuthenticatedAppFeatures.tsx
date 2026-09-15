@@ -19,12 +19,14 @@ import {
   resetInitialCloudSyncCache,
 } from "@/lib/progress-sync";
 import { syncWorkoutSessionsToCloud, syncWorkoutSessionsToCloudWithRetry } from "@/lib/sync-workout-sessions";
+import { READINESS_UPDATED_EVENT } from "@/lib/readiness";
 
 const PLAN_SYNC_EVENTS = [
   "bt:plan-updated",
   "bt:training-goals-updated",
   "bt:player-intake-updated",
   LEAGUE_UPDATED_EVENT,
+  READINESS_UPDATED_EVENT,
 ] as const;
 
 function CloudSyncBridge() {

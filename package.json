@@ -8,6 +8,7 @@
     "start": "next start -p 3001",
     "lint": "eslint",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:watch": "vitest",
     "verify:supabase": "node scripts/verify-supabase-launch.mjs",
     "verify:supabase:remote": "node scripts/verify-supabase-launch.mjs --remote",
@@ -18,13 +19,17 @@
     "next": "^16.3.4",
     "react": "19.2.3",
     "react-day-picker": "^10.0.1",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "^16.3.4",
     "tailwindcss": "^4",
