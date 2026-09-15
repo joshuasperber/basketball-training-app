@@ -546,7 +546,15 @@ export default function TeamPage() {
         />
       </div>
 
-      {message ? <p className="mt-3 text-sm text-amber-200">{message}</p> : null}
+      {message ? (
+        <p
+          className={`mt-3 ${message.includes("kopiert") ? "alert-success" : "alert-info"}`}
+          role="status"
+          aria-live="polite"
+        >
+          {message}
+        </p>
+      ) : null}
 
       <section className="mt-4 app-card">
         <p className="section-eyebrow">Team verwalten</p>

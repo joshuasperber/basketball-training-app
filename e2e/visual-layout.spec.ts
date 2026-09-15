@@ -3,26 +3,27 @@ import { expect, test } from "@playwright/test";
 const TRAINING_HEADER_FIXTURE = `
   <main class="app-container">
     <div class="training-top">
-      <div class="training-top__main">
-        <div>
-          <p class="page-eyebrow">Bibliothek</p>
+      <div class="training-top__left">
+        <div class="training-top__intro">
           <h1 class="page-title">Training</h1>
           <p class="page-subtitle">Workouts und Übungen verwalten, filtern und starten.</p>
         </div>
-        <div class="training-top__nav-row">
+        <div class="training-top__primary-tabs">
           <div class="top-tabs-wrap"><div class="top-tabs top-tabs--training">
             <a class="top-tabs__btn">Woche</a><a class="top-tabs__btn top-tabs__btn--active">Katalog</a>
           </div></div>
-          <div class="training-top__tools"><button class="icon-btn">⌕</button><button class="icon-btn icon-btn--primary">+</button></div>
         </div>
-        <div class="training-top__nav-row training-top__nav-row--tabs">
+        <div class="training-top__catalog-tabs">
           <div class="segmented-wrap"><div class="segmented segmented--brand">
             <button class="segmented__btn segmented__btn--active">Workouts</button><button class="segmented__btn">Übungen</button>
           </div></div>
-          <div class="training-top__game-actions">
-            <div><button class="btn btn-outline btn-xs btn-block">Spieltag starten</button></div>
-            <div><button class="btn btn-outline btn-xs btn-block">Spieltraining starten</button></div>
-          </div>
+        </div>
+      </div>
+      <div class="training-top__right">
+        <div class="training-top__tools"><button class="icon-btn">⌕</button><button class="icon-btn icon-btn--primary">+</button></div>
+        <div class="training-top__game-actions">
+          <div><button class="btn btn-outline btn-xs btn-block">Spieltag starten</button></div>
+          <div><button class="btn btn-outline btn-xs btn-block">Spieltraining starten</button></div>
         </div>
       </div>
     </div>
@@ -59,6 +60,7 @@ test("training header controls stay separated and aligned at every relevant widt
       );
       const firstTabs = rect(".top-tabs");
       const secondTabs = rect(".segmented");
+      const header = rect(".training-top");
       const gameActions = rect(".training-top__game-actions");
       const tools = rect(".training-top__tools");
       const gameButtons = [...document.querySelectorAll<HTMLElement>(".training-top__game-actions .btn")]
@@ -67,8 +69,11 @@ test("training header controls stay separated and aligned at every relevant widt
         firstBottom: firstTabs.bottom,
         secondTop: secondTabs.top,
         secondBottom: secondTabs.bottom,
+        headerHeight: header.bottom - header.top,
+        headerBottom: header.bottom,
         actionsTop: gameActions.top,
         actionsBottom: gameActions.bottom,
+        toolsBottom: tools.bottom,
         tabsOverlap: overlaps(firstTabs, secondTabs),
         gameFirstTabsOverlap: overlaps(gameActions, firstTabs),
         gameSecondTabsOverlap: overlaps(gameActions, secondTabs),
@@ -84,8 +89,12 @@ test("training header controls stay separated and aligned at every relevant widt
     expect(layout.toolsGameOverlap, `Suche/+ überlagern die Spielaktionen bei ${width}px`).toBe(false);
     expect(layout.overflow, `Horizontaler Überlauf bei ${width}px`).toBeLessThanOrEqual(1);
     expect(Math.max(...layout.gameButtons) - Math.min(...layout.gameButtons), `Ungleiche Spiel-Buttons bei ${width}px`).toBeLessThanOrEqual(1);
+    expect(layout.actionsTop, `Spielaktionen stehen vor Suche/+ bei ${width}px`).toBeGreaterThanOrEqual(layout.toolsBottom);
     if (width >= 900) {
-      expect(Math.abs(layout.actionsBottom - layout.secondBottom), `Unsaubere Grundlinie bei ${width}px`).toBeLessThanOrEqual(1);
+      expect(layout.headerHeight, `Desktop-Kopfbereich ist bei ${width}px zu hoch`).toBeLessThanOrEqual(220);
+      expect(Math.abs(layout.actionsBottom - layout.headerBottom), `Spielaktionen schließen bei ${width}px nicht sauber ab`).toBeLessThanOrEqual(8);
+      expect(layout.actionsBottom - layout.secondBottom, `Unsaubere Grundlinie bei ${width}px`).toBeGreaterThanOrEqual(0);
+      expect(layout.actionsBottom - layout.secondBottom, `Unsaubere Grundlinie bei ${width}px`).toBeLessThanOrEqual(40);
     } else {
       expect(layout.actionsTop, `Spielaktionen überlagern die Untertabs bei ${width}px`).toBeGreaterThanOrEqual(layout.secondBottom);
     }

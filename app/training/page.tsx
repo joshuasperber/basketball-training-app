@@ -769,52 +769,54 @@ function TrainingPageContent() {
     <main className="app-container animate-in">
       <div className="flex w-full flex-col gap-4">
         <div className="training-top">
-          <div className="training-top__main">
-            <div>
-              <p className="page-eyebrow">{t("training.eyebrow")}</p>
+          <div className="training-top__left">
+            <div className="training-top__intro">
               <h1 className="page-title">{t("training.title")}</h1>
               <p className="page-subtitle">{t("training.subtitle")}</p>
             </div>
-            <div className="training-top__nav-row">
+            <div className="training-top__primary-tabs">
               <TopSubTabs
                 variant="training"
                 items={[{ labelKey: "tabs.week", href: "/weekly-workout" }, { labelKey: "tabs.catalog", href: buildTrainingHref(activeTab) }]}
               />
-              <div className="training-top__tools">
-                <ExpandableCatalogSearch
-                  value={catalogSearch}
-                  onChange={setCatalogSearch}
-                  expanded={catalogSearchExpanded}
-                  onExpandedChange={setCatalogSearchExpanded}
-                  placeholder={t("training.search")}
-                  ariaLabel={t("training.search")}
-                />
-                <IconButton
-                  variant="primary"
-                  label={activeTab === "Workouts" ? t("training.addWorkout") : t("training.addExercise")}
-                  onClick={() => {
-                    setNewWorkoutError(null);
-                    setNewExerciseError(null);
-                    setCreateOpen(true);
-                  }}
-                >
-                  <PlusIcon />
-                </IconButton>
-              </div>
             </div>
-            <div className="training-top__nav-row training-top__nav-row--tabs">
+            <div className="training-top__catalog-tabs">
               <TabSwitcher activeTab={activeTab} onTabChange={handleTabChange} />
-              <div className="training-top__game-actions">
-                <div>
-                  <button type="button" className="btn btn-outline btn-xs btn-block" onClick={() => startGameToday("game")}>
-                    Spieltag starten
-                  </button>
-                </div>
-                <div>
-                  <button type="button" className="btn btn-outline btn-xs btn-block" onClick={() => startGameToday("game_training")}>
-                    Spieltraining starten
-                  </button>
-                </div>
+            </div>
+          </div>
+
+          <div className="training-top__right">
+            <div className="training-top__tools">
+              <ExpandableCatalogSearch
+                value={catalogSearch}
+                onChange={setCatalogSearch}
+                expanded={catalogSearchExpanded}
+                onExpandedChange={setCatalogSearchExpanded}
+                placeholder={t("training.search")}
+                ariaLabel={t("training.search")}
+              />
+              <IconButton
+                variant="primary"
+                label={activeTab === "Workouts" ? t("training.addWorkout") : t("training.addExercise")}
+                onClick={() => {
+                  setNewWorkoutError(null);
+                  setNewExerciseError(null);
+                  setCreateOpen(true);
+                }}
+              >
+                <PlusIcon />
+              </IconButton>
+            </div>
+            <div className="training-top__game-actions">
+              <div>
+                <button type="button" className="btn btn-outline btn-xs btn-block" onClick={() => startGameToday("game")}>
+                  Spieltag starten
+                </button>
+              </div>
+              <div>
+                <button type="button" className="btn btn-outline btn-xs btn-block" onClick={() => startGameToday("game_training")}>
+                  Spieltraining starten
+                </button>
               </div>
             </div>
           </div>
