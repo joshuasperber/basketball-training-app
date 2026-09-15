@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   transferOrDeleteTeamsOwnedByUser,
   deleteUserGamePhotos,
+  deleteUserTeamVideos,
   deleteUserProgressRows,
   deleteUserDatabaseDataAtomically,
 } from "@/lib/server/account-delete";
@@ -21,7 +22,8 @@ export async function DELETE(request: NextRequest) {
   if (!config) return NextResponse.json({ error: "supabase_not_configured" }, { status: 503 });
 
   const photosDeleted = await deleteUserGamePhotos(user.id);
-  if (!photosDeleted) {
+  const teamVideosDeleted = await deleteUserTeamVideos(user.id);
+  if (!photosDeleted || !teamVideosDeleted) {
     return NextResponse.json({ error: "data_delete_incomplete" }, { status: 502 });
   }
 

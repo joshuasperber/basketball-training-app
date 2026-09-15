@@ -102,6 +102,10 @@ where p.user_id is null
 -- supabase/migrations/20260629120000_security_hardening.sql
 -- supabase/migrations/20260629140000_league_data_and_storage.sql
 -- supabase/migrations/20260909120000_team_permissions_and_opponent_names.sql
+-- supabase/migrations/20260915120000_team_league_version_history.sql
+-- supabase/migrations/20260915130000_push_subscriptions.sql
+-- supabase/migrations/20260915140000_calendar_feed_tokens.sql
+-- supabase/migrations/20260915150000_team_video_library.sql
 
 -- ── 4) Verifikation ─────────────────────────────────────────────────────────
 

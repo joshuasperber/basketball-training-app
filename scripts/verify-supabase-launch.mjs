@@ -57,6 +57,7 @@ async function runDirectChecks() {
     "team_league_data",
     "push_subscriptions",
     "calendar_feed_tokens",
+    "team_videos",
   ];
 
   const issues = [];
@@ -112,11 +113,13 @@ async function runDirectChecks() {
   console.log(`${teamLeagueColumnsRes.ok ? "✅" : "❌"} Konfliktschutz public.team_league_data.version/change_log (HTTP ${teamLeagueColumnsRes.status})`);
   allOk = allOk && teamLeagueColumnsRes.ok;
 
-  const bucketRes = await fetch(`${supabaseUrl}/storage/v1/bucket/game-photos`, {
-    headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
-  });
-  console.log(`${bucketRes.ok ? "✅" : "❌"} Storage-Bucket game-photos (HTTP ${bucketRes.status})`);
-  allOk = allOk && bucketRes.ok;
+  for (const bucket of ["game-photos", "team-videos"]) {
+    const bucketRes = await fetch(`${supabaseUrl}/storage/v1/bucket/${bucket}`, {
+      headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+    });
+    console.log(`${bucketRes.ok ? "✅" : "❌"} Storage-Bucket ${bucket} (HTTP ${bucketRes.status})`);
+    allOk = allOk && bucketRes.ok;
+  }
 
   if (!allOk) {
     console.error("\n→ Fehlende versionierte SQL-Migrationen aus supabase/migrations deployen.");

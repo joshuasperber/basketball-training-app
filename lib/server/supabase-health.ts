@@ -23,6 +23,7 @@ const REQUIRED_TABLES = [
   "team_league_data",
   "push_subscriptions",
   "calendar_feed_tokens",
+  "team_videos",
 ] as const;
 
 const PRIVATE_TABLES = [
@@ -36,6 +37,7 @@ const PRIVATE_TABLES = [
   "team_league_data",
   "push_subscriptions",
   "calendar_feed_tokens",
+  "team_videos",
 ] as const;
 
 function envCheck(id: string, present: boolean, label: string): SupabaseHealthCheck {
@@ -182,21 +184,22 @@ async function probeTeamLeagueVersionColumns(
   }
 }
 
-async function probeGamePhotosBucket(
+async function probeStorageBucket(
   supabaseUrl: string,
   serviceRoleKey: string,
+  bucket: string,
 ): Promise<SupabaseHealthCheck> {
   try {
-    const response = await fetch(`${supabaseUrl}/storage/v1/bucket/game-photos`, {
+    const response = await fetch(`${supabaseUrl}/storage/v1/bucket/${bucket}`, {
       headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
       cache: "no-store",
     });
     return response.ok
-      ? { id: "bucket_game_photos", ok: true, detail: "Storage-Bucket game-photos erreichbar" }
-      : { id: "bucket_game_photos", ok: false, detail: `Storage-Bucket game-photos — HTTP ${response.status}` };
+      ? { id: `bucket_${bucket.replaceAll("-", "_")}`, ok: true, detail: `Storage-Bucket ${bucket} erreichbar` }
+      : { id: `bucket_${bucket.replaceAll("-", "_")}`, ok: false, detail: `Storage-Bucket ${bucket} — HTTP ${response.status}` };
   } catch (error) {
     return {
-      id: "bucket_game_photos",
+      id: `bucket_${bucket.replaceAll("-", "_")}`,
       ok: false,
       detail: error instanceof Error ? error.message : "Storage-Bucket nicht erreichbar",
     };
@@ -230,7 +233,8 @@ export async function runSupabaseLaunchHealthChecks(): Promise<SupabaseLaunchHea
   }
   checks.push(await probeLeagueDataColumn(supabaseUrl, serviceRoleKey));
   checks.push(await probeTeamLeagueVersionColumns(supabaseUrl, serviceRoleKey));
-  checks.push(await probeGamePhotosBucket(supabaseUrl, serviceRoleKey));
+  checks.push(await probeStorageBucket(supabaseUrl, serviceRoleKey, "game-photos"));
+  checks.push(await probeStorageBucket(supabaseUrl, serviceRoleKey, "team-videos"));
 
   return {
     ok: checks.every((check) => check.ok),

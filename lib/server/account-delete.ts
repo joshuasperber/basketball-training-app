@@ -2,6 +2,7 @@ import { getSupabaseServiceConfig, supabaseRest } from "@/lib/server/supabase-ad
 import { postgrestPath } from "@/lib/server/postgrest-query";
 
 const GAME_PHOTOS_BUCKET = "game-photos";
+const TEAM_VIDEOS_BUCKET = "team-videos";
 
 type StorageListRow = { name: string };
 
@@ -44,6 +45,35 @@ export async function deleteUserGamePhotos(userId: string): Promise<boolean> {
     if (page.length < 1000) return true;
   }
   return false;
+}
+
+export async function deleteUserTeamVideos(userId: string): Promise<boolean> {
+  const config = getSupabaseServiceConfig();
+  if (!config) return false;
+  const videos = await supabaseRest<Array<{ id: string; storage_path: string }>>(
+    postgrestPath("team_videos", { uploaded_by: `eq.${userId}`, select: "id,storage_path" }),
+  );
+  if (!videos.ok) {
+    return videos.status === 404 || Boolean(videos.error?.includes("PGRST205"));
+  }
+  const paths = (videos.data ?? []).map((video) => video.storage_path).filter(Boolean);
+  if (paths.length > 0) {
+    const storageDelete = await fetch(`${config.url}/storage/v1/object/${encodeURIComponent(TEAM_VIDEOS_BUCKET)}`, {
+      method: "DELETE",
+      headers: {
+        apikey: config.serviceRoleKey,
+        Authorization: `Bearer ${config.serviceRoleKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ prefixes: paths }),
+      cache: "no-store",
+    });
+    if (!storageDelete.ok && storageDelete.status !== 404) return false;
+  }
+  const metadataDelete = await supabaseRest(postgrestPath("team_videos", { uploaded_by: `eq.${userId}` }), {
+    method: "DELETE",
+  });
+  return metadataDelete.ok;
 }
 
 /** Überträgt gemeinsame Teams bevorzugt an Captains, bevor ein Owner gelöscht wird. */

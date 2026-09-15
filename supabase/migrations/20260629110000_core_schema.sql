@@ -104,3 +104,20 @@ create table if not exists public.opponent_scouting (
 );
 
 create index if not exists opponent_scouting_team_id_idx on public.opponent_scouting(team_id);
+
+create table if not exists public.team_videos (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  uploaded_by uuid references auth.users(id) on delete set null,
+  uploader_name text not null,
+  title text not null check (char_length(title) between 1 and 120),
+  description text check (description is null or char_length(description) <= 1000),
+  category text not null check (category in ('offense', 'defense')),
+  storage_path text not null unique,
+  mime_type text not null check (mime_type in ('video/mp4', 'video/webm', 'video/quicktime')),
+  file_size bigint not null check (file_size > 0 and file_size <= 209715200),
+  duration_seconds integer check (duration_seconds is null or duration_seconds >= 0),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists team_videos_team_created_idx on public.team_videos(team_id, created_at desc);

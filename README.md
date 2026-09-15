@@ -14,6 +14,7 @@ npm run dev
 ### Umgesetzt (mit bekannten Limits)
 
 - **Team- und Liga-Modus:** Teams erstellen/beitreten, Rollen (owner/captain/player/coach), gemeinsame Liga mit Konfliktschutz und Änderungshistorie, wiederverwendbare Gegner, Kader, Scouting, Ergebnisse, Tabelle, Boxscores und Live-Spielmodus.
+- **Team-Videothek:** Mitglieder und Coaches laden Offense-/Defense-Clips direkt in einen privaten Supabase-Bucket; nur Teammitglieder erhalten zeitlich begrenzte Wiedergabe-Links.
 - **Game Center:** Organisation, Zu-/Absagen, Start-Five, Scouting, Live-Modus, persönliche Stats und Auswertung sind pro Spiel gebündelt.
 - **Kalender:** Einzeltermine können exportiert werden; verbundene Teams erhalten zusätzlich einen widerrufbaren iCal-Abonnement-Link.
 - **Trainingssteuerung:** Ein kurzer Tagesform-Check erzeugt einen fokussierten nächsten Schritt auf dem Dashboard und wird optional über die Cloud synchronisiert.
@@ -46,6 +47,7 @@ Die App unterstützt opt-in Web Push für Trainings-Erinnerungen, Spielplanände
    - `20260915120000_team_league_version_history.sql`
    - `20260915130000_push_subscriptions.sql`
    - `20260915140000_calendar_feed_tokens.sql`
+   - `20260915150000_team_video_library.sql`
 2. Ein VAPID-Schlüsselpaar erzeugen, z. B. mit `npx web-push generate-vapid-keys`.
 3. In Vercel und lokal setzen:
    - `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`

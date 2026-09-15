@@ -17,6 +17,9 @@ export async function GET(request: NextRequest) {
   const teamRes = await supabaseRest<Record<string, unknown>[]>(
     `team_members?user_id=eq.${user.id}&select=*,teams(name,season,club_name)`,
   );
+  const teamVideoRes = await supabaseRest<Record<string, unknown>[]>(
+    `team_videos?uploaded_by=eq.${user.id}&select=id,team_id,uploader_name,title,description,category,mime_type,file_size,duration_seconds,created_at`,
+  );
 
   const exportPayload = {
     exportedAt: new Date().toISOString(),
@@ -25,6 +28,7 @@ export async function GET(request: NextRequest) {
       userProgress: progressRes.data?.[0] ?? null,
       profile: profileRes.data?.[0] ?? null,
       teamMemberships: teamRes.data ?? [],
+      uploadedTeamVideos: teamVideoRes.data ?? [],
     },
     note: "Lokale Browser-Daten (localStorage) sind in diesem Export nicht enthalten — nutze den Profil-Export in der App für die vollständige JSON-Datei.",
   };

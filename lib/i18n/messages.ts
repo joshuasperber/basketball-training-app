@@ -278,9 +278,10 @@ const de = {
 
   "team.eyebrow": "Team",
   "team.title": "Team-Modus",
-  "team.subtitle": "Form-Ranking, Scouting und Start-Empfehlungen für dein Team.",
+  "team.subtitle": "Form-Ranking, Play-Videos, Scouting und Start-Empfehlungen für dein Team.",
   "team.tabOverview": "Übersicht",
   "team.tabRoster": "Kader",
+  "team.tabPlays": "Plays",
   "team.tabScouting": "Scouting",
   "team.tabAdvice": "Empfehlung",
   "team.create": "Erstellen",
@@ -288,7 +289,7 @@ const de = {
   "team.empty": "Noch kein Team — erstelle eines oder tritt per Einladung bei.",
   "team.loading": "Lade Teams …",
   "team.invitePlayer": "Spieler einladen",
-  "team.inviteCoach": "Trainer einladen (read-only)",
+  "team.inviteCoach": "Trainer einladen",
 
   "liga.eyebrow": "Saisonplanung",
   "liga.title": "Liga",
@@ -591,9 +592,10 @@ const en: Record<MessageKey, string> = {
 
   "team.eyebrow": "Team",
   "team.title": "Team mode",
-  "team.subtitle": "Form ranking, scouting, and starting recommendations for your team.",
+  "team.subtitle": "Form ranking, play videos, scouting, and starting recommendations for your team.",
   "team.tabOverview": "Overview",
   "team.tabRoster": "Roster",
+  "team.tabPlays": "Plays",
   "team.tabScouting": "Scouting",
   "team.tabAdvice": "Advice",
   "team.create": "Create",
@@ -601,7 +603,7 @@ const en: Record<MessageKey, string> = {
   "team.empty": "No team yet — create one or join with an invite.",
   "team.loading": "Loading teams…",
   "team.invitePlayer": "Invite player",
-  "team.inviteCoach": "Invite coach (read-only)",
+  "team.inviteCoach": "Invite coach",
 
   "liga.eyebrow": "Season planning",
   "liga.title": "League",

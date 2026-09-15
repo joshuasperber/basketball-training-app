@@ -36,6 +36,7 @@ export default function DatenschutzPage() {
             <li>Training: Workout-Logs, RPE, XP, Spiel-Statistiken, Coach-Intake</li>
             <li>Team (optional): Anzeigename, Form-Score, Freigabe-Stufe, ggf. E-Mail für Teammitglieder</li>
             <li>Spiel-Fotos (optional): Upload in Supabase Storage (Bucket „game-photos“)</li>
+            <li>Team-Videos (optional): Titel, Coaching-Hinweis, Uploader und Videodatei im privaten Team-Speicher</li>
             <li>Eigene Übungs-Videos können lokal im Browser gespeichert werden</li>
             <li>Technisch: Session-Cookies, Service-Worker-Cache, optional Sentry-Fehlerberichte</li>
             <li>Benachrichtigungen (optional): verschlüsseltes Push-Abonnement, Zeitzone und Reminder-Einstellungen</li>
@@ -71,7 +72,8 @@ export default function DatenschutzPage() {
           <p className="mt-1">
             Daten liegen primär lokal im Browser (<code className="text-xs">localStorage</code>) und werden bei
             Login mit Supabase synchronisiert (Tabelle <code className="text-xs">user_progress</code>,{" "}
-            <code className="text-xs">profiles</code>).
+            <code className="text-xs">profiles</code>). Team-Videos liegen privat in Supabase Storage und werden
+            nur über zeitlich begrenzte Links an Mitglieder des ausgewählten Teams ausgeliefert.
           </p>
         </div>
 

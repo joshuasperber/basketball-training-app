@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
+import TeamVideoLibrary from "@/components/TeamVideoLibrary";
 import {
   OPPONENT_STYLE_LABELS,
   OPPONENT_STYLE_TAGS,
@@ -44,7 +45,7 @@ import {
 } from "@/lib/team-local-cache";
 import { useT } from "@/lib/i18n/I18nProvider";
 
-type TeamTab = "overview" | "roster" | "scouting" | "advice";
+type TeamTab = "overview" | "roster" | "plays" | "scouting" | "advice";
 
 const TEAM_ROLE_LABELS: Record<TeamRole, string> = {
   owner: "Owner",
@@ -498,7 +499,7 @@ export default function TeamPage() {
       await navigator.clipboard.writeText(link);
       setMessage(
         inviteRole === "coach"
-          ? "Trainer-Einladungslink kopiert (read-only Ansicht)."
+          ? "Trainer-Einladungslink kopiert (inklusive Video-Upload)."
           : "Spieler-Einladungslink kopiert.",
       );
     } catch {
@@ -550,7 +551,7 @@ export default function TeamPage() {
       <section className="mt-4 app-card">
         <p className="section-eyebrow">Team verwalten</p>
         {isCoachViewer ? (
-          <p className="mt-2 text-sm text-muted">Trainer-Ansicht (read-only) — Kader, Wochenpläne und Empfehlungen ansehen.</p>
+          <p className="mt-2 text-sm text-muted">Trainer-Ansicht — Kader, Wochenpläne und Empfehlungen ansehen sowie Team-Videos teilen.</p>
         ) : (
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div>
@@ -610,11 +611,12 @@ export default function TeamPage() {
 
           {detail ? (
             <>
-              <div className="mt-4 top-tabs">
+              <div className="mt-4 top-tabs team-section-tabs">
                 {(
                   [
                     ["overview", t("team.tabOverview")],
                     ["roster", t("team.tabRoster")],
+                    ["plays", t("team.tabPlays")],
                     ["scouting", t("team.tabScouting")],
                     ["advice", t("team.tabAdvice")],
                   ] as const
@@ -783,6 +785,10 @@ export default function TeamPage() {
                     )}
                   />
                 </section>
+              ) : null}
+
+              {tab === "plays" && selectedTeamId ? (
+                <TeamVideoLibrary teamId={selectedTeamId} viewerRole={viewerRole} />
               ) : null}
 
               {tab === "scouting" && canManageTeam ? (
