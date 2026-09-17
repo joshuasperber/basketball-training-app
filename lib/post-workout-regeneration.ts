@@ -1,8 +1,29 @@
 import { toLocalDateKey } from "@/lib/workout";
 
-/** After a non-regeneration workout, tag today for recovery in the daily plan. */
-export function appendRegenerationTagsAfterWorkoutComplete(sport: string): string | null {
-  if (sport === "Regeneration") return null;
+function normalizeWorkoutLabel(value: string | null | undefined): string {
+  return (value ?? "")
+    .trim()
+    .toLocaleLowerCase("de-DE")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Recovery and mobility sessions already cover the intended post-workout regeneration. */
+export function workoutAlreadyCoversRecovery(sport: string, subcategory?: string | null): boolean {
+  const normalizedSport = normalizeWorkoutLabel(sport);
+  if (normalizedSport === "regeneration") return true;
+  if (normalizedSport !== "home") return false;
+
+  const normalizedSubcategory = normalizeWorkoutLabel(subcategory);
+  return normalizedSubcategory === "recovery" || normalizedSubcategory === "mobility";
+}
+
+/** After a workout without recovery coverage, tag today for recovery in the daily plan. */
+export function appendRegenerationTagsAfterWorkoutComplete(
+  sport: string,
+  subcategory?: string | null,
+): string | null {
+  if (workoutAlreadyCoversRecovery(sport, subcategory)) return null;
 
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);

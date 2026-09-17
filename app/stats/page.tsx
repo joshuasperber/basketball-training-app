@@ -22,13 +22,18 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import { ensureInitialCloudSync, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
 import { countStrictTrackedSetsInLogs, countTrackedSetsInLogs, logCountsAsTrackedSet, sessionHasCompletedWork } from "@/lib/workout-session-metrics";
-import { repCountFromSessionLog, sessionLogHasShootingData } from "@/lib/workout-metrics";
+import { METRIC_LABELS, repCountFromSessionLog, sessionLogHasShootingData } from "@/lib/workout-metrics";
 import {
   aggregateShootingByZone,
   computeFieldGoalPercentage,
   computeThreePointPercentage,
   shootingZoneRows,
 } from "@/lib/shooting-zone-stats";
+import {
+  buildHomeExerciseGoalStats,
+  formatPerformanceMetricValue,
+  getPerformanceMetricTarget,
+} from "@/lib/home-performance";
 
 const GameStatsSearchPanel = dynamic(() => import("@/components/GameStatsSearchPanel"));
 const GameTrainingInsights = dynamic(() => import("@/components/GameTrainingInsights"));
@@ -63,14 +68,17 @@ type GymExerciseGoalStat = {
   avgWeightKg: number;
   avgReps: number;
   maxWeightKg: number;
+  maxReps: number;
   maxRepsAtMaxWeight: number;
+  maxTimeSeconds: number;
+  maxDistanceMeters: number;
   suggestedWeightKg: number;
   suggestedReps: number;
   progressionHint: string;
 };
 
 type StatsRange = "all" | "monthly" | "weekly";
-type StatsDetailTab = "overview" | "basketball" | "games" | "gym";
+type StatsDetailTab = "overview" | "basketball" | "games" | "gym" | "home";
 
 type HistorySportBucket = "Basketball" | "Gym" | "Home" | "Regeneration";
 
@@ -100,7 +108,9 @@ type ActivityListMode =
   | "basketball-workouts"
   | "basketball-exercises"
   | "gym-workouts"
-  | "gym-exercises";
+  | "gym-exercises"
+  | "home-workouts"
+  | "home-exercises";
 
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
@@ -236,7 +246,7 @@ function countUniqueExercisesInSession(session: WorkoutSessionEntry) {
 function buildExerciseActivityItems(
   sessions: WorkoutSessionEntry[],
   exerciseLookup: Map<string, Exercise>,
-  category?: "Basketball" | "Gym",
+  category?: "Basketball" | "Gym" | "Home",
 ): ExerciseActivityItem[] {
   const rows = new Map<
     string,
@@ -462,7 +472,19 @@ function buildGymExerciseGoals(sessionsInput: WorkoutSessionEntry[], range: Stat
   const sessions = filterSessionsByRange(sessionsInput, range);
   const exercises = loadExercises();
   const exerciseLookup = new Map(exercises.map((exercise) => [exercise.id, exercise]));
-  const map = new Map<string, { weights: number[]; reps: number[]; latestISO: string | null; maxWeight: number; maxRepsAtMaxWeight: number }>();
+  const map = new Map<
+    string,
+    {
+      weights: number[];
+      reps: number[];
+      latestISO: string | null;
+      maxWeight: number;
+      maxReps: number;
+      maxRepsAtMaxWeight: number;
+      maxTimeSeconds: number;
+      maxDistanceMeters: number;
+    }
+  >();
 
   sessions.forEach((session) => {
     session.logs.forEach((log) => {
@@ -470,9 +492,21 @@ function buildGymExerciseGoals(sessionsInput: WorkoutSessionEntry[], range: Stat
       if (!exercise || exercise.category !== "Gym") return;
       const weight = log.weightKg ?? 0;
       const reps = repCountFromSessionLog(log, exercise);
-      const current = map.get(log.exerciseId) ?? { weights: [], reps: [], latestISO: null, maxWeight: 0, maxRepsAtMaxWeight: 0 };
+      const current = map.get(log.exerciseId) ?? {
+        weights: [],
+        reps: [],
+        latestISO: null,
+        maxWeight: 0,
+        maxReps: 0,
+        maxRepsAtMaxWeight: 0,
+        maxTimeSeconds: 0,
+        maxDistanceMeters: 0,
+      };
       if (weight > 0) current.weights.push(weight);
       if (reps > 0 && reps <= 30) current.reps.push(reps);
+      current.maxReps = Math.max(current.maxReps, reps);
+      current.maxTimeSeconds = Math.max(current.maxTimeSeconds, log.timeSeconds ?? 0);
+      current.maxDistanceMeters = Math.max(current.maxDistanceMeters, log.distanceMeters ?? 0);
       if (weight >= current.maxWeight) {
         current.maxRepsAtMaxWeight = weight > current.maxWeight ? Math.max(0, reps) : Math.max(current.maxRepsAtMaxWeight, Math.max(0, reps));
         current.maxWeight = weight;
@@ -503,8 +537,11 @@ function buildGymExerciseGoals(sessionsInput: WorkoutSessionEntry[], range: Stat
         exerciseName: exerciseLookup.get(exerciseId)?.name ?? exerciseId,
         avgWeightKg: Math.round(avgWeightKg * 10) / 10,
         avgReps: Math.round(avgReps * 10) / 10,
-        maxWeightKg: data.maxWeight,
+        maxWeightKg: maxWeight,
+        maxReps: data.maxReps,
         maxRepsAtMaxWeight: data.maxRepsAtMaxWeight,
+        maxTimeSeconds: data.maxTimeSeconds,
+        maxDistanceMeters: data.maxDistanceMeters,
         suggestedWeightKg: Math.round(suggestedWeightKg * 10) / 10,
         suggestedReps,
         progressionHint,
@@ -574,7 +611,9 @@ function StatsPageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const detailTab: StatsDetailTab =
-    tabParam === "basketball" || tabParam === "games" || tabParam === "gym" ? tabParam : "overview";
+    tabParam === "basketball" || tabParam === "games" || tabParam === "gym" || tabParam === "home"
+      ? tabParam
+      : "overview";
   const [history, setHistory] = useState<CompletedWorkoutHistoryEntry[]>([]);
   const [sessionDetails, setSessionDetails] = useState<WorkoutSessionEntry[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -588,6 +627,8 @@ function StatsPageContent() {
     gymGoals: false,
     basketballHistory: false,
     gymHistory: false,
+    homeGoals: true,
+    homeHistory: false,
   });
   const [username, setUsername] = useState("Spieler");
   const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>([]);
@@ -841,6 +882,23 @@ useEffect(() => {
     return { workouts: gymSessions.length, exercises, sets, reps, minutes, volume };
   }, [exerciseLookupForSplit, gymSessions]);
 
+  const homeSessions = useMemo(
+    () => filteredSessions.filter((session) => resolveHistorySport(session) === "Home"),
+    [filteredSessions],
+  );
+  const homeTotalsSummary = useMemo(() => {
+    const sets = homeSessions.reduce((sum, session) => sum + countTrackedSetsInLogs(session.logs), 0);
+    const exercises = homeSessions.reduce((sum, session) => sum + countUniqueExercisesInSession(session), 0);
+    const minutes = Math.round(
+      homeSessions.reduce(
+        (sum, session) =>
+          sum + Math.max(0, session.durationSeconds ?? Math.max(session.logs.length, 1) * 90),
+        0,
+      ) / 60,
+    );
+    return { workouts: homeSessions.length, exercises, sets, minutes };
+  }, [homeSessions]);
+
   const sportSlices = useMemo(() => {
     const counts: Record<SportCategory, number> = { Basketball: 0, Gym: 0, Home: 0, Regeneration: 0 };
     filteredSessions.forEach((session) => {
@@ -922,6 +980,14 @@ useEffect(() => {
     () => buildExerciseActivityItems(gymSessions, exerciseLookupForSplit, "Gym"),
     [exerciseLookupForSplit, gymSessions],
   );
+  const homeExerciseActivity = useMemo(
+    () => buildExerciseActivityItems(homeSessions, exerciseLookupForSplit, "Home"),
+    [exerciseLookupForSplit, homeSessions],
+  );
+  const homeExerciseGoals = useMemo(
+    () => buildHomeExerciseGoalStats([...exerciseLookupForSplit.values()], homeSessions),
+    [exerciseLookupForSplit, homeSessions],
+  );
 
   const totalMinutesTrained = Math.round(
     filteredSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? Math.max(session.logs.length, 1) * 90), 0) / 60,
@@ -973,7 +1039,9 @@ useEffect(() => {
       | "history"
       | "gymGoals"
       | "basketballHistory"
-      | "gymHistory",
+      | "gymHistory"
+      | "homeGoals"
+      | "homeHistory",
   ) => {
     setOpenSections((current) => ({ ...current, [key]: !current[key] }));
   };
@@ -1044,6 +1112,7 @@ useEffect(() => {
                 { id: "basketball", label: t("stats.tabBasketball"), href: "/stats?tab=basketball" },
                 { id: "games", label: t("stats.tabGames"), href: "/stats?tab=games" },
                 { id: "gym", label: t("stats.tabGym"), href: "/stats?tab=gym" },
+                { id: "home", label: t("stats.tabHome"), href: "/stats?tab=home" },
               ] as const).map((tab) => (
                 <Link
                   key={tab.id}
@@ -1468,14 +1537,75 @@ useEffect(() => {
                   items={gymGoals}
                   listClassName="space-y-2"
                   getKey={(entry) => entry.exerciseId}
-                  renderItem={(entry) => (
-                    <div className="list-card text-sm">
-                      <p className="font-semibold text-strong">{entry.exerciseName}</p>
-                      <p className="text-muted">Ø Gewicht {entry.avgWeightKg} kg · Ø Reps {entry.avgReps} · Max {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight}</p>
-                      <p className="hint-success">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
-                      <p className="mt-1 text-xs text-faint">{entry.progressionHint}</p>
-                    </div>
-                  )}
+                  renderItem={(entry) => {
+                    const exercise = exerciseLookupForSplit.get(entry.exerciseId);
+                    const bestValues = [
+                      entry.maxWeightKg > 0
+                        ? { label: "Bestgewicht", value: formatPerformanceMetricValue("weight", entry.maxWeightKg, exercise) }
+                        : null,
+                      entry.maxReps > 0
+                        ? { label: "Meiste Reps", value: formatPerformanceMetricValue("reps", entry.maxReps, exercise) }
+                        : null,
+                      entry.maxTimeSeconds > 0
+                        ? { label: "Längste Zeit", value: formatPerformanceMetricValue("time", entry.maxTimeSeconds, exercise) }
+                        : null,
+                      entry.maxDistanceMeters > 0
+                        ? { label: "Größte Distanz", value: formatPerformanceMetricValue("distance", entry.maxDistanceMeters, exercise) }
+                        : null,
+                    ].filter((value): value is { label: string; value: string } => value != null);
+                    const configuredTargets = exercise
+                      ? exercise.metricKeys.flatMap((metric) => {
+                          if (metric === "completed" || metric === "misses") return [];
+                          const target = getPerformanceMetricTarget(exercise, metric);
+                          return target == null
+                            ? []
+                            : [`${METRIC_LABELS[metric]} ${formatPerformanceMetricValue(metric, target, exercise)}`];
+                        })
+                      : [];
+                    const averageValues = [
+                      entry.avgWeightKg > 0 ? `Ø Gewicht ${entry.avgWeightKg} kg` : null,
+                      entry.avgReps > 0 ? `Ø Reps ${entry.avgReps}` : null,
+                    ].filter((value): value is string => value != null);
+                    return (
+                      <div className="list-card text-sm">
+                        <p className="font-semibold text-strong">{entry.exerciseName}</p>
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted">Bestwerte</p>
+                        {bestValues.length > 0 ? (
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                            {bestValues.map((bestValue) => (
+                              <div
+                                key={bestValue.label}
+                                className="rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3"
+                              >
+                                <p className="text-xs text-muted">{bestValue.label}</p>
+                                <p className="mt-1 font-semibold text-strong">{bestValue.value}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-muted">Noch kein messbarer Bestwert vorhanden.</p>
+                        )}
+                        {entry.maxWeightKg > 0 && entry.maxRepsAtMaxWeight > 0 ? (
+                          <p className="mt-2 text-xs text-muted">
+                            Bester Satz bei Höchstgewicht: {entry.maxWeightKg} kg × {entry.maxRepsAtMaxWeight} Reps
+                          </p>
+                        ) : null}
+                        {averageValues.length > 0 ? (
+                          <p className="mt-2 text-muted">{averageValues.join(" · ")}</p>
+                        ) : null}
+                        {entry.maxWeightKg > 0 ? (
+                          <p className="hint-success">Nächstes Ziel: {entry.suggestedWeightKg} kg × {entry.suggestedReps} Reps</p>
+                        ) : entry.maxReps > 0 ? (
+                          <p className="hint-success">Nächstes Ziel: {entry.suggestedReps} Reps</p>
+                        ) : configuredTargets.length > 0 ? (
+                          <p className="hint-success">Ziel: {configuredTargets.join(" · ")}</p>
+                        ) : null}
+                        {entry.maxWeightKg > 0 || entry.maxReps > 0 ? (
+                          <p className="mt-1 text-xs text-faint">{entry.progressionHint}</p>
+                        ) : null}
+                      </div>
+                    );
+                  }}
                 />
               )
             ) : null}
@@ -1533,6 +1663,166 @@ useEffect(() => {
                     </button>
                   )}
                 />
+              )
+            ) : null}
+          </section>
+        </>
+      ) : null}
+
+      {detailTab === "home" ? (
+        <>
+          <section className="mt-6 app-card">
+            <p className="section-eyebrow">Home</p>
+            <h2 className="section-title mt-1">Home Kennzahlen</h2>
+            <p className="mt-1 text-xs text-muted">Abgeschlossene Home-Workouts und Exercises im gewählten Zeitraum.</p>
+            <div className="mt-4 grid-stats">
+              <button
+                type="button"
+                className="stat-tile stat-tile--interactive text-left"
+                onClick={() => revealActivityList("home-workouts")}
+                aria-pressed={activityListMode === "home-workouts"}
+              >
+                <p className="stat-tile__label">Workouts</p>
+                <p className="stat-tile__value">{homeTotalsSummary.workouts}</p>
+                <p className="stat-tile__sub">Liste öffnen</p>
+              </button>
+              <button
+                type="button"
+                className="stat-tile stat-tile--interactive text-left"
+                onClick={() => revealActivityList("home-exercises")}
+                aria-pressed={activityListMode === "home-exercises"}
+              >
+                <p className="stat-tile__label">Exercises</p>
+                <p className="stat-tile__value">{homeTotalsSummary.exercises}</p>
+                <p className="stat-tile__sub">Liste öffnen</p>
+              </button>
+              <div className="stat-tile">
+                <p className="stat-tile__label">Sätze</p>
+                <p className="stat-tile__value">{homeTotalsSummary.sets}</p>
+              </div>
+              <div className="stat-tile">
+                <p className="stat-tile__label">Minuten</p>
+                <p className="stat-tile__value">{homeTotalsSummary.minutes}</p>
+              </div>
+            </div>
+          </section>
+
+          {activityListMode === "home-workouts" || activityListMode === "home-exercises" ? (
+            <section id="stats-activity-list" className="mt-6 app-card scroll-mt-24">
+              <p className="section-eyebrow">Home-Aktivität</p>
+              <h2 className="section-title mt-1">
+                {activityListMode === "home-workouts"
+                  ? "Abgeschlossene Home-Workouts"
+                  : "Abgeschlossene Home-Exercises"}
+              </h2>
+              {activityListMode === "home-workouts" ? (
+                <WorkoutActivityList items={historyBuckets.Home} onSelect={setSelectedSessionId} />
+              ) : (
+                <ExerciseActivityList items={homeExerciseActivity} onSelect={setSelectedSessionId} />
+              )}
+            </section>
+          ) : null}
+
+          <section className="mt-6 app-card">
+            <button
+              type="button"
+              onClick={() => toggleSection("homeGoals")}
+              className="flex w-full items-center justify-between gap-3 text-left"
+            >
+              <span>
+                <span className="section-title block">Home-Workout-Ziele je Exercise</span>
+                <span className="mt-1 block text-xs font-normal text-muted">
+                  Recovery und Mobility bleiben bewusst ohne Leistungswerte.
+                </span>
+              </span>
+              <span className="chip">{openSections.homeGoals ? "−" : "+"}</span>
+            </button>
+            {openSections.homeGoals ? (
+              homeExerciseGoals.length === 0 ? (
+                <p className="mt-3 text-sm text-muted">Noch keine leistungsorientierten Home-Exercises vorhanden.</p>
+              ) : (
+                <GradientFadeList
+                  className="mt-4"
+                  items={homeExerciseGoals}
+                  listClassName="space-y-3"
+                  getKey={(entry) => entry.exerciseId}
+                  renderItem={(entry) => {
+                    const exercise = exerciseLookupForSplit.get(entry.exerciseId);
+                    return (
+                      <article className="list-card text-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-strong">{entry.exerciseName}</p>
+                            <p className="text-xs text-muted">
+                              {entry.subcategory} · {entry.sessionCount} abgeschlossene Sessions
+                            </p>
+                          </div>
+                          {entry.latestDateISO ? (
+                            <span className="chip">Zuletzt {new Date(entry.latestDateISO).toLocaleDateString("de-DE")}</span>
+                          ) : (
+                            <span className="chip">Noch nicht gestartet</span>
+                          )}
+                        </div>
+                        {entry.metrics.length > 0 ? (
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                            {entry.metrics.map((metric) => {
+                              const progress =
+                                metric.target && metric.best
+                                  ? Math.min(100, Math.round((metric.best / metric.target) * 100))
+                                  : 0;
+                              return (
+                                <div key={metric.metric} className="rounded-xl border border-[var(--surface-border)] bg-[var(--bg-muted)] p-3">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                                    {METRIC_LABELS[metric.metric]}
+                                  </p>
+                                  <p className="mt-1 text-xs text-muted">
+                                    Ziel: {metric.target != null ? formatPerformanceMetricValue(metric.metric, metric.target, exercise) : "nicht gesetzt"}
+                                  </p>
+                                  <p className="mt-1 font-semibold text-strong">
+                                    Bestwert: {metric.best != null ? formatPerformanceMetricValue(metric.metric, metric.best, exercise) : "–"}
+                                  </p>
+                                  <p className="text-xs text-muted">
+                                    Zuletzt: {metric.latest != null ? formatPerformanceMetricValue(metric.metric, metric.latest, exercise) : "–"}
+                                  </p>
+                                  {metric.target != null ? (
+                                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface)]">
+                                      <div
+                                        className="h-full rounded-full bg-[var(--brand-500)] transition-all"
+                                        style={{ width: `${progress}%` }}
+                                      />
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-xs text-muted">
+                            Für diese Exercise ist bewusst kein messbarer Zielwert hinterlegt; Abschlüsse werden trotzdem gezählt.
+                          </p>
+                        )}
+                      </article>
+                    );
+                  }}
+                />
+              )
+            ) : null}
+          </section>
+
+          <section className="mt-6 app-card">
+            <button
+              type="button"
+              onClick={() => toggleSection("homeHistory")}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <span className="section-title">Historie Home</span>
+              <span className="chip">{openSections.homeHistory ? "−" : "+"}</span>
+            </button>
+            {openSections.homeHistory ? (
+              historyBuckets.Home.length === 0 ? (
+                <p className="mt-3 text-sm text-muted">Keine Home-Workouts vorhanden.</p>
+              ) : (
+                <WorkoutActivityList items={historyBuckets.Home} onSelect={setSelectedSessionId} />
               )
             ) : null}
           </section>

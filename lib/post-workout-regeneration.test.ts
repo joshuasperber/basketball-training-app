@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { appendRegenerationTagsAfterWorkoutComplete } from "@/lib/post-workout-regeneration";
+import {
+  appendRegenerationTagsAfterWorkoutComplete,
+  workoutAlreadyCoversRecovery,
+} from "@/lib/post-workout-regeneration";
 
 function installBrowserStorage() {
   const store = new Map<string, string>();
@@ -35,5 +38,19 @@ describe("post-workout-regeneration", () => {
 
   it("skips regeneration tagging for recovery workouts", () => {
     expect(appendRegenerationTagsAfterWorkoutComplete("Regeneration")).toBeNull();
+  });
+
+  it.each(["Recovery", "Mobility"])(
+    "skips regeneration tagging for Home/%s workouts",
+    (subcategory) => {
+      expect(workoutAlreadyCoversRecovery("Home", subcategory)).toBe(true);
+      expect(appendRegenerationTagsAfterWorkoutComplete("Home", subcategory)).toBeNull();
+      expect(window.localStorage.getItem("bt.daily-plan.v1")).toBeNull();
+    },
+  );
+
+  it("still adds regeneration after a Home conditioning workout", () => {
+    expect(workoutAlreadyCoversRecovery("Home", "Conditioning")).toBe(false);
+    expect(appendRegenerationTagsAfterWorkoutComplete("Home", "Conditioning")).toContain("Regeneration");
   });
 });

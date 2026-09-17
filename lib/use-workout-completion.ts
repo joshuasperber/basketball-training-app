@@ -165,7 +165,10 @@ export function useWorkoutCompletion({
       progressRef.current = completedProgress;
       setProgress(completedProgress);
 
-      const regenBanner = appendRegenerationTagsAfterWorkoutComplete(completedProgress.sport);
+      const regenBanner = appendRegenerationTagsAfterWorkoutComplete(
+        completedProgress.sport,
+        completedProgress.subcategory,
+      );
       setCompletionBanner(regenBanner ?? result.bannerMessage ?? "Stark! Workout abgeschlossen ✅");
 
       if (isCatalogWorkoutRun) {

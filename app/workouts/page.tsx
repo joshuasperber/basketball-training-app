@@ -93,6 +93,7 @@ import {
 } from "@/lib/training-goals";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { getWarmupWorkouts } from "@/lib/warmup-workouts";
+import { workoutAlreadyCoversRecovery } from "@/lib/post-workout-regeneration";
 
 const CUSTOM_SUBCATEGORY_KEY = "bt.custom-subcategories.v1";
 
@@ -1080,7 +1081,7 @@ function WorkoutsPageContent() {
       basketballMode: isBasketball ? manualBasketballMode : undefined,
     };
 
-    if (manualCategory !== "Regeneration") {
+    if (!workoutAlreadyCoversRecovery(nextEntry.sport, nextEntry.subcategory)) {
       if (dayHasRegenerationCoverage(dateKey)) {
         persistManualWorkoutForDay(nextEntry, startImmediately, "none");
         return;
@@ -1238,8 +1239,11 @@ function WorkoutsPageContent() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowKey = toLocalDateKey(tomorrow);
     const tomorrowHasRecovery = (daily[tomorrowKey] ?? []).some((tag) => tag === "Regeneration");
-    const todayIsRecoveryOnly = completedProgress.sport === "Regeneration";
-    if (!todayIsRecoveryOnly && !tomorrowHasRecovery) {
+    const completedWorkoutCoversRecovery = workoutAlreadyCoversRecovery(
+      completedProgress.sport,
+      completedProgress.subcategory,
+    );
+    if (!completedWorkoutCoversRecovery && !tomorrowHasRecovery) {
       const todayTags = new Set([...(daily[todayKey] ?? []), "Regeneration", "Recovery:Mobilität & Dehnung"]);
       daily[todayKey] = Array.from(todayTags);
       window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify(daily));
