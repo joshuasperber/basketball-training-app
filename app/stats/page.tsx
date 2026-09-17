@@ -4,7 +4,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { type Category } from "@/lib/training-data";
+import { type Category, type Exercise } from "@/lib/training-data";
 import { CompletedWorkoutHistoryEntry, WORKOUT_HISTORY_KEY } from "@/lib/workout";
 import {
   getWorkoutSessions,
@@ -82,6 +82,25 @@ type HistoryItem = {
   exerciseCount: number;
   totalValue: number;
 };
+
+type ExerciseActivityItem = {
+  id: string;
+  name: string;
+  category: SportCategory;
+  workoutCount: number;
+  setCount: number;
+  reps: number;
+  latestDateISO: string;
+  latestSessionId: string;
+};
+
+type ActivityListMode =
+  | "overview-workouts"
+  | "overview-exercises"
+  | "basketball-workouts"
+  | "basketball-exercises"
+  | "gym-workouts"
+  | "gym-exercises";
 
 const PIE_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
 
@@ -212,6 +231,115 @@ function getTrackedWorkoutSessions() {
 
 function countUniqueExercisesInSession(session: WorkoutSessionEntry) {
   return new Set(session.logs.filter(logCountsAsTrackedSet).map((log) => log.exerciseId)).size;
+}
+
+function buildExerciseActivityItems(
+  sessions: WorkoutSessionEntry[],
+  exerciseLookup: Map<string, Exercise>,
+  category?: "Basketball" | "Gym",
+): ExerciseActivityItem[] {
+  const rows = new Map<
+    string,
+    ExerciseActivityItem & { sessionIds: Set<string> }
+  >();
+
+  for (const session of sessions) {
+    for (const log of session.logs) {
+      if (!logCountsAsTrackedSet(log)) continue;
+      const exercise = exerciseLookup.get(log.exerciseId);
+      if (!exercise || (category && exercise.category !== category)) continue;
+      const current = rows.get(log.exerciseId) ?? {
+        id: log.exerciseId,
+        name: exercise.name,
+        category: exercise.category as SportCategory,
+        workoutCount: 0,
+        setCount: 0,
+        reps: 0,
+        latestDateISO: session.dateISO,
+        latestSessionId: session.id,
+        sessionIds: new Set<string>(),
+      };
+      current.sessionIds.add(session.id);
+      current.workoutCount = current.sessionIds.size;
+      current.setCount += 1;
+      current.reps += repCountFromSessionLog(log, exercise);
+      if (session.dateISO > current.latestDateISO) {
+        current.latestDateISO = session.dateISO;
+        current.latestSessionId = session.id;
+      }
+      rows.set(log.exerciseId, current);
+    }
+  }
+
+  return [...rows.values()]
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      workoutCount: row.workoutCount,
+      setCount: row.setCount,
+      reps: row.reps,
+      latestDateISO: row.latestDateISO,
+      latestSessionId: row.latestSessionId,
+    }))
+    .sort((left, right) => right.latestDateISO.localeCompare(left.latestDateISO));
+}
+
+function WorkoutActivityList({
+  items,
+  onSelect,
+}: {
+  items: HistoryItem[];
+  onSelect: (sessionId: string) => void;
+}) {
+  if (items.length === 0) return <p className="mt-3 text-sm text-muted">Noch keine abgeschlossenen Workouts vorhanden.</p>;
+  return (
+    <GradientFadeList
+      className="mt-3"
+      items={items}
+      listClassName="space-y-2"
+      getKey={(entry) => entry.id}
+      renderItem={(entry) => (
+        <button type="button" onClick={() => onSelect(entry.id)} className="list-card block w-full text-left text-sm">
+          <p className="font-semibold text-strong">{entry.title}</p>
+          <p className="text-muted">
+            {new Date(entry.dateISO).toLocaleString("de-DE")} · {entry.exerciseCount} Exercises
+          </p>
+          <p className="text-strong">Gesamtwert: {entry.totalValue}</p>
+        </button>
+      )}
+    />
+  );
+}
+
+function ExerciseActivityList({
+  items,
+  onSelect,
+}: {
+  items: ExerciseActivityItem[];
+  onSelect: (sessionId: string) => void;
+}) {
+  if (items.length === 0) return <p className="mt-3 text-sm text-muted">Noch keine abgeschlossenen Exercises vorhanden.</p>;
+  return (
+    <GradientFadeList
+      className="mt-3"
+      items={items}
+      listClassName="space-y-2"
+      getKey={(entry) => entry.id}
+      renderItem={(entry) => (
+        <button type="button" onClick={() => onSelect(entry.latestSessionId)} className="list-card block w-full text-left text-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="font-semibold text-strong">{entry.name}</p>
+              <p className="text-muted">{entry.category} · zuletzt {new Date(entry.latestDateISO).toLocaleDateString("de-DE")}</p>
+            </div>
+            <span className="chip">{entry.workoutCount} Workouts</span>
+          </div>
+          <p className="mt-2 text-strong">{entry.setCount} Sätze · {entry.reps} Reps</p>
+        </button>
+      )}
+    />
+  );
 }
 
 function filterSessionsByRange<T extends { dateISO: string }>(sessions: T[], range: StatsRange) {
@@ -464,6 +592,8 @@ function StatsPageContent() {
   const [username, setUsername] = useState("Spieler");
   const [gameStats, setGameStats] = useState<ReturnType<typeof loadGameStats>>([]);
   const [sessionNotesDraft, setSessionNotesDraft] = useState("");
+  const [activityListMode, setActivityListMode] = useState<ActivityListMode | null>(null);
+  const [gameContextFilter, setGameContextFilter] = useState<"all" | "game" | "game_training">("all");
 
   const refreshSessionDetails = useCallback(() => {
     setSessionDetails(getTrackedWorkoutSessions());
@@ -775,6 +905,24 @@ useEffect(() => {
     };
   }, [filteredSessions]);
 
+  const allWorkoutHistory = useMemo(
+    () => [...historyBuckets.Basketball, ...historyBuckets.Gym, ...historyBuckets.Home, ...historyBuckets.Regeneration]
+      .sort((left, right) => right.dateISO.localeCompare(left.dateISO)),
+    [historyBuckets],
+  );
+  const allExerciseActivity = useMemo(
+    () => buildExerciseActivityItems(filteredSessions, exerciseLookupForSplit),
+    [exerciseLookupForSplit, filteredSessions],
+  );
+  const basketballExerciseActivity = useMemo(
+    () => buildExerciseActivityItems(basketballSessions, exerciseLookupForSplit, "Basketball"),
+    [basketballSessions, exerciseLookupForSplit],
+  );
+  const gymExerciseActivity = useMemo(
+    () => buildExerciseActivityItems(gymSessions, exerciseLookupForSplit, "Gym"),
+    [exerciseLookupForSplit, gymSessions],
+  );
+
   const totalMinutesTrained = Math.round(
     filteredSessions.reduce((sum, session) => sum + Math.max(0, session.durationSeconds ?? Math.max(session.logs.length, 1) * 90), 0) / 60,
   );
@@ -830,6 +978,22 @@ useEffect(() => {
     setOpenSections((current) => ({ ...current, [key]: !current[key] }));
   };
 
+  const revealActivityList = (mode: ActivityListMode) => {
+    setActivityListMode(mode);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById("stats-activity-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  };
+
+  const revealGameList = (context: "game" | "game_training") => {
+    setGameContextFilter(context);
+    window.requestAnimationFrame(() => {
+      document.getElementById("stats-game-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
     <main className="app-container animate-in">
       <PageHeader
@@ -878,7 +1042,7 @@ useEffect(() => {
               {([
                 { id: "overview", label: t("stats.tabOverview"), href: "/stats?tab=overview" },
                 { id: "basketball", label: t("stats.tabBasketball"), href: "/stats?tab=basketball" },
-                { id: "games", label: "Spiele", href: "/stats?tab=games" },
+                { id: "games", label: t("stats.tabGames"), href: "/stats?tab=games" },
                 { id: "gym", label: t("stats.tabGym"), href: "/stats?tab=gym" },
               ] as const).map((tab) => (
                 <Link
@@ -897,13 +1061,31 @@ useEffect(() => {
       {detailTab === "overview" ? (
         <>
           <div className="grid-stats mt-6">
-            <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{totalWorkoutCount}</p></div>
-            <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{totalCompletedExercises}</p></div>
+            <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealActivityList("overview-workouts")} aria-pressed={activityListMode === "overview-workouts"}>
+              <p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{totalWorkoutCount}</p><p className="stat-tile__sub">Liste öffnen</p>
+            </button>
+            <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealActivityList("overview-exercises")} aria-pressed={activityListMode === "overview-exercises"}>
+              <p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{totalCompletedExercises}</p><p className="stat-tile__sub">Liste öffnen</p>
+            </button>
             <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{totalSets}</p></div>
             <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{totalReps}</p></div>
             <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{totalMinutesTrained}</p></div>
             <div className="stat-tile"><p className="stat-tile__label">Volumen (kg)</p><p className="stat-tile__value">{totalVolume}</p></div>
           </div>
+
+          {activityListMode === "overview-workouts" || activityListMode === "overview-exercises" ? (
+            <section id="stats-activity-list" className="mt-6 app-card scroll-mt-24">
+              <p className="section-eyebrow">Aktivität</p>
+              <h2 className="section-title mt-1">
+                {activityListMode === "overview-workouts" ? "Alle abgeschlossenen Workouts" : "Alle abgeschlossenen Exercises"}
+              </h2>
+              {activityListMode === "overview-workouts" ? (
+                <WorkoutActivityList items={allWorkoutHistory} onSelect={setSelectedSessionId} />
+              ) : (
+                <ExerciseActivityList items={allExerciseActivity} onSelect={setSelectedSessionId} />
+              )}
+            </section>
+          ) : null}
 
           <section
             className={`mt-6 app-card ${
@@ -1039,15 +1221,26 @@ useEffect(() => {
             <h2 className="section-title mt-1">Spiele &amp; Testspiele</h2>
             <p className="mt-1 text-xs text-muted">Persönliche Basketball-Spielwerte getrennt von deinen Workout-Statistiken.</p>
             <div className="mt-4 grid-stats">
-              <div className="stat-tile"><p className="stat-tile__label">Spieltage</p><p className="stat-tile__value">{gameTotals.games}</p></div>
-              <div className="stat-tile"><p className="stat-tile__label">Test-/Trainingsspiele</p><p className="stat-tile__value">{gameTotals.gameTrainings}</p></div>
+              <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealGameList("game")} aria-pressed={gameContextFilter === "game"}>
+                <p className="stat-tile__label">Spieltage</p><p className="stat-tile__value">{gameTotals.games}</p><p className="stat-tile__sub">Alle Spiele anzeigen</p>
+              </button>
+              <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealGameList("game_training")} aria-pressed={gameContextFilter === "game_training"}>
+                <p className="stat-tile__label">Test-/Trainingsspiele</p><p className="stat-tile__value">{gameTotals.gameTrainings}</p><p className="stat-tile__sub">Alle Trainingsspiele anzeigen</p>
+              </button>
               <div className="stat-tile"><p className="stat-tile__label">Ø Punkte</p><p className="stat-tile__value">{filteredGameStats.length > 0 ? Math.round(gameTotals.points / filteredGameStats.length) : "–"}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Ø Assists</p><p className="stat-tile__value">{filteredGameStats.length > 0 ? Math.round((gameTotals.assists / filteredGameStats.length) * 10) / 10 : "–"}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Ø Rebounds</p><p className="stat-tile__value">{filteredGameStats.length > 0 ? Math.round((gameTotals.rebounds / filteredGameStats.length) * 10) / 10 : "–"}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{gameTotals.minutes}</p></div>
             </div>
           </section>
-          <div className="mt-6"><GameStatsSearchPanel entries={filteredGameStats} variant="full" /></div>
+          <div id="stats-game-list" className="mt-6 scroll-mt-24">
+            <GameStatsSearchPanel
+              entries={filteredGameStats}
+              variant="full"
+              context={gameContextFilter}
+              onContextChange={setGameContextFilter}
+            />
+          </div>
           <div className="mt-6"><GameTrainingInsights /></div>
           <div className="mt-6"><MatchupHintsCard /></div>
         </>
@@ -1060,13 +1253,31 @@ useEffect(() => {
             <h2 className="section-title mt-1">Training Kennzahlen</h2>
             <p className="mt-1 text-xs text-muted">Wie in Übersicht und Gym: nur abgeschlossene Basketball-Workouts und Übungen.</p>
             <div className="mt-4 grid-stats">
-              <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{basketballTotals.workouts}</p></div>
-              <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{basketballTotals.exercises}</p></div>
+              <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealActivityList("basketball-workouts")} aria-pressed={activityListMode === "basketball-workouts"}>
+                <p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{basketballTotals.workouts}</p><p className="stat-tile__sub">Liste öffnen</p>
+              </button>
+              <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealActivityList("basketball-exercises")} aria-pressed={activityListMode === "basketball-exercises"}>
+                <p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{basketballTotals.exercises}</p><p className="stat-tile__sub">Liste öffnen</p>
+              </button>
               <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{basketballTotals.sets}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{basketballTotals.reps}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{basketballTotals.minutes}</p></div>
             </div>
           </section>
+
+          {activityListMode === "basketball-workouts" || activityListMode === "basketball-exercises" ? (
+            <section id="stats-activity-list" className="mt-6 app-card scroll-mt-24">
+              <p className="section-eyebrow">Basketball-Aktivität</p>
+              <h2 className="section-title mt-1">
+                {activityListMode === "basketball-workouts" ? "Abgeschlossene Basketball-Workouts" : "Abgeschlossene Basketball-Exercises"}
+              </h2>
+              {activityListMode === "basketball-workouts" ? (
+                <WorkoutActivityList items={historyBuckets.Basketball} onSelect={setSelectedSessionId} />
+              ) : (
+                <ExerciseActivityList items={basketballExerciseActivity} onSelect={setSelectedSessionId} />
+              )}
+            </section>
+          ) : null}
 
           {shootingZoneStats.rows.length > 0 ? (
             <section className="mt-6 app-card--accent-cyan">
@@ -1216,14 +1427,32 @@ useEffect(() => {
             <p className="section-eyebrow">Gym</p>
             <h2 className="section-title mt-1">Gym Kennzahlen</h2>
             <div className="mt-3 grid-stats">
-              <div className="stat-tile"><p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{gymTotalsSummary.workouts}</p></div>
-              <div className="stat-tile"><p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{gymTotalsSummary.exercises}</p></div>
+              <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealActivityList("gym-workouts")} aria-pressed={activityListMode === "gym-workouts"}>
+                <p className="stat-tile__label">Workouts</p><p className="stat-tile__value">{gymTotalsSummary.workouts}</p><p className="stat-tile__sub">Liste öffnen</p>
+              </button>
+              <button type="button" className="stat-tile stat-tile--interactive text-left" onClick={() => revealActivityList("gym-exercises")} aria-pressed={activityListMode === "gym-exercises"}>
+                <p className="stat-tile__label">Exercises</p><p className="stat-tile__value">{gymTotalsSummary.exercises}</p><p className="stat-tile__sub">Liste öffnen</p>
+              </button>
               <div className="stat-tile"><p className="stat-tile__label">Sätze</p><p className="stat-tile__value">{gymTotalsSummary.sets}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Reps</p><p className="stat-tile__value">{gymTotalsSummary.reps}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Minuten</p><p className="stat-tile__value">{gymTotalsSummary.minutes}</p></div>
               <div className="stat-tile"><p className="stat-tile__label">Volumen (kg)</p><p className="stat-tile__value">{gymTotalsSummary.volume}</p></div>
             </div>
           </section>
+
+          {activityListMode === "gym-workouts" || activityListMode === "gym-exercises" ? (
+            <section id="stats-activity-list" className="mt-6 app-card scroll-mt-24">
+              <p className="section-eyebrow">Gym-Aktivität</p>
+              <h2 className="section-title mt-1">
+                {activityListMode === "gym-workouts" ? "Abgeschlossene Gym-Workouts" : "Abgeschlossene Gym-Exercises"}
+              </h2>
+              {activityListMode === "gym-workouts" ? (
+                <WorkoutActivityList items={historyBuckets.Gym} onSelect={setSelectedSessionId} />
+              ) : (
+                <ExerciseActivityList items={gymExerciseActivity} onSelect={setSelectedSessionId} />
+              )}
+            </section>
+          ) : null}
 
           <GymGoalsManager />
 

@@ -10,7 +10,7 @@ import { PLAYER_INTAKE_STORAGE_KEY, PLAYER_INTAKE_UPDATED_EVENT } from "@/lib/co
 import { GAME_STATS_KEY, GAME_STATS_UPDATED_EVENT } from "@/lib/game-stats";
 import { LEAGUE_STORAGE_KEY, LEAGUE_UPDATED_EVENT } from "@/lib/league";
 import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
-import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
+import { SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
 import { isAppOnline } from "@/lib/app-online";
 import { createCoalescingAsyncQueue } from "@/lib/coalescing-async-queue";
 import { mergeProgressForFirstSync } from "@/lib/first-sync-progress-merge";
@@ -209,13 +209,18 @@ function profileCacheHasContent(cache: ProfileCacheShape): boolean {
 
 function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
   if (typeof window === "undefined") return;
-  if (!remoteCache) {
-    window.localStorage.removeItem(PROFILE_LOCAL_CACHE_KEY);
-    return;
-  }
+  // A missing profile cache can be caused by an older/partial cloud row or a
+  // transient read. It is never sufficient evidence to delete an already
+  // completed local profile, because doing so would reopen onboarding and make
+  // the user believe their progress was lost.
+  if (!remoteCache) return;
 
   const remote = parseProfileCache(remoteCache);
   if (!remote || !profileCacheHasContent(remote)) return;
+  const local = parseProfileCache(window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY));
+  if (local?.onboardingComplete && !remote.onboardingComplete) {
+    return;
+  }
   window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(remote));
 }
 
@@ -237,8 +242,10 @@ export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   window.localStorage.setItem(WEEKLY_REGEN_SLOT_MAP_KEY, JSON.stringify(remote.weeklyRegenSlotMap ?? {}));
   window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(remote.hiddenAutoWorkoutsMap ?? {}));
   mergeProfileCacheFromRemote(remote.profileCache);
-  writeRemoteString(PROFILE_USERNAME_KEY, remote.profileUsername);
-  writeRemoteString(PROFILE_WEEK_CONFIG_KEY, remote.profileWeekConfig);
+  // These identity/setup mirrors are append-only from the user's perspective.
+  // Missing legacy cloud columns must not erase a working local setup.
+  if (remote.profileUsername != null) writeRemoteString(PROFILE_USERNAME_KEY, remote.profileUsername);
+  if (remote.profileWeekConfig != null) writeRemoteString(PROFILE_WEEK_CONFIG_KEY, remote.profileWeekConfig);
   writeRemoteString(PLAYER_INTAKE_STORAGE_KEY, remote.playerIntake);
   writeRemoteString(XP_HISTORY_KEY, remote.xpHistory);
   writeRemoteString(XP_PROGRESSION_KEY, remote.xpProgression);
@@ -324,28 +331,29 @@ export async function pullProgressFromCloud() {
   const { me, accountSwitched } = await checkAuthSession();
   if (!me) return null;
 
-  if (accountSwitched) {
-    clearLocalUserProgress();
-  }
-
   const localKnownAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
   const response = await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
   if (!response.ok) return null;
   const remote = (await response.json()) as RemoteProgress;
 
   const syncUserId = window.localStorage.getItem(SYNC_USER_ID_KEY);
-  if (syncUserId && syncUserId !== me.id) {
-    const activeEmail = window.localStorage.getItem(ACTIVE_AUTH_EMAIL_KEY)?.trim().toLowerCase();
-    const currentEmail = me.email.trim().toLowerCase();
-    if (!activeEmail || activeEmail !== currentEmail) {
-      clearLocalUserProgress();
-    }
-  }
+  const activeEmail = window.localStorage.getItem(ACTIVE_AUTH_EMAIL_KEY)?.trim().toLowerCase();
+  const currentEmail = me.email.trim().toLowerCase();
+  const identityMismatch = Boolean(
+    accountSwitched ||
+      (syncUserId && syncUserId !== me.id) ||
+      (activeEmail && activeEmail !== currentEmail),
+  );
 
   if (remote.remoteExists === false) {
     const local = buildLocalProgressSnapshot();
+    if (identityMismatch) {
+      // Do not attach data from a previously known account to a new empty
+      // cloud account. The explicit sign-in flow resolves account switches.
+      return null;
+    }
     const canMigrateLocal =
-      !accountSwitched && (syncUserId === me.id || (syncUserId == null && hasLocalUserData(local)));
+      !identityMismatch && (syncUserId === me.id || (syncUserId == null && hasLocalUserData(local)));
     if (canMigrateLocal && hasLocalUserData(local)) {
       const migrated = await pushProgressToCloud();
       if (migrated) {
@@ -362,7 +370,7 @@ export async function pullProgressFromCloud() {
     return remote;
   }
 
-  if (isLocalProgressDirty()) {
+  if (isLocalProgressDirty() && !identityMismatch) {
     if (
       remote.remoteUpdatedAt &&
       (!localKnownAt || remote.remoteUpdatedAt > localKnownAt)
@@ -381,9 +389,9 @@ export async function pullProgressFromCloud() {
   // a cloud pull, so deleted remote map entries are not resurrected later.
   const local = buildLocalProgressSnapshot();
   const firstSyncMerge = mergeProgressForFirstSync(remote, local, {
-    includeLocalMapEntries: !localKnownAt,
+    includeLocalMapEntries: !localKnownAt && !identityMismatch,
   });
-  if (firstSyncMerge.addedLocalData) {
+  if (firstSyncMerge.addedLocalData && !identityMismatch) {
     // First apply the conflict-safe merged snapshot locally. If the network
     // write fails, the retry queue then uploads this merged state instead of
     // an older local snapshot that could replace newer cloud maps.
@@ -454,8 +462,11 @@ async function pushProgressToCloudOnce(
     return false;
   }
   if (accountSwitched) {
-    clearLocalUserProgress();
+    // Never delete browser data from a background write. Login/logout owns
+    // explicit account transitions; here we first hydrate the authenticated
+    // account and abort this stale write generation.
     await pullProgressFromCloud();
+    return false;
   }
 
   markLocalProgressDirty();

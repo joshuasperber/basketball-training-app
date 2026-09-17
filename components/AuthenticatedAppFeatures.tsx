@@ -9,7 +9,6 @@ import OfflineSessionGuard from "@/components/OfflineSessionGuard";
 import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
 import ProgressCelebrationHost from "@/components/ProgressCelebrationHost";
 import SyncConflictBanner from "@/components/SyncConflictBanner";
-import SyncStatusToast from "@/components/SyncStatusToast";
 import WorkoutReminderSync from "@/components/WorkoutReminderSync";
 import { isAppOnline } from "@/lib/app-online";
 import { GAME_STATS_UPDATED_EVENT } from "@/lib/game-stats";
@@ -108,7 +107,6 @@ export default function AuthenticatedAppFeatures({ children }: { children: React
       <OfflineRouteWarmup />
       <OfflineSessionGuard />
       <SyncConflictBanner />
-      <SyncStatusToast />
       <OnboardingGateLauncher />
       <CookieConsentBanner />
       <ProgressCelebrationHost />

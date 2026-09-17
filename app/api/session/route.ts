@@ -250,58 +250,40 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
     workout_overrides: merged.workoutOverrides ?? {},
   };
 
-  const response = await fetch(url.toString(), {
-    method: "POST",
-    headers: {
-      apikey: supabaseServiceRoleKey!,
-      Authorization: `Bearer ${supabaseServiceRoleKey!}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=minimal",
-    },
-    body: JSON.stringify(row),
-    cache: "no-store",
-  });
+  // PostgREST names a missing column in PGRST204 responses. Older production
+  // projects can temporarily lag behind the app migrations, so strip only the
+  // unknown optional field and retry instead of failing every background sync.
+  // Once the migration is deployed the first request succeeds unchanged.
+  const compatibleRow: Record<string, unknown> = { ...row };
+  const maxAttempts = Object.keys(compatibleRow).length;
 
-  if (response.ok) return true;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        apikey: supabaseServiceRoleKey!,
+        Authorization: `Bearer ${supabaseServiceRoleKey!}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(compatibleRow),
+      cache: "no-store",
+    });
 
-  // Fallback: ältere Datenbanken ohne neue optionale Spalten.
-  const legacyRow = {
-    email: row.email,
-    user_id: row.user_id,
-    updated_at: row.updated_at,
-    sessions: row.sessions,
-    daily_plan_map: row.daily_plan_map,
-    manual_day_workouts_map: row.manual_day_workouts_map,
-    manual_day_disabled_map: row.manual_day_disabled_map,
-    hidden_auto_workouts_map: row.hidden_auto_workouts_map,
-    profile_cache: row.profile_cache,
-    profile_username: row.profile_username,
-    profile_week_config: row.profile_week_config,
-    player_intake: row.player_intake,
-    xp_history: row.xp_history,
-    xp_progression: row.xp_progression,
-    performance_tips: row.performance_tips,
-    game_stats: row.game_stats,
-    training_goals: row.training_goals,
-    custom_subcategories: row.custom_subcategories,
-    workout_history: row.workout_history,
-    reminder_prefs: row.reminder_prefs,
-    coach_weekly_note: row.coach_weekly_note,
-    training_exercises: row.training_exercises,
-    training_workouts: row.training_workouts,
-  };
-  const legacyResponse = await fetch(url.toString(), {
-    method: "POST",
-    headers: {
-      apikey: supabaseServiceRoleKey!,
-      Authorization: `Bearer ${supabaseServiceRoleKey!}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=minimal",
-    },
-    body: JSON.stringify(legacyRow),
-    cache: "no-store",
-  });
-  return legacyResponse.ok;
+    if (response.ok) return true;
+
+    const error = (await response.json().catch(() => null)) as
+      | { code?: string; message?: string }
+      | null;
+    const missingColumn =
+      error?.code === "PGRST204"
+        ? error.message?.match(/Could not find the '([^']+)' column/)?.[1]
+        : undefined;
+    if (!missingColumn || !(missingColumn in compatibleRow)) return false;
+    delete compatibleRow[missingColumn];
+  }
+
+  return false;
 }
 
 export async function GET(request: NextRequest) {

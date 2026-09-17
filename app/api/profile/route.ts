@@ -11,10 +11,30 @@ type ProfilePayload = {
 };
 
 type ProfileRow = Required<Pick<ProfilePayload, "username">> & Omit<ProfilePayload, "username">;
+type UsernameOwnerRow = { id: string };
 
 export async function GET(request: NextRequest) {
   const user = await getRequestUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const requestedUsername = request.nextUrl.searchParams.get("username")?.trim().toLowerCase();
+  if (requestedUsername != null) {
+    if (requestedUsername.length < 3 || requestedUsername.length > 30) {
+      return NextResponse.json({ error: "invalid_username" }, { status: 400 });
+    }
+    const owner = await supabaseRest<UsernameOwnerRow[]>(
+      postgrestPath("profiles", {
+        username: `eq.${requestedUsername}`,
+        select: "id",
+        limit: 1,
+      }),
+    );
+    if (!owner.ok) {
+      return NextResponse.json({ error: "availability_check_failed" }, { status: 502 });
+    }
+    const ownerId = owner.data?.[0]?.id;
+    return NextResponse.json({ available: !ownerId || ownerId === user.id });
+  }
 
   const result = await supabaseRest<ProfileRow[]>(
     postgrestPath("profiles", {

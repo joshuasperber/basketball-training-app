@@ -2,11 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  // Geschützte Tests teilen sich einen kurzlebigen Supabase-Account. Zwei
-  // Worker halten Next-Streaming und Auth-Refresh realistisch und vermeiden
-  // künstliche Timeouts durch acht parallele Seitenwechsel.
+  // Geschützte Desktop- und Mobile-Tests teilen sich einen kurzlebigen
+  // Supabase-Account. Serielles Ausführen verhindert, dass zwei Browser
+  // denselben Cloud-Datensatz gleichzeitig verändern und dadurch einen
+  // künstlichen Sync-Konflikt erzeugen.
   fullyParallel: false,
-  workers: 2,
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",

@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v13";
+const CACHE_NAME = "bt-app-cache-v14";
 
 const INSTALL_SHELL = [
   "/manifest.webmanifest",
@@ -237,22 +237,6 @@ async function warmPath(cache, path) {
     const docResponse = await fetch(docRequest);
     if (!isRedirectResponse(docResponse) && isHtmlResponse(docResponse) && !isAuthPath(new URL(docResponse.url).pathname)) {
       await cache.put(docRequest, docResponse.clone());
-    }
-
-    const rscRequest = new Request(path, {
-      credentials: "include",
-      headers: {
-        RSC: "1",
-        "Next-Router-Prefetch": "1",
-        "Next-Url": path.split("?")[0] ?? path,
-      },
-    });
-    const rscResponse = await fetch(rscRequest);
-    if (
-      isCacheableResponse(rscResponse) &&
-      !isAuthPath(new URL(rscResponse.url).pathname)
-    ) {
-      await cache.put(rscRequest, rscResponse.clone());
     }
   } catch {
     /* offline during warm */

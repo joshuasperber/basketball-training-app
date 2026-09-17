@@ -227,6 +227,8 @@ const de = {
   "training.search": "Übung oder Workout suchen…",
   "training.addWorkout": "Workout hinzufügen",
   "training.addExercise": "Übung hinzufügen",
+  "training.tabWorkouts": "Workouts",
+  "training.tabExercises": "Übungen",
 
   "workouts.eyebrow": "Training",
   "workouts.title": "Workout",
@@ -250,6 +252,7 @@ const de = {
   "stats.rangeWeek": "Woche",
   "stats.tabOverview": "Übersicht",
   "stats.tabBasketball": "Basketball",
+  "stats.tabGames": "Spiele",
   "stats.tabGym": "Gym",
   "stats.loading": "Statistiken werden geladen …",
   "stats.filterArea": "Bereich",
@@ -541,6 +544,8 @@ const en: Record<MessageKey, string> = {
   "training.search": "Search exercise or workout…",
   "training.addWorkout": "Add workout",
   "training.addExercise": "Add exercise",
+  "training.tabWorkouts": "Workouts",
+  "training.tabExercises": "Exercises",
 
   "workouts.eyebrow": "Training",
   "workouts.title": "Workout",
@@ -564,6 +569,7 @@ const en: Record<MessageKey, string> = {
   "stats.rangeWeek": "Week",
   "stats.tabOverview": "Overview",
   "stats.tabBasketball": "Basketball",
+  "stats.tabGames": "Games",
   "stats.tabGym": "Gym",
   "stats.loading": "Loading statistics…",
   "stats.filterArea": "Section",

@@ -20,6 +20,8 @@ type Props = {
   className?: string;
   id?: string;
   linkMode?: "edit" | "view";
+  context?: NonNullable<GameStatsFilter["context"]>;
+  onContextChange?: (context: NonNullable<GameStatsFilter["context"]>) => void;
 };
 
 export default function GameStatsSearchPanel({
@@ -28,10 +30,12 @@ export default function GameStatsSearchPanel({
   className = "",
   id,
   linkMode = "view",
+  context: controlledContext,
+  onContextChange,
 }: Props) {
   const [internalEntries, setInternalEntries] = useState<GameStatEntry[]>([]);
   const [query, setQuery] = useState("");
-  const [context, setContext] = useState<GameStatsFilter["context"]>("all");
+  const [internalContext, setInternalContext] = useState<NonNullable<GameStatsFilter["context"]>>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -44,6 +48,12 @@ export default function GameStatsSearchPanel({
   }, [entriesProp]);
 
   const baseEntries = entriesProp ?? internalEntries;
+  const context = controlledContext ?? internalContext;
+
+  const selectContext = (next: NonNullable<GameStatsFilter["context"]>) => {
+    setInternalContext(next);
+    onContextChange?.(next);
+  };
 
   const filtered = useMemo(
     () =>
@@ -93,25 +103,25 @@ export default function GameStatsSearchPanel({
       </div>
 
       <div className="segmented-wrap mt-3">
-      <div className="segmented" aria-label="Spielart filtern">
-        {(
-          [
-            ["all", "Alle"],
-            ["game", "Spieltage"],
-            ["game_training", "Test-/Trainingsspiele"],
-          ] as const
-        ).map(([filterId, label]) => (
-          <button
-            key={filterId}
-            type="button"
-            onClick={() => setContext(filterId)}
-            className="segmented__btn"
-            aria-pressed={context === filterId}
-          >
-            {label} ({contextCounts[filterId]})
-          </button>
-        ))}
-      </div>
+        <div className="segmented" aria-label="Spielart filtern">
+          {(
+            [
+              ["all", "Alle"],
+              ["game", "Spieltage"],
+              ["game_training", "Test-/Trainingsspiele"],
+            ] as const
+          ).map(([filterId, label]) => (
+            <button
+              key={filterId}
+              type="button"
+              onClick={() => selectContext(filterId)}
+              className={`segmented__btn ${context === filterId ? "segmented__btn--active" : ""}`}
+              aria-pressed={context === filterId}
+            >
+              {label} ({contextCounts[filterId]})
+            </button>
+          ))}
+        </div>
       </div>
 
       {filtered.length > 0 ? (

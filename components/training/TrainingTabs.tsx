@@ -19,13 +19,9 @@ import { METRIC_LABELS, METRICS_BY_CATEGORY } from "@/lib/workout-metrics";
 import { getWorkoutSessions } from "@/lib/session-storage";
 import { toLocalDateKey } from "@/lib/workout";
 import { logCountsAsTrackedSet } from "@/lib/workout-session-metrics";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 export type TrainingTab = "Workouts" | "Exercises";
-
-const TRAINING_TAB_LABELS: Record<TrainingTab, string> = {
-  Workouts: "Workouts",
-  Exercises: "Übungen",
-};
 
 function useTodayTrainingCompletion() {
   const [revision, setRevision] = useState(0);
@@ -1460,6 +1456,7 @@ type TabSwitcherProps = {
 };
 
 export function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
+  const t = useT();
   return (
     <div className="segmented-wrap">
     <div className="segmented segmented--brand">
@@ -1471,7 +1468,7 @@ export function TabSwitcher({ activeTab, onTabChange }: TabSwitcherProps) {
           className={`segmented__btn flex-1 ${activeTab === tab ? "segmented__btn--active" : ""}`}
           aria-pressed={activeTab === tab}
         >
-          {TRAINING_TAB_LABELS[tab]}
+          {tab === "Workouts" ? t("training.tabWorkouts") : t("training.tabExercises")}
         </button>
       ))}
     </div>

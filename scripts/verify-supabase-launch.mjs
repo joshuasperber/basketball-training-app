@@ -93,15 +93,15 @@ async function runDirectChecks() {
     allOk = allOk && protectedAndHealthy;
   }
 
-  const leagueColumnUrl = new URL(`${supabaseUrl}/rest/v1/user_progress`);
-  leagueColumnUrl.searchParams.set("select", "league_data,readiness_history");
-  leagueColumnUrl.searchParams.set("limit", "0");
-  const leagueColumnRes = await fetch(leagueColumnUrl, {
+  const progressColumnsUrl = new URL(`${supabaseUrl}/rest/v1/user_progress`);
+  progressColumnsUrl.searchParams.set("select", "league_data,readiness_history,performance_tips");
+  progressColumnsUrl.searchParams.set("limit", "0");
+  const progressColumnsRes = await fetch(progressColumnsUrl, {
     method: "HEAD",
     headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
   });
-  console.log(`${leagueColumnRes.ok ? "✅" : "❌"} Spalten public.user_progress.league_data/readiness_history (HTTP ${leagueColumnRes.status})`);
-  allOk = allOk && leagueColumnRes.ok;
+  console.log(`${progressColumnsRes.ok ? "✅" : "❌"} Spalten public.user_progress.league_data/readiness_history/performance_tips (HTTP ${progressColumnsRes.status})`);
+  allOk = allOk && progressColumnsRes.ok;
 
   const teamLeagueColumnsUrl = new URL(`${supabaseUrl}/rest/v1/team_league_data`);
   teamLeagueColumnsUrl.searchParams.set("select", "version,change_log");

@@ -46,6 +46,8 @@ const TRAINING_MODES: { value: DayMode; label: string; defaultMin: number; fixed
 ];
 
 type WizardStep = "profile" | "week" | "coach";
+type UsernameStatus = "idle" | "checking" | "available" | "taken";
+type ProfileSaveResult = "saved" | "taken" | "pending";
 
 function isTrainingDay(cfg: WeekConfig[DayKey]) {
   if (cfg.mode === "unavailable" || cfg.mode === "rest") return false;
@@ -71,6 +73,7 @@ type Props = {
 export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const [cache, setCache] = useState<ProfileCacheShape>(() => {
     const blank = createBlankProfileCache(authEmail);
     if (typeof window === "undefined") return blank;
@@ -107,6 +110,44 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
     };
   }, []);
 
+  const checkUsernameAvailability = useCallback(async (candidate: string, signal?: AbortSignal) => {
+    const username = candidate.trim().toLowerCase();
+    if (username.length < 3) return "idle" as const;
+    try {
+      const response = await fetch(`/api/profile?username=${encodeURIComponent(username)}`, {
+        credentials: "include",
+        cache: "no-store",
+        signal,
+      });
+      if (!response.ok) return "idle" as const;
+      const payload = (await response.json()) as { available?: boolean };
+      return payload.available ? ("available" as const) : ("taken" as const);
+    } catch {
+      return "idle" as const;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (step !== "profile") return;
+    const username = profile.username?.trim().toLowerCase() ?? "";
+    if (username.length < 3) {
+      setUsernameStatus("idle");
+      return;
+    }
+
+    const controller = new AbortController();
+    setUsernameStatus("checking");
+    const timer = window.setTimeout(() => {
+      void checkUsernameAvailability(username, controller.signal).then((status) => {
+        if (!controller.signal.aborted) setUsernameStatus(status);
+      });
+    }, 350);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [checkUsernameAvailability, profile.username, step]);
+
   const updateProfile = (patch: Partial<NonNullable<ProfileCacheShape["profile"]>>) => {
     setCache((prev) => ({
       ...prev,
@@ -124,11 +165,30 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
     }));
   };
 
-  const saveProfileStep = () => {
+  const saveProfileStep = async () => {
     const username = profile.username?.trim() ?? "";
     const fullName = profile.full_name?.trim() ?? "";
     if (!username || !fullName) {
       setMessage("Bitte Name und Username ausfüllen — beides ist Pflicht.");
+      return;
+    }
+    if (username.length < 3) {
+      setMessage("Der Username muss mindestens 3 Zeichen lang sein.");
+      return;
+    }
+    setSaving(true);
+    const availability = await checkUsernameAvailability(username);
+    setUsernameStatus(availability);
+    if (availability === "taken") {
+      setMessage("Dieser Username ist bereits vergeben. Bitte wähle einen anderen.");
+      setSaving(false);
+      return;
+    }
+    const profileSave = await persistProfileToCloud();
+    if (profileSave === "taken") {
+      setUsernameStatus("taken");
+      setMessage("Dieser Username ist bereits vergeben. Bitte wähle einen anderen.");
+      setSaving(false);
       return;
     }
     const next: ProfileCacheShape = {
@@ -140,9 +200,10 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
     setCache(next);
     setMessage(null);
     setStep("week");
+    setSaving(false);
   };
 
-  const persistProfileToCloud = async () => {
+  const persistProfileToCloud = async (): Promise<ProfileSaveResult> => {
     const payload = {
       username: profile.username?.trim() ?? "",
       full_name: profile.full_name?.trim() || null,
@@ -157,22 +218,24 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
       body: JSON.stringify(payload),
     });
 
-    let response = await save();
-    if (response.status === 401) {
-      const refreshed = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" });
-      if (refreshed.ok) response = await save();
-    }
-    if (response.ok) return true;
+    try {
+      let response = await save();
+      if (response.status === 401) {
+        const refreshed = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" });
+        if (refreshed.ok) response = await save();
+      }
+      if (response.ok) return "saved";
 
-    const detail = (await response.json().catch(() => null)) as { error?: string } | null;
-    if (detail?.error === "username_taken") {
-      setMessage("Dieser Username ist bereits vergeben. Bitte wähle einen anderen.");
-    } else if (response.status === 401) {
-      setMessage("Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.");
-    } else {
-      setMessage("Das Spielerprofil konnte gerade nicht online gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
+      const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (detail?.error === "username_taken") {
+        return "taken";
+      }
+    } catch {
+      // Treat transient network/auth outages as a background retry.
     }
-    return false;
+    // The local setup remains usable during a transient auth/network outage.
+    // Background sync and the next profile save will retry automatically.
+    return "pending";
   };
 
   const saveWeekStep = async () => {
@@ -190,24 +253,27 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
     setSaving(true);
     setMessage(null);
     try {
-      if (!(await persistProfileToCloud())) return;
+      const profileSave = await persistProfileToCloud();
+      if (profileSave === "taken") {
+        setUsernameStatus("taken");
+        setMessage("Dieser Username ist bereits vergeben. Bitte wähle einen anderen.");
+        setStep("profile");
+        return;
+      }
 
       const next: ProfileCacheShape = { ...cache, weekConfig: normalizedWeek, onboardingComplete: false };
       persistSetupCache(next);
       applyWeekConfigToCalendar(normalizedWeek, 28);
       setCache(next);
-      const cloudSaved = await pushProgressToCloudWithRetry({
+      void pushProgressToCloudWithRetry({
         profileCache: JSON.stringify(next),
         profileUsername: profile.username ?? null,
         profileWeekConfig: JSON.stringify(normalizedWeek),
       });
-      if (!cloudSaved) {
-        setMessage("Deine Angaben sind lokal gesichert, aber noch nicht online bestätigt. Bitte Verbindung prüfen und erneut versuchen.");
-        return;
-      }
       setStep("coach");
     } catch {
-      setMessage("Die Ersteinrichtung konnte gerade nicht online gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
+      // Local persistence already succeeded; cloud sync continues in the background.
+      setStep("coach");
     } finally {
       setSaving(false);
     }
@@ -219,15 +285,9 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
     setMessage(null);
     const completed = { ...cache, onboardingComplete: true };
     try {
-      const cloudSaved = await pushProgressToCloudWithRetry({ profileCache: JSON.stringify(completed) });
-      if (!cloudSaved) {
-        setMessage("Die Ersteinrichtung konnte noch nicht online bestätigt werden. Bitte Verbindung prüfen und erneut speichern.");
-        return;
-      }
       markInitialSetupComplete(completed, { sync: false });
+      void pushProgressToCloudWithRetry({ profileCache: JSON.stringify(completed) });
       onComplete();
-    } catch {
-      setMessage("Die Ersteinrichtung konnte gerade nicht online bestätigt werden. Bitte erneut versuchen.");
     } finally {
       setSaving(false);
     }
@@ -303,11 +363,18 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
                   id="setup-username"
                   className="input"
                   value={profile.username ?? ""}
-                  onChange={(e) => updateProfile({ username: e.target.value.replace(/\s/g, "").toLowerCase() })}
+                  onChange={(e) => {
+                    setMessage(null);
+                    setUsernameStatus("idle");
+                    updateProfile({ username: e.target.value.replace(/\s/g, "").toLowerCase() });
+                  }}
                   placeholder="z. B. max_m"
                   autoComplete="username"
                   required
                 />
+                {usernameStatus === "checking" ? <p className="field-hint">Username wird geprüft …</p> : null}
+                {usernameStatus === "available" ? <p className="field-success">Username ist verfügbar.</p> : null}
+                {usernameStatus === "taken" ? <p className="field-error" role="alert">Dieser Username ist bereits vergeben.</p> : null}
               </div>
               {authEmail ? (
                 <p className="text-xs text-faint">
@@ -386,8 +453,8 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
                   />
                 </div>
               </div>
-              <button type="button" className="btn btn-primary btn-block" onClick={saveProfileStep}>
-                Weiter zum Wochenrhythmus
+              <button type="button" className="btn btn-primary btn-block" disabled={saving || usernameStatus === "checking"} onClick={() => void saveProfileStep()}>
+                {saving ? "Profil wird geprüft …" : "Weiter zum Wochenrhythmus"}
               </button>
             </>
           ) : (

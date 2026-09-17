@@ -101,6 +101,100 @@ describe("progress-sync snapshot", () => {
     expect(cached.profile?.full_name).toBe("Local User");
   });
 
+  it("keeps a completed local profile when a partial cloud row has no profile cache", () => {
+    const weekConfig = getEmptyWeekConfig();
+    weekConfig.monday = { mode: "basketball_training", minutes: 45 };
+    const localProfile = JSON.stringify({
+      profile: { username: "local-user", full_name: "Local User" },
+      weekConfig,
+      onboardingComplete: true,
+    });
+    window.localStorage.setItem("profile_cache_v4", localProfile);
+    window.localStorage.setItem("profile_username", "local-user");
+    window.localStorage.setItem("bt.profile-week-config.v1", JSON.stringify(weekConfig));
+
+    applyRemoteProgressToLocal({
+      sessions: { workoutSessions: [], exerciseHistory: {} },
+      dailyPlanMap: {},
+      manualDayWorkoutsMap: {},
+      manualDayDisabledMap: {},
+      manualPlanOverrides: null,
+      weeklyRegenSlotMap: {},
+      hiddenAutoWorkoutsMap: {},
+      profileCache: null,
+      profileUsername: null,
+      profileWeekConfig: null,
+      playerIntake: null,
+      xpHistory: null,
+      xpProgression: null,
+      performanceTips: null,
+      gameStats: null,
+      leagueData: null,
+      trainingGoals: null,
+      customSubcategories: null,
+      workoutHistory: null,
+      reminderPrefs: null,
+      readinessHistory: null,
+      coachWeeklyNote: null,
+      trainingExercises: null,
+      trainingWorkouts: null,
+      workoutOverrides: {},
+      remoteExists: true,
+      remoteUpdatedAt: new Date().toISOString(),
+    });
+
+    expect(window.localStorage.getItem("profile_cache_v4")).toBe(localProfile);
+    expect(window.localStorage.getItem("profile_username")).toBe("local-user");
+    expect(window.localStorage.getItem("bt.profile-week-config.v1")).toBe(JSON.stringify(weekConfig));
+  });
+
+  it("does not downgrade completed onboarding with an older incomplete cloud profile", () => {
+    const localWeek = getEmptyWeekConfig();
+    localWeek.monday = { mode: "basketball_training", minutes: 45 };
+    const localProfile = JSON.stringify({
+      profile: { username: "local-user", full_name: "Local User" },
+      weekConfig: localWeek,
+      onboardingComplete: true,
+    });
+    window.localStorage.setItem("profile_cache_v4", localProfile);
+
+    applyRemoteProgressToLocal({
+      sessions: { workoutSessions: [], exerciseHistory: {} },
+      dailyPlanMap: {},
+      manualDayWorkoutsMap: {},
+      manualDayDisabledMap: {},
+      manualPlanOverrides: null,
+      weeklyRegenSlotMap: {},
+      hiddenAutoWorkoutsMap: {},
+      profileCache: JSON.stringify({
+        profile: { username: "local-user", full_name: "Local User" },
+        weekConfig: getEmptyWeekConfig(),
+        onboardingComplete: false,
+      }),
+      profileUsername: "local-user",
+      profileWeekConfig: JSON.stringify(getEmptyWeekConfig()),
+      playerIntake: null,
+      xpHistory: null,
+      xpProgression: null,
+      performanceTips: null,
+      gameStats: null,
+      leagueData: null,
+      trainingGoals: null,
+      customSubcategories: null,
+      workoutHistory: null,
+      reminderPrefs: null,
+      readinessHistory: null,
+      coachWeeklyNote: null,
+      trainingExercises: null,
+      trainingWorkouts: null,
+      workoutOverrides: {},
+      remoteExists: true,
+      remoteUpdatedAt: new Date().toISOString(),
+    });
+
+    expect(window.localStorage.getItem("profile_cache_v4")).toBe(localProfile);
+  });
+
   it("does not seed empty cloud profile into empty local storage", () => {
     applyRemoteProgressToLocal({
       sessions: { workoutSessions: [], exerciseHistory: {} },

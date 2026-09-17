@@ -20,7 +20,6 @@ import PasswordChangeSettings from "@/components/PasswordChangeSettings";
 import { clearLocalUserProgress } from "@/lib/clear-local-user-data";
 import { clearOfflineUserCache } from "@/lib/offline-cache";
 import { resetAuthMeCache } from "@/lib/auth-session-align";
-import CloudSyncSettings from "@/components/CloudSyncSettings";
 import SessionSecuritySettings from "@/components/SessionSecuritySettings";
 
 type ProfileSettingsSheetProps = {
@@ -42,8 +41,6 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
       <AppBusyOverlay open={loggingOut} label={busyLabel} sublabel={busySublabel} />
       <Sheet open={open} onClose={onClose} title={t("settings.title")} description={t("settings.description")}>
         <LanguageSettings />
-
-        <CloudSyncSettings />
 
         <PasswordChangeSettings onFeedback={onFeedback} />
 

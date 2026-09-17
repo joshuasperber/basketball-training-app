@@ -26,7 +26,7 @@ function isProtectedApiPath(pathname: string) {
   return protectedApiPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-function continueApiWithRefreshedSession(
+function continueWithRefreshedSession(
   request: NextRequest,
   session: Parameters<typeof applySessionCookies>[1],
 ) {
@@ -66,12 +66,11 @@ export async function proxy(request: NextRequest) {
     if (check.status === "valid") {
       const validated = check.session;
       if (check.refreshed || validated.access_token !== accessToken) {
-        if (protectedApi) {
-          return continueApiWithRefreshedSession(request, validated);
-        }
-        const response = NextResponse.redirect(request.nextUrl);
-        applySessionCookies(response, validated, request);
-        return response;
+        // Continue the original document/RSC/API request while rotating the
+        // cookies. Redirecting a Next.js prefetch back to the same URL can
+        // create a 307 loop (especially from a service worker) and leave the
+        // route stuck on app/loading.tsx.
+        return continueWithRefreshedSession(request, validated);
       }
       return NextResponse.next();
     }
@@ -85,12 +84,7 @@ export async function proxy(request: NextRequest) {
     const check = await refreshSessionFromRequest(request);
     if (check.status === "valid") {
       const refreshed = check.session;
-      if (protectedApi) {
-        return continueApiWithRefreshedSession(request, refreshed);
-      }
-      const response = NextResponse.redirect(request.nextUrl);
-      applySessionCookies(response, refreshed, request);
-      return response;
+      return continueWithRefreshedSession(request, refreshed);
     }
     if (check.status === "unavailable") {
       return protectedApi ? authUnavailableResponse() : NextResponse.next();

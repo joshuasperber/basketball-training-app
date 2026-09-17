@@ -390,6 +390,30 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
   box-shadow: var(--shadow-soft);
 }
 
+.stat-tile--interactive {
+  width: 100%;
+  appearance: none;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.stat-tile--interactive:hover {
+  border-color: color-mix(in srgb, var(--brand-500) 45%, var(--surface-border));
+  transform: translateY(-1px);
+}
+
+.stat-tile--interactive:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand-500) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.stat-tile--interactive[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--brand-500) 65%, var(--surface-border));
+  background: color-mix(in srgb, var(--brand-500) 7%, var(--surface));
+  box-shadow: var(--shadow-soft), 0 0 0 1px color-mix(in srgb, var(--brand-500) 20%, transparent);
+}
+
 .stat-tile__label {
   font-size: 0.6875rem;
   letter-spacing: 0.12em;
