@@ -151,7 +151,7 @@ export async function applyWeeklyPlanAiPreview(preview: WeeklyPlanAiPreview): Pr
       ok: true,
       cloudSynced: false,
       message:
-        "Wochenplan lokal übernommen — Cloud-Sync steht noch aus (offline oder Konflikt). Prüfe das Sync-Banner.",
+        "Wochenplan lokal übernommen — die Cloud-Synchronisierung wird im Hintergrund automatisch fortgesetzt.",
     };
   }
   return {

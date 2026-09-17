@@ -82,6 +82,7 @@ import {
   chooseTeamLeagueDiscoveryCandidate,
   type TeamLeagueDiscoveryCandidate,
 } from "@/lib/team-league-discovery";
+import { mergeTeamLeagueBundles } from "@/lib/team-league-auto-merge";
 
 type Tab = LigaTab;
 type NumericStatKey = Exclude<keyof LeaguePlayerStatLine, "playerId">;
@@ -211,6 +212,7 @@ export default function LigaPage() {
   const sharedLeagueLoadedRef = useRef<string | null>(null);
   const sharedLeagueVersionRef = useRef(0);
   const sharedLeagueConflictRef = useRef(false);
+  const sharedLeagueEditRevisionRef = useRef(0);
   const sharedLeagueSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const sharedLeagueDiscoveryCompletedRef = useRef<string | null>(null);
   const sharedLeagueDiscoveryInFlightRef = useRef<string | null>(null);
@@ -470,6 +472,9 @@ export default function LigaPage() {
 
   function persist(next: LeagueBundle, explicitSummary?: string) {
     const summary = explicitSummary ?? summarizeLeagueChange(bundle, next);
+    const mergeBase = bundle;
+    const editRevision = sharedLeagueEditRevisionRef.current + 1;
+    sharedLeagueEditRevisionRef.current = editRevision;
     saveLeagueBundle(next);
     setBundle(next);
     const teamId = next.ownTeam.sourceTeamId;
@@ -480,43 +485,75 @@ export default function LigaPage() {
         return;
       }
       sharedLeagueSyncQueueRef.current = sharedLeagueSyncQueueRef.current.then(async () => {
-        const expectedVersion = sharedLeagueVersionRef.current;
+        let expectedVersion = sharedLeagueVersionRef.current;
+        let candidate = next;
+        let candidateBase = mergeBase;
+        let automaticallyMerged = false;
+        let lastConflict: SharedLeagueConflict | null = null;
         setSharedLeagueStatus("Team-Liga wird synchronisiert …");
-        const response = await fetch("/api/team/league", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ teamId, bundle: next, expectedVersion, summary }),
-        });
-        const payload = await response.json().catch(() => null) as {
-          bundle?: unknown;
-          updatedAt?: string | null;
-          version?: number;
-          history?: unknown;
-        } | null;
-        if (response.status === 409) {
-          const remoteVersion = Number(payload?.version) || expectedVersion + 1;
-          const remoteBundle = payload?.bundle && typeof payload.bundle === "object"
-            ? connectLeagueOwnTeam(normalizeLeagueBundle(payload.bundle), { id: teamId, name: next.ownTeam.name })
-            : null;
-          const conflict: SharedLeagueConflict = {
-            localBundle: next,
-            remoteBundle,
-            remoteVersion,
-            remoteUpdatedAt: payload?.updatedAt ?? null,
-            history: normalizeLeagueHistory(payload?.history),
-          };
-          sharedLeagueConflictRef.current = true;
-          setSharedLeagueConflict(conflict);
-          setSharedLeagueStatus("Konflikt erkannt · es wurde nichts überschrieben.");
+
+        for (let mergeAttempt = 0; mergeAttempt < 3; mergeAttempt += 1) {
+          const response = await fetch("/api/team/league", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              teamId,
+              bundle: candidate,
+              expectedVersion,
+              summary: automaticallyMerged ? `Automatisch zusammengeführt · ${summary}` : summary,
+            }),
+          });
+          const payload = await response.json().catch(() => null) as {
+            bundle?: unknown;
+            updatedAt?: string | null;
+            version?: number;
+            history?: unknown;
+          } | null;
+
+          if (response.status === 409) {
+            const remoteVersion = Number(payload?.version) || expectedVersion + 1;
+            const remoteBundle = payload?.bundle && typeof payload.bundle === "object"
+              ? connectLeagueOwnTeam(normalizeLeagueBundle(payload.bundle), { id: teamId, name: candidate.ownTeam.name })
+              : null;
+            lastConflict = {
+              localBundle: candidate,
+              remoteBundle,
+              remoteVersion,
+              remoteUpdatedAt: payload?.updatedAt ?? null,
+              history: normalizeLeagueHistory(payload?.history),
+            };
+            if (!remoteBundle) break;
+            candidate = mergeTeamLeagueBundles(candidateBase, remoteBundle, candidate);
+            candidateBase = remoteBundle;
+            expectedVersion = remoteVersion;
+            automaticallyMerged = true;
+            continue;
+          }
+
+          if (!response.ok) throw new Error("shared_league_write_failed");
+          const version = Number(payload?.version) || expectedVersion + 1;
+          sharedLeagueVersionRef.current = version;
+          setSharedLeagueVersion(version);
+          setSharedLeagueHistory(normalizeLeagueHistory(payload?.history));
+          if (automaticallyMerged && sharedLeagueEditRevisionRef.current === editRevision) {
+            saveLeagueBundle(candidate);
+            setBundle(candidate);
+          }
+          setSharedLeagueStatus(automaticallyMerged ? "Team-Änderungen automatisch zusammengeführt." : "Mit dem Team synchronisiert.");
           return;
         }
-        if (!response.ok) throw new Error("shared_league_write_failed");
-        const version = Number(payload?.version) || expectedVersion + 1;
-        sharedLeagueVersionRef.current = version;
-        setSharedLeagueVersion(version);
-        setSharedLeagueHistory(normalizeLeagueHistory(payload?.history));
-        setSharedLeagueStatus("Mit dem Team synchronisiert.");
+
+        // Nur falls sich derselbe Teamstand während drei direkter Versuche
+        // immer wieder ändert, bleibt die bisherige bewusste Auswahl als
+        // Sicherheitsnetz bestehen.
+        if (lastConflict) {
+          sharedLeagueConflictRef.current = true;
+          setSharedLeagueConflict(lastConflict);
+          setSharedLeagueStatus("Mehrere gleichzeitige Team-Änderungen benötigen einmalig deine Auswahl.");
+          return;
+        }
+        throw new Error("shared_league_write_failed");
       }).catch(() => setSharedLeagueStatus("Team-Sync fehlgeschlagen · lokal gespeichert."));
     }
   }

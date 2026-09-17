@@ -8,7 +8,6 @@ import OfflineRouteWarmup from "@/components/OfflineRouteWarmup";
 import OfflineSessionGuard from "@/components/OfflineSessionGuard";
 import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
 import ProgressCelebrationHost from "@/components/ProgressCelebrationHost";
-import SyncConflictBanner from "@/components/SyncConflictBanner";
 import WorkoutReminderSync from "@/components/WorkoutReminderSync";
 import { isAppOnline } from "@/lib/app-online";
 import { GAME_STATS_UPDATED_EVENT } from "@/lib/game-stats";
@@ -31,6 +30,8 @@ const PLAN_SYNC_EVENTS = [
   LEAGUE_UPDATED_EVENT,
   READINESS_UPDATED_EVENT,
 ] as const;
+const PLAN_PUSH_DEBOUNCE_MS = 3_000;
+const DIRTY_RETRY_INTERVAL_MS = 2 * 60_000;
 
 function CloudSyncBridge() {
   const planPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,7 +63,9 @@ function CloudSyncBridge() {
       markLocalProgressDirty();
       if (!isAppOnline()) return;
       if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
-      planPushTimerRef.current = setTimeout(() => void pushProgressToCloudWithRetry(), 800);
+      // Mehrere schnelle Formular-/Planänderungen werden als ein Snapshot
+      // übertragen, statt alle paar hundert Millisekunden neu zu schreiben.
+      planPushTimerRef.current = setTimeout(() => void pushProgressToCloudWithRetry(), PLAN_PUSH_DEBOUNCE_MS);
     };
     const onSessionsUpdated = (event: Event) => {
       const source = (event as CustomEvent<{ source?: string }>).detail?.source;
@@ -78,7 +81,7 @@ function CloudSyncBridge() {
     if (isAppOnline()) syncFresh(false);
     const retryInterval = window.setInterval(() => {
       if (isLocalProgressDirty()) syncFresh(false);
-    }, 15_000);
+    }, DIRTY_RETRY_INTERVAL_MS);
     window.addEventListener("focus", pull);
     window.addEventListener("online", onOnline);
     window.addEventListener("bt:sessions-updated", onSessionsUpdated);
@@ -106,7 +109,6 @@ export default function AuthenticatedAppFeatures({ children }: { children: React
       <CloudSyncBridge />
       <OfflineRouteWarmup />
       <OfflineSessionGuard />
-      <SyncConflictBanner />
       <OnboardingGateLauncher />
       <CookieConsentBanner />
       <ProgressCelebrationHost />

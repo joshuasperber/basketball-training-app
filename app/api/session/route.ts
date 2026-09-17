@@ -170,11 +170,6 @@ async function readProgressRow(user: AuthedUser): Promise<{ progress: ProgressRe
   return { progress: mapRowToProgressRecord(row), updatedAt: row.updated_at ?? null };
 }
 
-async function readProgressFromSupabase(user: AuthedUser): Promise<ProgressRecord | null> {
-  const row = await readProgressRow(user);
-  return row?.progress ?? null;
-}
-
 /** Leerer String = Feld bewusst löschen; null = nicht überschreiben (Cloud-Wert behalten). */
 function mergeCloudTextField(incoming: string | null | undefined, existing: string | null | undefined): string | null {
   if (incoming === "") return null;
@@ -208,14 +203,35 @@ function mergeProgressWithExisting(existing: ProgressRecord | null, incoming: Pr
   };
 }
 
-async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord): Promise<boolean> {
-  if (!isSupabaseConfigured()) return false;
+type ProgressWriteResult = "written" | "conflict" | "error";
 
-  const existing = await readProgressFromSupabase(user);
+async function writeProgressToSupabase(
+  user: AuthedUser,
+  payload: ProgressRecord,
+  existingRow: { progress: ProgressRecord; updatedAt: string | null } | null,
+  forceOverwrite = false,
+): Promise<ProgressWriteResult> {
+  if (!isSupabaseConfigured()) return "error";
+
+  const existing = existingRow?.progress ?? null;
   const merged = mergeProgressWithExisting(existing, payload);
 
   const url = new URL(`${supabaseUrl}/rest/v1/user_progress`);
-  url.searchParams.set("on_conflict", "email");
+  const createsNewRow = !existingRow;
+  if (createsNewRow) {
+    // Ignore statt überschreiben: Falls zwei neue Geräte gleichzeitig den
+    // ersten Datensatz anlegen, gewinnt genau eines und das andere läuft über
+    // den normalen Konflikt-/Merge-Pfad.
+    url.searchParams.set("on_conflict", "email");
+  } else {
+    url.searchParams.set("email", `eq.${user.email}`);
+    if (!forceOverwrite) {
+      url.searchParams.set(
+        "updated_at",
+        existingRow.updatedAt ? `eq.${existingRow.updatedAt}` : "is.null",
+      );
+    }
+  }
 
   const row: ProgressRow = {
     email: user.email,
@@ -259,18 +275,23 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const response = await fetch(url.toString(), {
-      method: "POST",
+      method: createsNewRow ? "POST" : "PATCH",
       headers: {
         apikey: supabaseServiceRoleKey!,
         Authorization: `Bearer ${supabaseServiceRoleKey!}`,
         "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates,return=minimal",
+        Prefer: createsNewRow
+          ? "resolution=ignore-duplicates,return=representation"
+          : "return=representation",
       },
       body: JSON.stringify(compatibleRow),
       cache: "no-store",
     });
 
-    if (response.ok) return true;
+    if (response.ok) {
+      const writtenRows = (await response.json().catch(() => null)) as unknown[] | null;
+      return Array.isArray(writtenRows) && writtenRows.length > 0 ? "written" : "conflict";
+    }
 
     const error = (await response.json().catch(() => null)) as
       | { code?: string; message?: string }
@@ -279,11 +300,11 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
       error?.code === "PGRST204"
         ? error.message?.match(/Could not find the '([^']+)' column/)?.[1]
         : undefined;
-    if (!missingColumn || !(missingColumn in compatibleRow)) return false;
+    if (!missingColumn || !(missingColumn in compatibleRow)) return "error";
     delete compatibleRow[missingColumn];
   }
 
-  return false;
+  return "error";
 }
 
 export async function GET(request: NextRequest) {
@@ -329,10 +350,9 @@ export async function POST(request: NextRequest) {
 
   if (
     !payload.forceOverwrite &&
-    clientKnown &&
-    remoteUpdatedAt &&
-    new Date(remoteUpdatedAt).getTime() > new Date(clientKnown).getTime() &&
-    existingRow?.progress.remoteExists
+    existingRow?.progress.remoteExists &&
+    (!clientKnown ||
+      (remoteUpdatedAt && new Date(remoteUpdatedAt).getTime() > new Date(clientKnown).getTime()))
   ) {
     return NextResponse.json(
       {
@@ -344,11 +364,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ok = await writeProgressToSupabase(user, payload);
-  if (!ok) {
+  const result = await writeProgressToSupabase(user, payload, existingRow, payload.forceOverwrite);
+  if (result === "conflict") {
+    const latest = await readProgressRow(user);
+    return NextResponse.json(
+      {
+        error: "sync_conflict",
+        remote: latest?.progress ?? existingRow?.progress ?? getDefaultProgress(),
+        remoteUpdatedAt: latest?.updatedAt ?? remoteUpdatedAt,
+      },
+      { status: 409 },
+    );
+  }
+  if (result === "error") {
     return NextResponse.json({ error: "write_failed" }, { status: 500 });
   }
 
   const afterWrite = await readProgressRow(user);
-  return NextResponse.json({ ok: true, remoteUpdatedAt: afterWrite?.updatedAt ?? new Date().toISOString() });
+  return NextResponse.json({
+    ok: true,
+    remoteUpdatedAt: afterWrite?.updatedAt ?? new Date().toISOString(),
+    progress: afterWrite?.progress ?? payload,
+  });
 }

@@ -30,6 +30,9 @@ const COACH_WEEKLY_NOTE_STORAGE_KEY = "bt.coach-weekly-context";
 const TRAINING_EXERCISES_KEY = "training-exercises-v1";
 const TRAINING_WORKOUTS_KEY = "training-workouts-v1";
 const CLOUD_UPDATED_AT_KEY = "bt.cloud-updated-at.v1";
+const CLOUD_BASE_SNAPSHOT_KEY = "bt.cloud-base-snapshot.v1";
+const SYNC_DIRTY_KEY = "bt.sync-dirty.v1";
+const SYNC_DIRTY_REVISION_KEY = "bt.sync-dirty-revision.v1";
 const ACTIVE_AUTH_EMAIL_KEY = "bt.active-auth-email.v1";
 export const SYNC_USER_ID_KEY = "bt.sync-user-id.v1";
 
@@ -54,6 +57,9 @@ const STRING_KEYS = [
   TRAINING_EXERCISES_KEY,
   TRAINING_WORKOUTS_KEY,
   CLOUD_UPDATED_AT_KEY,
+  CLOUD_BASE_SNAPSHOT_KEY,
+  SYNC_DIRTY_KEY,
+  SYNC_DIRTY_REVISION_KEY,
   ACTIVE_AUTH_EMAIL_KEY,
   SYNC_USER_ID_KEY,
   EXERCISE_HISTORY_KEY,

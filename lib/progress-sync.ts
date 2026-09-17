@@ -15,11 +15,21 @@ import { isAppOnline } from "@/lib/app-online";
 import { createCoalescingAsyncQueue } from "@/lib/coalescing-async-queue";
 import { mergeProgressForFirstSync } from "@/lib/first-sync-progress-merge";
 import {
+  mergeProgressSnapshots,
+  parseCloudBase,
+  serializeCloudBase,
+} from "@/lib/progress-auto-merge";
+import {
   hasConfiguredWeekRhythm,
   hasProfileBasics,
   type ProfileCacheShape,
 } from "@/lib/onboarding-gate";
-import { clearLocalProgressDirty, isLocalProgressDirty, markLocalProgressDirty } from "@/lib/sync-dirty";
+import {
+  clearLocalProgressDirty,
+  getLocalProgressDirtyRevision,
+  isLocalProgressDirty,
+  markLocalProgressDirty,
+} from "@/lib/sync-dirty";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
 import { REMINDER_PREFS_KEY } from "@/lib/workout-reminders";
@@ -77,7 +87,23 @@ type RemoteProgress = {
 export type RemoteProgressPayload = RemoteProgress;
 
 const CLOUD_UPDATED_AT_KEY = "bt.cloud-updated-at.v1";
+const CLOUD_BASE_SNAPSHOT_KEY = "bt.cloud-base-snapshot.v1";
 const CLOUD_PULL_TTL_MS = 30_000;
+
+function readCloudBaseSnapshot() {
+  if (typeof window === "undefined") return null;
+  return parseCloudBase(window.localStorage.getItem(CLOUD_BASE_SNAPSHOT_KEY));
+}
+
+function rememberCloudBaseSnapshot(progress: RemoteProgress) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CLOUD_BASE_SNAPSHOT_KEY, serializeCloudBase(progress));
+  } catch {
+    // localStorage can be unavailable/full. Sync remains functional without
+    // the base snapshot and falls back to a conservative two-way merge.
+  }
+}
 
 function readLocalDailyPlanMap(): DailyPlanMap {
   if (typeof window === "undefined") return {};
@@ -367,6 +393,7 @@ export async function pullProgressFromCloud() {
       return null;
     }
     window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
+    rememberCloudBaseSnapshot(remote);
     return remote;
   }
 
@@ -375,9 +402,30 @@ export async function pullProgressFromCloud() {
       remote.remoteUpdatedAt &&
       (!localKnownAt || remote.remoteUpdatedAt > localKnownAt)
     ) {
-      const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
-      dispatchSyncConflict({ remote, remoteUpdatedAt: remote.remoteUpdatedAt });
+      const local = buildLocalProgressSnapshot();
+      const merged = mergeProgressSnapshots(readCloudBaseSnapshot(), remote, local);
+
+      // Die aktuelle Cloud-Version wird zum neuen gemeinsamen Basisstand. Die
+      // lokalen Änderungen bleiben im automatisch zusammengeführten Snapshot
+      // enthalten und werden direkt gegen genau diese Version gespeichert.
+      rememberCloudBaseSnapshot(remote);
+      applyRemoteProgressToLocal(merged);
+      window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
+      markLocalProgressDirty();
+      const saved = await pushProgressToCloud(merged, {
+        quiet: true,
+        clientKnownRemoteUpdatedAt: remote.remoteUpdatedAt,
+      });
+      window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
+      return {
+        ...merged,
+        remoteExists: true,
+        remoteUpdatedAt: saved
+          ? window.localStorage.getItem(CLOUD_UPDATED_AT_KEY)
+          : remote.remoteUpdatedAt,
+      };
     }
+    rememberCloudBaseSnapshot(remote);
     window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
     return remote;
   }
@@ -399,6 +447,7 @@ export async function pullProgressFromCloud() {
     if (remote.remoteUpdatedAt) {
       window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
     }
+    rememberCloudBaseSnapshot(remote);
     const migrated = await pushProgressToCloud(firstSyncMerge.progress, {
       quiet: true,
       clientKnownRemoteUpdatedAt: remote.remoteUpdatedAt ?? localKnownAt,
@@ -415,6 +464,7 @@ export async function pullProgressFromCloud() {
   }
 
   applyRemoteProgressToLocal(remote);
+  rememberCloudBaseSnapshot(remote);
   if (remote.remoteUpdatedAt) {
     window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
     dispatchSyncStatus({ status: "saved", at: remote.remoteUpdatedAt, message: "Cloud-Daten sind aktuell" });
@@ -469,39 +519,68 @@ async function pushProgressToCloudOnce(
     return false;
   }
 
-  markLocalProgressDirty();
   if (!options?.quiet) dispatchSyncStatus({ status: "saving" });
 
-  const snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
-  const clientKnownRemoteUpdatedAt = options?.clientKnownRemoteUpdatedAt !== undefined
+  const syncRevision = getLocalProgressDirtyRevision();
+  let snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
+  let clientKnownRemoteUpdatedAt = options?.clientKnownRemoteUpdatedAt !== undefined
     ? options.clientKnownRemoteUpdatedAt
     : window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
 
-  let response = await postProgressSnapshot(snapshot, clientKnownRemoteUpdatedAt, forceOverwrite);
+  // Ein 409 ist intern nur noch das Signal, den neueren Cloud-Snapshot zu
+  // holen und automatisch mit der lokalen Änderung zusammenzuführen. Erst
+  // wiederholte Netzwerk-/Serverfehler bleiben für den stillen Retry übrig.
+  for (let mergeAttempt = 0; mergeAttempt < 3; mergeAttempt += 1) {
+    let response = await postProgressSnapshot(snapshot, clientKnownRemoteUpdatedAt, forceOverwrite);
 
-  if (response.status === 401) {
-    const refreshed = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
-    if (refreshed.ok) {
-      response = await postProgressSnapshot(snapshot, clientKnownRemoteUpdatedAt, forceOverwrite);
+    if (response.status === 401) {
+      const refreshed = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
+      if (refreshed.ok) {
+        response = await postProgressSnapshot(snapshot, clientKnownRemoteUpdatedAt, forceOverwrite);
+      }
     }
-  }
 
-  if (response.status === 409) {
-    const conflict = (await response.json()) as { remote?: RemoteProgress; remoteUpdatedAt?: string };
-    if (conflict.remote && conflict.remoteUpdatedAt) {
-      const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
-      dispatchSyncConflict({ remote: conflict.remote, remoteUpdatedAt: conflict.remoteUpdatedAt });
+    if (response.status === 409) {
+      const conflict = (await response.json().catch(() => null)) as {
+        remote?: RemoteProgress;
+        remoteUpdatedAt?: string;
+      } | null;
+      if (!conflict?.remote || !conflict.remoteUpdatedAt) return false;
+
+      snapshot = mergeProgressSnapshots(readCloudBaseSnapshot(), {
+        ...conflict.remote,
+        remoteUpdatedAt: conflict.remoteUpdatedAt,
+      }, snapshot);
+      rememberCloudBaseSnapshot({
+        ...conflict.remote,
+        remoteUpdatedAt: conflict.remoteUpdatedAt,
+      });
+      clientKnownRemoteUpdatedAt = conflict.remoteUpdatedAt;
+      continue;
     }
-    if (!options?.quiet) dispatchSyncStatus({ status: "error", message: "Cloud-Konflikt – bitte Version wählen" });
-    return false;
-  }
 
-  if (response.ok) {
-    const json = (await response.json()) as { remoteUpdatedAt?: string };
+    if (!response.ok) return false;
+
+    const json = (await response.json()) as {
+      remoteUpdatedAt?: string;
+      progress?: RemoteProgress;
+    };
     if (json.remoteUpdatedAt) {
       window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, json.remoteUpdatedAt);
     }
-    clearLocalProgressDirty();
+    const canonical = json.progress
+      ? mergeProgressSnapshots(null, json.progress, snapshot)
+      : snapshot;
+    canonical.remoteExists = true;
+    canonical.remoteUpdatedAt = json.remoteUpdatedAt ?? null;
+    rememberCloudBaseSnapshot(canonical);
+
+    // Wurde waehrend des Uploads bereits weitergearbeitet, darf der Abschluss
+    // weder das neue Dirty-Flag löschen noch den frischeren lokalen Stand
+    // überschreiben. Die Queue überträgt diese Generation im nächsten Lauf.
+    if (clearLocalProgressDirty(syncRevision)) {
+      applyRemoteProgressToLocal(canonical);
+    }
     if (!options?.quiet) {
       dispatchSyncStatus({ status: "saved", at: json.remoteUpdatedAt, message: "In der Cloud gespeichert" });
     }
@@ -555,7 +634,8 @@ export async function pushProgressToCloudWithRetry(
       return true;
     }
     if (attempt < attempts - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      const backoffMs = 500 * 2 ** attempt;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
   dispatchSyncStatus({
