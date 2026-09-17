@@ -54,6 +54,7 @@ import {
   buildSessionLogFromSet,
   calculateShootingMissesInput,
   completeShootingValues,
+  METRIC_LABELS,
   normalizeMetricKeysForCategory,
   repCountFromSessionLog,
   shouldUseShootingInputs,
@@ -782,7 +783,10 @@ function WorkoutsPageContent() {
     const tries = parseNonNegative(log.reps) || parseNonNegative(log.tries);
     const makes = Number(log.makes) || 0;
     const misses = Number(log.misses) || 0;
-    return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || log.completed === true || Boolean(log.completedAtIso);
+    const time = Number(log.time) || 0;
+    const distance = Number(log.distance) || 0;
+    const points = Number(log.points) || 0;
+    return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || time > 0 || distance > 0 || points > 0 || log.completed === true || Boolean(log.completedAtIso);
   };
 
   const getExerciseStatus = (exerciseIndex: number, workoutProgress: WorkoutProgress = progress) =>
@@ -1633,13 +1637,25 @@ function WorkoutsPageContent() {
     }
     startWorkout();
   };
-  const currentTargetText = isGymWorkout
-    ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps`
-    : tracksRepsAndMakes
-      ? `${currentSet.targetReps} Makes · Eingabe: Reps, Makes und Misses`
-      : currentMetricOptions.includes("time") && !currentMetricOptions.includes("reps")
-        ? `Zeit-Ziel: ${currentSet.targetReps} ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}`
-        : `${currentSet.targetReps} Reps`;
+  const currentTargetParts = currentExerciseMeta
+    ? currentMetricOptions.flatMap((metric) => {
+        if (metric === "completed") return [];
+        const value = currentExerciseMeta.setTargetsByMetric?.[safeSetIndex]?.[metric]
+          ?? currentExerciseMeta.targetByMetric?.[metric];
+        if (value == null) return [];
+        const unit = metric === "time"
+          ? currentExerciseMeta.timeUnit === "minutes" ? " Min." : " Sek."
+          : metric === "weight" ? " kg" : "";
+        return [`${METRIC_LABELS[metric]}: ${value}${unit}`];
+      })
+    : [];
+  const legacyTargetText = currentSet.targetReps > 0 || currentSet.targetKg > 0
+    ? isGymWorkout
+      ? `${currentSet.targetKg} kg × ${currentSet.targetReps} Reps`
+      : `${currentSet.targetReps} Reps`
+    : "";
+  const currentTargetText = currentTargetParts.join(" · ") || legacyTargetText || "Kein Ziel · nur erfassen";
+  const hasCurrentTarget = currentTargetParts.length > 0 || Boolean(legacyTargetText);
 
   return (
     <main className="app-container animate-in">
@@ -1975,9 +1991,13 @@ function WorkoutsPageContent() {
                 </div>
               ) : null}
 
-              <div className="target-banner mt-4">
-                <span className="font-semibold">Ziel:</span> {currentTargetText}
-              </div>
+              {hasCurrentTarget ? (
+                <div className="target-banner mt-4">
+                  <span className="font-semibold">Ziel:</span> {currentTargetText}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-muted">Kein Zielwert – Satz einfach erfassen und abschließen.</p>
+              )}
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {currentMetricOptions.includes("weight") ? (
@@ -2071,7 +2091,7 @@ function WorkoutsPageContent() {
 
                 {currentMetricOptions.includes("time") ? (
                   <label className="text-sm text-muted">
-                    Zeit ({currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."})
+                    Zeit ({currentExerciseMeta?.timeUnit === "minutes" ? "Min." : "Sek."})
                     <DigitField
                       allowDecimal
                       value={currentLog.time ?? ""}
@@ -2166,11 +2186,9 @@ function WorkoutsPageContent() {
               ) : null}
 
               <div className="mt-3 text-sm text-muted">
-                <p>
-                  Ziel: {currentTargetText}
-                </p>
+                <p>{hasCurrentTarget ? `Ziel: ${currentTargetText}` : "Ohne Zielwert"}</p>
                 <p className="mt-1">
-                  Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksRepsAndMakes ? `${shootingRepsTotal} Reps • ${currentLog.makes || 0} Makes • ${parseNonNegative(currentLog.misses) || Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0} Reps${currentLog.time ? ` • ${currentLog.time} ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}` : ""}${currentLog.distance ? ` • ${currentLog.distance} ${currentLog.distanceUnit ?? "m"}` : ""}`}
+                  Aktuell: {isGymWorkout ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}` : tracksRepsAndMakes ? `${shootingRepsTotal} Reps • ${currentLog.makes || 0} Makes • ${parseNonNegative(currentLog.misses) || Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))} Misses` : `${currentLog.reps || 0} Reps${currentLog.time ? ` • ${currentLog.time} ${currentExerciseMeta?.timeUnit === "minutes" ? "Min." : "Sek."}` : ""}${currentLog.distance ? ` • ${currentLog.distance} ${currentLog.distanceUnit ?? "m"}` : ""}`}
                 </p>
               </div>
               {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}

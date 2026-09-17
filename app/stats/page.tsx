@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { type Category } from "@/lib/training-data";
@@ -13,26 +14,28 @@ import {
 } from "@/lib/session-storage";
 import { toLocalDateKey } from "@/lib/workout";
 import { loadExercises, loadWorkouts } from "@/lib/training-storage";
-import GameStatsSearchPanel from "@/components/GameStatsSearchPanel";
-import GameTrainingInsights from "@/components/GameTrainingInsights";
-import MatchupHintsCard from "@/components/MatchupHintsCard";
-import GymGoalsManager from "@/components/GymGoalsManager";
 import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
-import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import PageHeader from "@/components/PageHeader";
-import TrendChart, { type TrendPoint } from "@/components/TrendChart";
+import type { TrendPoint } from "@/components/TrendChart";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ensureInitialCloudSync, pushProgressToCloud } from "@/lib/progress-sync";
 import { loadGameStats } from "@/lib/game-stats";
 import { countStrictTrackedSetsInLogs, countTrackedSetsInLogs, logCountsAsTrackedSet, sessionHasCompletedWork } from "@/lib/workout-session-metrics";
-import { repCountFromSessionLog } from "@/lib/workout-metrics";
+import { repCountFromSessionLog, sessionLogHasShootingData } from "@/lib/workout-metrics";
 import {
   aggregateShootingByZone,
   computeFieldGoalPercentage,
   computeThreePointPercentage,
   shootingZoneRows,
 } from "@/lib/shooting-zone-stats";
+
+const GameStatsSearchPanel = dynamic(() => import("@/components/GameStatsSearchPanel"));
+const GameTrainingInsights = dynamic(() => import("@/components/GameTrainingInsights"));
+const MatchupHintsCard = dynamic(() => import("@/components/MatchupHintsCard"));
+const GymGoalsManager = dynamic(() => import("@/components/GymGoalsManager"));
+const ShootingZoneHeatmap = dynamic(() => import("@/components/ShootingZoneHeatmap"));
+const TrendChart = dynamic(() => import("@/components/TrendChart"));
 
 type CategorySlice = { label: string; value: number; color: string };
 type SportCategory = "Basketball" | "Gym" | "Home" | "Regeneration";
@@ -126,7 +129,6 @@ function loadCombinedHistory(): CompletedWorkoutHistoryEntry[] {
   );
 
   const sessionHistory = trackedSessions.flatMap((session) => {
-    if (session.workoutId === "single-exercise-session") return [];
     if (!sessionHasCompletedWork(session)) return [];
     const totalSets = countStrictTrackedSetsInLogs(session.logs);
     const totalReps = session.logs.reduce((sum, log) => sum + repCountFromSessionLog(log, exerciseLookup.get(log.exerciseId)), 0);
@@ -247,10 +249,11 @@ function buildBasketballExerciseStats(sessionsInput: WorkoutSessionEntry[], rang
     session.logs.forEach((log) => {
       const exercise = exerciseLookup.get(log.exerciseId);
       if (!exercise || exercise.category !== "Basketball") return;
-      if (exercise.metricKeys.includes("time") && !exercise.metricKeys.includes("makes") && !exercise.metricKeys.includes("misses")) return;
-
       const current = map.get(log.exerciseId) ?? { attempts: 0, made: 0, misses: 0, usesShotMetrics: false };
-      const hasShotInput = log.made != null || log.misses != null || log.attempts != null;
+      // `attempts` also stores ordinary repetitions. Only explicit make/miss
+      // data identifies a shooting line; otherwise Handles drills would be
+      // shown as 0%-shooting entries.
+      const hasShotInput = sessionLogHasShootingData(log);
 
       let made = Math.max(0, log.made ?? 0);
       let misses = Math.max(0, log.misses ?? 0);
@@ -494,7 +497,11 @@ useEffect(() => {
   useEffect(() => {
     const onGameStatsUpdate = () => setGameStats(loadGameStats());
     window.addEventListener("bt:game-stats-updated", onGameStatsUpdate);
-    return () => window.removeEventListener("bt:game-stats-updated", onGameStatsUpdate);
+    window.addEventListener("bt:cloud-progress-applied", onGameStatsUpdate);
+    return () => {
+      window.removeEventListener("bt:game-stats-updated", onGameStatsUpdate);
+      window.removeEventListener("bt:cloud-progress-applied", onGameStatsUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -513,9 +520,11 @@ useEffect(() => {
     };
     window.addEventListener("bt:sessions-updated", onSessions);
     window.addEventListener("bt:workout-progress-updated", onSessions);
+    window.addEventListener("bt:cloud-progress-applied", onSessions);
     return () => {
       window.removeEventListener("bt:sessions-updated", onSessions);
       window.removeEventListener("bt:workout-progress-updated", onSessions);
+      window.removeEventListener("bt:cloud-progress-applied", onSessions);
     };
   }, [refreshSessionDetails]);
 

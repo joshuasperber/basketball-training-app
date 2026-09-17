@@ -122,7 +122,7 @@ export function getExercisePrimaryTargetValue(exercise: ReturnType<typeof loadEx
     exercise.targetByMetric?.distance ??
     exercise.targetByMetric?.weight ??
     exercise.targetValue ??
-    12
+    0
   );
 }
 

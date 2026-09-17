@@ -58,7 +58,6 @@ export default function AuthConfirmPage() {
         }
 
         if (tokenHash || code) {
-          await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
           const exchangeRes = await fetch("/api/auth/exchange", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

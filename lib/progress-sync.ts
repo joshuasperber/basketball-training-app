@@ -7,23 +7,25 @@ import {
   type DailyPlanMap,
 } from "@/lib/activity-calendar";
 import { PLAYER_INTAKE_STORAGE_KEY, PLAYER_INTAKE_UPDATED_EVENT } from "@/lib/coach-intake";
-import { GAME_STATS_KEY } from "@/lib/game-stats";
+import { GAME_STATS_KEY, GAME_STATS_UPDATED_EVENT } from "@/lib/game-stats";
 import { LEAGUE_STORAGE_KEY, LEAGUE_UPDATED_EVENT } from "@/lib/league";
 import { checkAuthSession, ACTIVE_AUTH_EMAIL_KEY } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
 import { isAppOnline } from "@/lib/app-online";
+import { createCoalescingAsyncQueue } from "@/lib/coalescing-async-queue";
+import { mergeProgressForFirstSync } from "@/lib/first-sync-progress-merge";
 import {
   hasConfiguredWeekRhythm,
   hasProfileBasics,
   type ProfileCacheShape,
 } from "@/lib/onboarding-gate";
 import { clearLocalProgressDirty, isLocalProgressDirty, markLocalProgressDirty } from "@/lib/sync-dirty";
-import { getWorkoutSessions } from "@/lib/session-storage";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { TRAINING_GOALS_STORAGE_KEY } from "@/lib/training-goals";
 import { REMINDER_PREFS_KEY } from "@/lib/workout-reminders";
 import { READINESS_STORAGE_KEY } from "@/lib/readiness";
 import { SessionDatabase } from "@/lib/session-types";
+import { dispatchSyncStatus } from "@/lib/sync-status";
 import { WORKOUT_HISTORY_KEY as LEGACY_WORKOUT_HISTORY_KEY, WORKOUT_OVERRIDE_PREFIX } from "@/lib/workout";
 
 const EXERCISE_HISTORY_KEY = "bt.exercise-history.v1";
@@ -75,6 +77,7 @@ type RemoteProgress = {
 export type RemoteProgressPayload = RemoteProgress;
 
 const CLOUD_UPDATED_AT_KEY = "bt.cloud-updated-at.v1";
+const CLOUD_PULL_TTL_MS = 30_000;
 
 function readLocalDailyPlanMap(): DailyPlanMap {
   if (typeof window === "undefined") return {};
@@ -181,8 +184,11 @@ function hasLocalUserData(snapshot: RemoteProgress) {
   );
 }
 
-function writeRawStringIfPresent(key: string, value: string | null | undefined) {
-  if (value == null) return;
+function writeRemoteString(key: string, value: string | null | undefined) {
+  if (value == null) {
+    window.localStorage.removeItem(key);
+    return;
+  }
   window.localStorage.setItem(key, value);
 }
 
@@ -195,32 +201,6 @@ function parseProfileCache(raw: string | null | undefined): ProfileCacheShape | 
   }
 }
 
-function mergeProfileCacheObjects(local: ProfileCacheShape, remote: ProfileCacheShape): ProfileCacheShape {
-  return {
-    ...remote,
-    ...local,
-    onboardingComplete: Boolean(local.onboardingComplete || remote.onboardingComplete),
-    profile: {
-      ...remote.profile,
-      ...local.profile,
-      username: local.profile?.username?.trim() || remote.profile?.username?.trim() || "",
-      full_name: local.profile?.full_name?.trim() || remote.profile?.full_name?.trim() || "",
-      favorite_position: local.profile?.favorite_position ?? remote.profile?.favorite_position ?? "sg",
-      height_cm: local.profile?.height_cm ?? remote.profile?.height_cm ?? null,
-      weight_kg: local.profile?.weight_kg ?? remote.profile?.weight_kg ?? null,
-      email: local.profile?.email ?? remote.profile?.email ?? null,
-    },
-    playStyle: local.playStyle || remote.playStyle || "Shooter",
-    weekConfig: hasConfiguredWeekRhythm(local)
-      ? local.weekConfig
-      : hasConfiguredWeekRhythm(remote)
-        ? remote.weekConfig
-        : local.weekConfig ?? remote.weekConfig,
-    weeklyGoalSessions: local.weeklyGoalSessions ?? remote.weeklyGoalSessions ?? 4,
-    bodyMetrics: local.bodyMetrics ?? remote.bodyMetrics,
-  };
-}
-
 function profileCacheHasContent(cache: ProfileCacheShape): boolean {
   return Boolean(
     cache.onboardingComplete || hasProfileBasics(cache) || hasConfiguredWeekRhythm(cache),
@@ -228,106 +208,104 @@ function profileCacheHasContent(cache: ProfileCacheShape): boolean {
 }
 
 function mergeProfileCacheFromRemote(remoteCache: string | null | undefined) {
-  if (!remoteCache || typeof window === "undefined") return;
+  if (typeof window === "undefined") return;
+  if (!remoteCache) {
+    window.localStorage.removeItem(PROFILE_LOCAL_CACHE_KEY);
+    return;
+  }
 
   const remote = parseProfileCache(remoteCache);
   if (!remote || !profileCacheHasContent(remote)) return;
-
-  const localRaw = window.localStorage.getItem(PROFILE_LOCAL_CACHE_KEY);
-  if (!localRaw) {
-    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
-    return;
-  }
-
-  const local = parseProfileCache(localRaw);
-  if (!local) {
-    window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, remoteCache);
-    return;
-  }
-
-  const merged = mergeProfileCacheObjects(local, remote);
-  window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(merged));
-}
-
-function mergeLocalMap<T extends Record<string, unknown>>(key: string, remote: T | null | undefined, fallback: T): T {
-  const local = readLocalJsonMap<T>(key, fallback);
-  return { ...local, ...(remote ?? fallback) };
+  window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify(remote));
 }
 
 export function applyRemoteProgressToLocal(remote: RemoteProgress) {
   if (typeof window === "undefined") return;
   clearLocalProgressDirty();
-  const localSessions = getWorkoutSessions();
-  const mergedSessions = [...localSessions];
-  const seenSessionIds = new Set(localSessions.map((session) => session.id));
-  for (const session of remote.sessions.workoutSessions ?? []) {
-    if (!seenSessionIds.has(session.id)) mergedSessions.push(session);
-  }
-  window.localStorage.setItem(WORKOUT_SESSIONS_KEY, JSON.stringify(mergedSessions));
-  window.localStorage.setItem(EXERCISE_HISTORY_KEY, JSON.stringify(mergeLocalMap(EXERCISE_HISTORY_KEY, remote.sessions.exerciseHistory ?? {}, {})));
-  window.localStorage.setItem(DAILY_PLAN_KEY, JSON.stringify(mergeLocalMap(DAILY_PLAN_KEY, remote.dailyPlanMap, {})));
-  window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(mergeLocalMap(MANUAL_DAY_WORKOUTS_KEY, remote.manualDayWorkoutsMap, {})));
-  window.localStorage.setItem(MANUAL_DAY_DISABLED_KEY, JSON.stringify(mergeLocalMap(MANUAL_DAY_DISABLED_KEY, remote.manualDayDisabledMap, {})));
-  writeRawStringIfPresent(MANUAL_PLAN_OVERRIDES_KEY, remote.manualPlanOverrides);
-  window.localStorage.setItem(WEEKLY_REGEN_SLOT_MAP_KEY, JSON.stringify(mergeLocalMap(WEEKLY_REGEN_SLOT_MAP_KEY, remote.weeklyRegenSlotMap, {})));
-  window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(mergeLocalMap(HIDDEN_AUTO_WORKOUTS_KEY, remote.hiddenAutoWorkoutsMap, {})));
+  const remoteSessions = [...(remote.sessions.workoutSessions ?? [])]
+    .sort((left, right) => right.dateISO.localeCompare(left.dateISO))
+    .slice(0, 300);
+  // Legacy local-only values have already been folded into the one-time
+  // first-sync snapshot before this function runs. During ordinary pulls the
+  // cloud is authoritative, including deletions made on another device.
+  window.localStorage.setItem(WORKOUT_SESSIONS_KEY, JSON.stringify(remoteSessions));
+  window.localStorage.setItem(EXERCISE_HISTORY_KEY, JSON.stringify(remote.sessions.exerciseHistory ?? {}));
+  window.localStorage.setItem(DAILY_PLAN_KEY, JSON.stringify(remote.dailyPlanMap ?? {}));
+  window.localStorage.setItem(MANUAL_DAY_WORKOUTS_KEY, JSON.stringify(remote.manualDayWorkoutsMap ?? {}));
+  window.localStorage.setItem(MANUAL_DAY_DISABLED_KEY, JSON.stringify(remote.manualDayDisabledMap ?? {}));
+  writeRemoteString(MANUAL_PLAN_OVERRIDES_KEY, remote.manualPlanOverrides);
+  window.localStorage.setItem(WEEKLY_REGEN_SLOT_MAP_KEY, JSON.stringify(remote.weeklyRegenSlotMap ?? {}));
+  window.localStorage.setItem(HIDDEN_AUTO_WORKOUTS_KEY, JSON.stringify(remote.hiddenAutoWorkoutsMap ?? {}));
   mergeProfileCacheFromRemote(remote.profileCache);
-  writeRawStringIfPresent(PROFILE_USERNAME_KEY, remote.profileUsername);
-  writeRawStringIfPresent(PROFILE_WEEK_CONFIG_KEY, remote.profileWeekConfig);
-  writeRawStringIfPresent(PLAYER_INTAKE_STORAGE_KEY, remote.playerIntake);
-  writeRawStringIfPresent(XP_HISTORY_KEY, remote.xpHistory);
-  writeRawStringIfPresent(XP_PROGRESSION_KEY, remote.xpProgression);
-  writeRawStringIfPresent(PERFORMANCE_TIPS_KEY, remote.performanceTips);
-  writeRawStringIfPresent(GAME_STATS_KEY, remote.gameStats);
-  writeRawStringIfPresent(LEAGUE_STORAGE_KEY, remote.leagueData);
-  writeRawStringIfPresent(TRAINING_GOALS_STORAGE_KEY, remote.trainingGoals);
-  writeRawStringIfPresent(CUSTOM_SUBCATEGORY_KEY, remote.customSubcategories);
-  writeRawStringIfPresent(WORKOUT_HISTORY_KEY, remote.workoutHistory);
-  writeRawStringIfPresent(REMINDER_PREFS_KEY, remote.reminderPrefs);
-  writeRawStringIfPresent(READINESS_STORAGE_KEY, remote.readinessHistory);
-  writeRawStringIfPresent(COACH_WEEKLY_NOTE_STORAGE_KEY, remote.coachWeeklyNote);
-  writeRawStringIfPresent(TRAINING_EXERCISES_KEY, remote.trainingExercises);
-  writeRawStringIfPresent(TRAINING_WORKOUTS_KEY, remote.trainingWorkouts);
+  writeRemoteString(PROFILE_USERNAME_KEY, remote.profileUsername);
+  writeRemoteString(PROFILE_WEEK_CONFIG_KEY, remote.profileWeekConfig);
+  writeRemoteString(PLAYER_INTAKE_STORAGE_KEY, remote.playerIntake);
+  writeRemoteString(XP_HISTORY_KEY, remote.xpHistory);
+  writeRemoteString(XP_PROGRESSION_KEY, remote.xpProgression);
+  writeRemoteString(PERFORMANCE_TIPS_KEY, remote.performanceTips);
+  writeRemoteString(GAME_STATS_KEY, remote.gameStats);
+  writeRemoteString(LEAGUE_STORAGE_KEY, remote.leagueData);
+  writeRemoteString(TRAINING_GOALS_STORAGE_KEY, remote.trainingGoals);
+  writeRemoteString(CUSTOM_SUBCATEGORY_KEY, remote.customSubcategories);
+  writeRemoteString(WORKOUT_HISTORY_KEY, remote.workoutHistory);
+  writeRemoteString(REMINDER_PREFS_KEY, remote.reminderPrefs);
+  writeRemoteString(READINESS_STORAGE_KEY, remote.readinessHistory);
+  writeRemoteString(COACH_WEEKLY_NOTE_STORAGE_KEY, remote.coachWeeklyNote);
+  writeRemoteString(TRAINING_EXERCISES_KEY, remote.trainingExercises);
+  writeRemoteString(TRAINING_WORKOUTS_KEY, remote.trainingWorkouts);
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(WORKOUT_OVERRIDE_PREFIX)) window.localStorage.removeItem(key);
+  }
   for (const [dateKey, workoutId] of Object.entries(remote.workoutOverrides ?? {})) {
     window.localStorage.setItem(`${WORKOUT_OVERRIDE_PREFIX}${dateKey}`, workoutId);
   }
   window.dispatchEvent(new CustomEvent("bt:plan-updated", { detail: { source: "remote" } }));
-  window.dispatchEvent(new Event(PLAYER_INTAKE_UPDATED_EVENT));
+  window.dispatchEvent(new CustomEvent("bt:sessions-updated", { detail: { source: "remote" } }));
+  window.dispatchEvent(new CustomEvent(GAME_STATS_UPDATED_EVENT, { detail: { source: "remote" } }));
+  window.dispatchEvent(new CustomEvent(PLAYER_INTAKE_UPDATED_EVENT, { detail: { source: "remote" } }));
   if (remote.leagueData) {
     window.dispatchEvent(new CustomEvent(LEAGUE_UPDATED_EVENT, { detail: { source: "remote" } }));
   }
   if (remote.trainingGoals) {
-    window.dispatchEvent(new Event("bt:training-goals-updated"));
+    window.dispatchEvent(new CustomEvent("bt:training-goals-updated", { detail: { source: "remote" } }));
   }
   window.dispatchEvent(new Event("bt:cloud-progress-applied"));
 }
 
 let initialCloudSyncPromise: Promise<RemoteProgress | null> | null = null;
 let initialCloudSyncResult: RemoteProgress | null | undefined;
-let initialCloudSyncAttemptedOnline = false;
-let pushInFlight: Promise<boolean> | null = null;
+let initialCloudSyncSucceededAt = 0;
 
 /** Erlaubt erneuten Cloud-Pull nach Offline-Start oder wenn zuvor noch nicht synchronisiert wurde. */
 export function resetInitialCloudSyncCache() {
   initialCloudSyncResult = undefined;
-  initialCloudSyncAttemptedOnline = false;
+  initialCloudSyncSucceededAt = 0;
   initialCloudSyncPromise = null;
 }
 
-/** Einmaliger Cloud-Pull beim App-Start — verhindert doppelte parallele Requests. */
-export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
+/**
+ * Cloud-Pull mit kurzem Cache. Fehler und leere Antworten werden nicht dauerhaft
+ * gecacht, damit ein spaeterer Fokus-/Online-Event erneut synchronisieren kann.
+ */
+export function ensureInitialCloudSync(options: { force?: boolean } = {}): Promise<RemoteProgress | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
   if (!isAppOnline()) {
     return Promise.resolve(initialCloudSyncResult ?? null);
   }
-  if (initialCloudSyncAttemptedOnline && initialCloudSyncResult !== undefined) {
-    return Promise.resolve(initialCloudSyncResult);
+  const cacheIsFresh =
+    initialCloudSyncResult !== undefined &&
+    Date.now() - initialCloudSyncSucceededAt < CLOUD_PULL_TTL_MS;
+  if (!options.force && cacheIsFresh) {
+    return Promise.resolve(initialCloudSyncResult ?? null);
   }
   if (!initialCloudSyncPromise) {
     initialCloudSyncPromise = pullProgressFromCloud()
       .then((result) => {
-        initialCloudSyncResult = result;
-        initialCloudSyncAttemptedOnline = true;
+        if (result !== null) {
+          initialCloudSyncResult = result;
+          initialCloudSyncSucceededAt = Date.now();
+        }
         return result;
       })
       .finally(() => {
@@ -338,7 +316,10 @@ export function ensureInitialCloudSync(): Promise<RemoteProgress | null> {
 }
 
 export async function pullProgressFromCloud() {
-  if (!isAppOnline()) return null;
+  if (!isAppOnline()) {
+    dispatchSyncStatus({ status: "offline" });
+    return null;
+  }
 
   const { me, accountSwitched } = await checkAuthSession();
   if (!me) return null;
@@ -347,12 +328,10 @@ export async function pullProgressFromCloud() {
     clearLocalUserProgress();
   }
 
+  const localKnownAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
   const response = await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
   if (!response.ok) return null;
   const remote = (await response.json()) as RemoteProgress;
-  if (remote.remoteUpdatedAt) {
-    window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
-  }
 
   const syncUserId = window.localStorage.getItem(SYNC_USER_ID_KEY);
   if (syncUserId && syncUserId !== me.id) {
@@ -368,28 +347,70 @@ export async function pullProgressFromCloud() {
     const canMigrateLocal =
       !accountSwitched && (syncUserId === me.id || (syncUserId == null && hasLocalUserData(local)));
     if (canMigrateLocal && hasLocalUserData(local)) {
-      await pushProgressToCloud();
-      window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
-      return local;
+      const migrated = await pushProgressToCloud();
+      if (migrated) {
+        window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
+        return {
+          ...local,
+          remoteExists: true,
+          remoteUpdatedAt: window.localStorage.getItem(CLOUD_UPDATED_AT_KEY),
+        };
+      }
+      return null;
     }
     window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
     return remote;
   }
 
-  const localKnownAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
-  if (
-    isLocalProgressDirty() &&
-    localKnownAt &&
-    remote.remoteUpdatedAt &&
-    remote.remoteUpdatedAt > localKnownAt
-  ) {
-    const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
-    dispatchSyncConflict({ remote, remoteUpdatedAt: remote.remoteUpdatedAt });
+  if (isLocalProgressDirty()) {
+    if (
+      remote.remoteUpdatedAt &&
+      (!localKnownAt || remote.remoteUpdatedAt > localKnownAt)
+    ) {
+      const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
+      dispatchSyncConflict({ remote, remoteUpdatedAt: remote.remoteUpdatedAt });
+    }
     window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
     return remote;
   }
 
+  // Older app versions could already have created the account row while
+  // keeping individual fields (notably profile, league and game stats) only
+  // in localStorage. Fill only missing cloud text and append-only sessions.
+  // Calendar maps are included solely before this device has ever completed
+  // a cloud pull, so deleted remote map entries are not resurrected later.
+  const local = buildLocalProgressSnapshot();
+  const firstSyncMerge = mergeProgressForFirstSync(remote, local, {
+    includeLocalMapEntries: !localKnownAt,
+  });
+  if (firstSyncMerge.addedLocalData) {
+    // First apply the conflict-safe merged snapshot locally. If the network
+    // write fails, the retry queue then uploads this merged state instead of
+    // an older local snapshot that could replace newer cloud maps.
+    applyRemoteProgressToLocal(firstSyncMerge.progress);
+    if (remote.remoteUpdatedAt) {
+      window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
+    }
+    const migrated = await pushProgressToCloud(firstSyncMerge.progress, {
+      quiet: true,
+      clientKnownRemoteUpdatedAt: remote.remoteUpdatedAt ?? localKnownAt,
+    });
+    if (!migrated) return remote;
+
+    const migratedProgress = {
+      ...firstSyncMerge.progress,
+      remoteExists: true,
+      remoteUpdatedAt: window.localStorage.getItem(CLOUD_UPDATED_AT_KEY),
+    };
+    window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
+    return migratedProgress;
+  }
+
   applyRemoteProgressToLocal(remote);
+  if (remote.remoteUpdatedAt) {
+    window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, remote.remoteUpdatedAt);
+    dispatchSyncStatus({ status: "saved", at: remote.remoteUpdatedAt, message: "Cloud-Daten sind aktuell" });
+  }
   window.localStorage.setItem(SYNC_USER_ID_KEY, me.id);
   return remote;
 }
@@ -399,6 +420,8 @@ type PushOptions = {
   quiet?: boolean;
   /** Nach Sync-Konflikt lokale Version erzwingen */
   forceOverwrite?: boolean;
+  /** Expliziter Stand des unmittelbar zuvor gelesenen Cloud-Snapshots. */
+  clientKnownRemoteUpdatedAt?: string | null;
 };
 
 async function postProgressSnapshot(
@@ -427,6 +450,7 @@ async function pushProgressToCloudOnce(
   if (!me) return false;
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     markLocalProgressDirty();
+    if (!options?.quiet) dispatchSyncStatus({ status: "offline" });
     return false;
   }
   if (accountSwitched) {
@@ -435,9 +459,12 @@ async function pushProgressToCloudOnce(
   }
 
   markLocalProgressDirty();
+  if (!options?.quiet) dispatchSyncStatus({ status: "saving" });
 
   const snapshot = { ...buildLocalProgressSnapshot(), ...overrides };
-  const clientKnownRemoteUpdatedAt = window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
+  const clientKnownRemoteUpdatedAt = options?.clientKnownRemoteUpdatedAt !== undefined
+    ? options.clientKnownRemoteUpdatedAt
+    : window.localStorage.getItem(CLOUD_UPDATED_AT_KEY);
 
   let response = await postProgressSnapshot(snapshot, clientKnownRemoteUpdatedAt, forceOverwrite);
 
@@ -454,6 +481,7 @@ async function pushProgressToCloudOnce(
       const { dispatchSyncConflict } = await import("@/lib/sync-conflict");
       dispatchSyncConflict({ remote: conflict.remote, remoteUpdatedAt: conflict.remoteUpdatedAt });
     }
+    if (!options?.quiet) dispatchSyncStatus({ status: "error", message: "Cloud-Konflikt – bitte Version wählen" });
     return false;
   }
 
@@ -463,21 +491,43 @@ async function pushProgressToCloudOnce(
       window.localStorage.setItem(CLOUD_UPDATED_AT_KEY, json.remoteUpdatedAt);
     }
     clearLocalProgressDirty();
+    if (!options?.quiet) {
+      dispatchSyncStatus({ status: "saved", at: json.remoteUpdatedAt, message: "In der Cloud gespeichert" });
+    }
     return true;
   }
 
+  if (!options?.quiet) dispatchSyncStatus({ status: "error", message: "Cloud-Sync fehlgeschlagen" });
   return false;
 }
+
+type QueuedProgressPush = {
+  overrides?: Partial<RemoteProgress>;
+  options?: PushOptions;
+};
+
+const progressPushQueue = createCoalescingAsyncQueue<QueuedProgressPush>({
+  merge: (current, incoming) => ({
+    overrides:
+      current.overrides || incoming.overrides
+        ? { ...(current.overrides ?? {}), ...(incoming.overrides ?? {}) }
+        : undefined,
+    options: {
+      quiet: Boolean(current.options?.quiet && incoming.options?.quiet),
+      forceOverwrite: Boolean(current.options?.forceOverwrite || incoming.options?.forceOverwrite),
+      clientKnownRemoteUpdatedAt:
+        incoming.options?.clientKnownRemoteUpdatedAt ?? current.options?.clientKnownRemoteUpdatedAt,
+    },
+  }),
+  worker: ({ overrides, options }) => pushProgressToCloudOnce(overrides, options),
+});
 
 export async function pushProgressToCloud(
   overrides?: Partial<RemoteProgress>,
   options?: PushOptions,
 ): Promise<boolean> {
-  if (pushInFlight) return pushInFlight;
-  pushInFlight = pushProgressToCloudOnce(overrides, options).finally(() => {
-    pushInFlight = null;
-  });
-  return pushInFlight;
+  markLocalProgressDirty();
+  return progressPushQueue.enqueue({ overrides, options });
 }
 
 /** Sync mit kurzem Retry — hilft direkt nach Workout-Abschluss. */
@@ -490,12 +540,17 @@ export async function pushProgressToCloudWithRetry(
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await pushProgressToCloud(overrides, { quiet: true })) {
+      dispatchSyncStatus({ status: "saved", message: "In der Cloud gespeichert" });
       return true;
     }
     if (attempt < attempts - 1) {
       await new Promise((resolve) => setTimeout(resolve, 400));
     }
   }
+  dispatchSyncStatus({
+    status: isAppOnline() ? "error" : "offline",
+    message: isAppOnline() ? "Cloud-Sync fehlgeschlagen – wird erneut versucht" : undefined,
+  });
   return false;
 }
 

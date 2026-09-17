@@ -22,18 +22,20 @@ export async function POST(request: NextRequest) {
   }
 
   if (!session?.access_token || !session?.refresh_token) {
-    const response = NextResponse.json({ error: "invalid_link" }, { status: 400 });
-    clearSessionCookies(response, request);
-    return response;
+    return NextResponse.json({ error: "invalid_link" }, { status: 400 });
   }
 
-  const validated = await validateSessionTokens(session.access_token, session.refresh_token);
+  const check = await validateSessionTokens(session.access_token, session.refresh_token);
+  if (check.status === "invalid") {
+    return NextResponse.json({ error: "invalid_session" }, { status: 401 });
+  }
+  const validated = check.status === "valid" ? check.session : null;
   const activeSession = validated ?? session;
 
   const response = NextResponse.json({
     ok: true,
     user: validated ? { id: validated.user.id, email: validated.user.email } : null,
-    sessionUnverified: !validated,
+    sessionUnverified: check.status === "unavailable",
   });
   clearSessionCookies(response, request);
   applySessionCookies(
@@ -41,7 +43,7 @@ export async function POST(request: NextRequest) {
     {
       access_token: activeSession.access_token,
       refresh_token: activeSession.refresh_token,
-      expires_in: session.expires_in ?? validated?.expires_in ?? 3600,
+      expires_in: activeSession.expires_in ?? 3600,
     },
     request,
   );

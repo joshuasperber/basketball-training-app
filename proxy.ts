@@ -1,14 +1,22 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { applySessionCookies, clearSessionCookies, refreshSessionFromRequest, validateSessionTokens } from "@/lib/server/session-cookies";
+import {
+  applySessionCookies,
+  clearSessionCookies,
+  refreshSessionFromRequest,
+  validateAccessTokenResult,
+  validateSessionTokens,
+} from "@/lib/server/session-cookies";
 import { isProtectedAppPath } from "@/lib/app-routes";
 
 const protectedApiPrefixes = [
   "/api/account",
+  "/api/calendar",
   "/api/coach",
   "/api/game-photo",
   "/api/profile",
   "/api/session",
+  "/api/notifications",
   "/api/team",
   "/api/auth/me",
   "/api/auth/update-password",
@@ -31,6 +39,13 @@ function continueApiWithRefreshedSession(
   return response;
 }
 
+function authUnavailableResponse() {
+  return NextResponse.json(
+    { error: "auth_unavailable", retryable: true },
+    { status: 503, headers: { "Retry-After": "5" } },
+  );
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const protectedApi = isProtectedApiPath(pathname);
@@ -47,9 +62,10 @@ export async function proxy(request: NextRequest) {
   const refreshToken = request.cookies.get("sb-refresh-token")?.value;
 
   if (accessToken && refreshToken) {
-    const validated = await validateSessionTokens(accessToken, refreshToken);
-    if (validated) {
-      if (validated.access_token !== accessToken) {
+    const check = await validateSessionTokens(accessToken, refreshToken);
+    if (check.status === "valid") {
+      const validated = check.session;
+      if (check.refreshed || validated.access_token !== accessToken) {
         if (protectedApi) {
           return continueApiWithRefreshedSession(request, validated);
         }
@@ -59,19 +75,33 @@ export async function proxy(request: NextRequest) {
       }
       return NextResponse.next();
     }
-    // Ungültige Cookie-Paare dürfen keine geschützten Seiten freischalten.
-    // Echte Offline-Navigation wird vom zuvor befüllten Service-Worker-Cache übernommen.
+    if (check.status === "unavailable") {
+      // A temporary Supabase/network outage must not destroy a valid browser session.
+      return protectedApi ? authUnavailableResponse() : NextResponse.next();
+    }
   }
 
   if (refreshToken && !accessToken) {
-    const refreshed = await refreshSessionFromRequest(request);
-    if (refreshed) {
+    const check = await refreshSessionFromRequest(request);
+    if (check.status === "valid") {
+      const refreshed = check.session;
       if (protectedApi) {
         return continueApiWithRefreshedSession(request, refreshed);
       }
       const response = NextResponse.redirect(request.nextUrl);
       applySessionCookies(response, refreshed, request);
       return response;
+    }
+    if (check.status === "unavailable") {
+      return protectedApi ? authUnavailableResponse() : NextResponse.next();
+    }
+  }
+
+  if (accessToken && !refreshToken) {
+    const check = await validateAccessTokenResult(accessToken, "");
+    if (check.status === "valid") return NextResponse.next();
+    if (check.status === "unavailable") {
+      return protectedApi ? authUnavailableResponse() : NextResponse.next();
     }
   }
 
@@ -109,10 +139,12 @@ export const config = {
     "/review/:path*",
     "/tips/:path*",
     "/api/account/:path*",
+    "/api/calendar/:path*",
     "/api/coach/:path*",
     "/api/game-photo/:path*",
     "/api/profile/:path*",
     "/api/session/:path*",
+    "/api/notifications/:path*",
     "/api/team/:path*",
     "/api/auth/me",
     "/api/auth/update-password",

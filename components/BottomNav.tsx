@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { fetchAuthMe } from "@/lib/auth-session-align";
+import { fetchAuthMeState } from "@/lib/auth-session-align";
 import { useT } from "@/lib/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { hasOfflineSessionHint } from "@/lib/offline-session";
@@ -111,13 +111,13 @@ export default function BottomNav({ isAuthenticated: initialAuthenticated }: { i
     let cancelled = false;
 
     const refreshAuth = () => {
-      void fetchAuthMe().then((me) => {
+      void fetchAuthMeState().then((state) => {
         if (cancelled) return;
-        if (me) {
+        if (state.status === "authenticated") {
           setIsAuthenticated(true);
           return;
         }
-        if (!navigator.onLine) {
+        if (state.status === "unavailable") {
           setIsAuthenticated((current) => current || initialAuthenticated || hasOfflineSessionHint());
           return;
         }

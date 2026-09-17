@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchAuthMe, resetAuthMeCache } from "@/lib/auth-session-align";
+import { fetchAuthMe, fetchAuthMeState, resetAuthMeCache } from "@/lib/auth-session-align";
 
 describe("auth session cache", () => {
   beforeEach(() => {
@@ -45,5 +45,53 @@ describe("auth session cache", () => {
     resetAuthMeCache();
     await fetchAuthMe();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats the silent unauthenticated probe as signed out without a failing HTTP request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ authenticated: false }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })),
+    );
+
+    expect(await fetchAuthMeState()).toEqual({ status: "unauthenticated", user: null });
+  });
+
+  it("keeps the last confirmed user during a transient auth outage", async () => {
+    const payload = {
+      id: "user-1",
+      email: "spieler@example.com",
+      cloud: { sessionCount: 4, workouts14d: 2 },
+      supabaseConfigured: true,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200 }))
+      .mockResolvedValueOnce(new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await fetchAuthMe()).toEqual(payload);
+    expect(await fetchAuthMeState({ force: true })).toEqual({ status: "unavailable", user: payload });
+    expect(await fetchAuthMe()).toEqual(payload);
+  });
+
+  it("clears the confirmed user only after an explicit 401", async () => {
+    const payload = {
+      id: "user-1",
+      email: "spieler@example.com",
+      cloud: { sessionCount: 4, workouts14d: 2 },
+      supabaseConfigured: true,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200 }))
+      .mockResolvedValueOnce(new Response("", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchAuthMe();
+    expect(await fetchAuthMeState({ force: true })).toEqual({ status: "unauthenticated", user: null });
+    expect(await fetchAuthMe()).toBeNull();
   });
 });

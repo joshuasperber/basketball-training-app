@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { hasConfiguredWeekRhythm, hasProfileBasics, isInitialSetupComplete } from "@/lib/onboarding-gate";
+import {
+  hasConfiguredWeekRhythm,
+  hasProfileBasics,
+  isInitialSetupComplete,
+  mergePersistedProfileIntoCache,
+  persistHydratedProfileCache,
+} from "@/lib/onboarding-gate";
 import { getEmptyWeekConfig } from "@/lib/planner";
 
 function installBrowserStorage() {
@@ -78,5 +84,50 @@ describe("onboarding-gate", () => {
     expect(isInitialSetupComplete(null, null)).toBe(true);
     const cached = JSON.parse(window.localStorage.getItem("profile_cache_v4") ?? "{}") as { onboardingComplete?: boolean };
     expect(cached.onboardingComplete).toBe(true);
+  });
+
+  it("hydrates legacy profile rows and keeps a remotely stored week rhythm", () => {
+    const weekConfig = getEmptyWeekConfig();
+    weekConfig.wednesday = { mode: "basketball_training", minutes: 90 };
+
+    const hydrated = mergePersistedProfileIntoCache(
+      {
+        username: "josh",
+        full_name: "Joshua Sperber",
+        favorite_position: "sg",
+        height_cm: 190,
+        weight_kg: 84,
+      },
+      {
+        persistedWeekConfig: JSON.stringify(weekConfig),
+        email: "josh@example.com",
+      },
+    );
+
+    expect(hasProfileBasics(hydrated)).toBe(true);
+    expect(hasConfiguredWeekRhythm(hydrated)).toBe(true);
+    expect(hydrated.profile?.email).toBe("josh@example.com");
+    persistHydratedProfileCache(hydrated);
+    expect(window.localStorage.getItem("profile_username")).toBe("josh");
+    expect(window.localStorage.getItem("bt.profile-week-config.v1")).toBe(JSON.stringify(weekConfig));
+  });
+
+  it("does not overwrite an existing configured week with an empty legacy value", () => {
+    const existingWeek = getEmptyWeekConfig();
+    existingWeek.monday = { mode: "gym", minutes: 60 };
+
+    const hydrated = mergePersistedProfileIntoCache(
+      { username: "cloud", full_name: "Cloud Player" },
+      {
+        existingCache: {
+          profile: { username: "local", full_name: "Local Player" },
+          weekConfig: existingWeek,
+        },
+        persistedWeekConfig: JSON.stringify(getEmptyWeekConfig()),
+      },
+    );
+
+    expect(hydrated.profile?.username).toBe("cloud");
+    expect(hydrated.weekConfig?.monday).toEqual({ mode: "gym", minutes: 60 });
   });
 });

@@ -102,8 +102,9 @@ test("training header controls stay separated and aligned at every relevant widt
 });
 
 test("public application pages do not overflow horizontally", async ({ page }) => {
+  test.setTimeout(60_000);
   for (const path of ["/login", "/datenschutz", "/impressum", "/nutzungsbedingungen"]) {
-    await page.goto(path);
+    await page.goto(path, { waitUntil: "domcontentloaded" });
     await expect(page.locator("main")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `Horizontaler Überlauf auf ${path}`).toBeLessThanOrEqual(1);

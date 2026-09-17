@@ -2,11 +2,10 @@
 
 import GradientFadeList from "@/components/GradientFadeList";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import SportsNewsSection from "@/components/SportsNewsSection";
 import PausedWorkoutsBanner from "@/components/PausedWorkoutsBanner";
 import PageHeader from "@/components/PageHeader";
-import CoachInsight from "@/components/CoachInsight";
 import { useT } from "@/lib/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { getWorkoutSessions } from "@/lib/session-storage";
@@ -34,6 +33,9 @@ import { buildDayWorkoutCardsForToday, isEmptyRestDayCard, type DayWorkoutCard }
 import { buildWeeklyWorkoutNavPath } from "@/lib/weekly-workout-nav";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 import DashboardFocusCard from "@/components/DashboardFocusCard";
+
+const CoachInsight = dynamic(() => import("@/components/CoachInsight"));
+const SportsNewsSection = dynamic(() => import("@/components/SportsNewsSection"));
 
 const dayByIndex: Record<number, import("@/lib/planner").DayKey> = {
   0: "sunday",

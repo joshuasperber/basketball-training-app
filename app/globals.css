@@ -259,6 +259,78 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
   box-shadow: var(--shadow-glow-brand);
 }
 
+/* Ruhige, layoutstabile Ladeansicht für echte Kaltstarts. Navigationswechsel
+   verwenden weiterhin den Next-Router-Cache und zeigen sie normalerweise nicht. */
+.route-skeleton {
+  display: grid;
+  gap: 1rem;
+  padding-top: 0.5rem;
+}
+
+.route-skeleton__header,
+.route-skeleton__card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.route-skeleton__header {
+  padding: 0.5rem 0 1rem;
+}
+
+.route-skeleton__card {
+  min-height: 9rem;
+  padding: 1.25rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.route-skeleton__card--large {
+  min-height: 18rem;
+}
+
+.route-skeleton__line,
+.route-skeleton__grid > span,
+.route-skeleton__block {
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(100deg, #e8ebf0 30%, #f8fafc 46%, #e8ebf0 62%);
+  background-size: 220% 100%;
+  animation: route-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.route-skeleton__line--eyebrow { width: 7rem; height: 0.75rem; }
+.route-skeleton__line--title { width: min(19rem, 72vw); height: 2.6rem; }
+.route-skeleton__line--subtitle { width: min(31rem, 88vw); height: 1rem; }
+.route-skeleton__line--section { width: 10rem; height: 1.4rem; }
+
+.route-skeleton__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.route-skeleton__grid > span { height: 4rem; border-radius: 0.9rem; }
+.route-skeleton__block { min-height: 11rem; border-radius: 1rem; }
+
+@keyframes route-skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (max-width: 639px) {
+  .route-skeleton__grid { grid-template-columns: 1fr; }
+  .route-skeleton__grid > span { height: 3.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-skeleton__line,
+  .route-skeleton__grid > span,
+  .route-skeleton__block { animation: none; }
+}
+
 .app-card--accent-cyan {
   border: 1px solid rgba(8, 145, 178, 0.2);
   background: linear-gradient(135deg, #ecfeff 0%, #ffffff 60%);
@@ -453,7 +525,7 @@ body[data-onboarding-active="true"] [role="dialog"][aria-modal="true"] {
 }
 
 .btn-sm {
-  min-height: 2.5rem;
+  min-height: 2.5625rem;
   font-size: 0.8125rem;
   padding: 0.4rem 0.75rem;
   border-radius: var(--radius-xs);

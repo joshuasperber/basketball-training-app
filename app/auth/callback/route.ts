@@ -14,11 +14,9 @@ function buildRedirectPath(rawNext: string | null) {
 }
 
 function withError(request: NextRequest, code: string) {
-  const response = NextResponse.redirect(
+  return NextResponse.redirect(
     new URL(`/login?error=access_denied&error_code=${encodeURIComponent(code)}`, request.url),
   );
-  clearSessionCookies(response, request);
-  return response;
 }
 
 export async function GET(request: NextRequest) {
@@ -51,19 +49,23 @@ export async function GET(request: NextRequest) {
     return withError(request, "missing_or_invalid_token");
   }
 
-  const validated = await validateSessionTokens(session.access_token, session.refresh_token);
-  if (!validated) {
+  const check = await validateSessionTokens(session.access_token, session.refresh_token);
+  if (check.status === "invalid") {
     return withError(request, "invalid_session");
   }
+  // The session was issued by Supabase's exchange endpoint. If the follow-up
+  // user lookup is temporarily unavailable, keep the new tokens so a later
+  // request can validate/refresh them instead of making the link single-use.
+  const activeSession = check.status === "valid" ? check.session : session;
 
   const response = NextResponse.redirect(new URL(nextPath, request.url));
   clearSessionCookies(response, request);
   applySessionCookies(
     response,
     {
-      access_token: validated.access_token,
-      refresh_token: validated.refresh_token,
-      expires_in: session.expires_in ?? validated.expires_in,
+      access_token: activeSession.access_token,
+      refresh_token: activeSession.refresh_token,
+      expires_in: activeSession.expires_in ?? 3600,
     },
     request,
   );

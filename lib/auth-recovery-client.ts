@@ -36,7 +36,6 @@ export async function bootstrapRecoverySessionFromUrl(): Promise<{ ok: true } | 
   }
 
   if (code || tokenHash) {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     const exchangeRes = await fetch("/api/auth/exchange", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

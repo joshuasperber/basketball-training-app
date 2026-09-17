@@ -114,6 +114,7 @@ function validateMetricTargets(category: Category, metricKeys: MetricKey[], targ
   }
 
   for (const metric of normalizedMetrics) {
+    if (metric === "completed" || !targets[metric]?.trim()) continue;
     const value = parseMetricInput(targets[metric]);
     if (value === null) {
       return `Bitte für ${metric} einen gültigen Zahlenwert eingeben.`;
@@ -126,8 +127,6 @@ function validateMetricTargets(category: Category, metricKeys: MetricKey[], targ
   const reps = parseMetricInput(targets.reps);
   const makes = parseMetricInput(targets.makes);
   const misses = parseMetricInput(targets.misses);
-  const distance = parseMetricInput(targets.distance);
-  const time = parseMetricInput(targets.time);
   const base = reps;
 
   if (base !== null) {
@@ -136,10 +135,6 @@ function validateMetricTargets(category: Category, metricKeys: MetricKey[], targ
     if (makes !== null && misses !== null && makes + misses > base) {
       return "Makes + Misses darf nicht größer als Reps sein.";
     }
-  }
-
-  if (normalizedMetrics.includes("distance") && distance !== null && time === null) {
-    return "Bitte gib bei Distanz auch eine Zeit an.";
   }
 
   return null;
@@ -484,7 +479,7 @@ function TrainingPageContent() {
         subcategory: newExerciseSubcategory,
         notes: newExerciseNotes.trim() || undefined,
         videoUrl: newExerciseVideoUrl.trim() || undefined,
-        metricKeys: normalizedMetrics.length > 0 ? normalizedMetrics : (["reps"] as MetricKey[]),
+        metricKeys: normalizedMetrics.length > 0 ? normalizedMetrics : (["completed"] as MetricKey[]),
         targetByMetric: Object.fromEntries(
           Object.entries(newExerciseTargets).flatMap(([metric, value]) => {
             const parsed = parseMetricInput(value);
@@ -586,7 +581,7 @@ function TrainingPageContent() {
     setEditExerciseNotes(exercise.notes ?? "");
     setEditExerciseVideoUrl(exercise.videoUrl ?? "");
     setEditExerciseDurationMin(String(exercise.durationMin));
-    setEditExerciseDurationUnit(exercise.timeUnit ?? "minutes");
+    setEditExerciseDurationUnit(exercise.timeUnit ?? "seconds");
     setEditExerciseSetCount(String(exercise.setCount ?? 1));
     setEditExerciseMetrics(exercise.metricKeys);
     setEditExerciseTargets(
@@ -647,7 +642,7 @@ function TrainingPageContent() {
       return;
     }
 
-    const metrics: MetricKey[] = normalizeMetricKeysForCategory(editExerciseCategory, editExerciseMetrics.length > 0 ? editExerciseMetrics : ["reps"]);
+    const metrics: MetricKey[] = normalizeMetricKeysForCategory(editExerciseCategory, editExerciseMetrics.length > 0 ? editExerciseMetrics : ["completed"]);
     const numericTargets = Object.fromEntries(
       Object.entries(editExerciseTargets).flatMap(([metric, value]) => {
         const parsed = parseMetricInput(value);

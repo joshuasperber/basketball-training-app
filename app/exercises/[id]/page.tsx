@@ -6,7 +6,12 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultExercises, type Exercise } from "@/lib/training-data";
 import { loadExercises } from "@/lib/training-storage";
-import { appendExerciseHistory, appendWorkoutSession, getExerciseHistory } from "@/lib/session-storage";
+import {
+  appendExerciseHistory,
+  appendWorkoutSession,
+  getExerciseHistory,
+  type WorkoutSessionLog,
+} from "@/lib/session-storage";
 import { markLocalProgressDirty, pushProgressToCloud } from "@/lib/progress-sync";
 import { getPostExerciseCompletionHref } from "@/lib/offline-navigation";
 import { appendWorkoutXpEntry } from "@/lib/level-system";
@@ -14,10 +19,11 @@ import { buildTrainingHref, resolveReturnTo } from "@/lib/ui-navigation-state";
 import { DigitField } from "@/components/ui/NumericInput";
 import {
   applyShootingMetricStrings,
-  completeShootingValues,
   METRIC_LABELS,
+  buildSessionLogFromSet,
   shouldUseShootingInputs,
 } from "@/lib/workout-metrics";
+import type { SetLog } from "@/lib/workout";
 
 type ExerciseSet = {
   id: string;
@@ -49,6 +55,7 @@ function validateMetricValues(values: Partial<Record<string, string>>) {
 }
 
 function getCompletedValue(values: Partial<Record<string, string>>) {
+  if (values.completed === "1") return 1;
   const reps = getNumeric(values, "reps") ?? getNumeric(values, "tries");
   if (reps !== null) return reps;
 
@@ -152,35 +159,22 @@ function ExerciseExecutionPageContent() {
     const nowISO = new Date().toISOString();
     let hasAnyCompleted = false;
     let bestValue = 0;
-    const sessionLogs: Array<{
-      exerciseId: string;
-      completedValue: number | null;
-      note: string;
-      completed?: boolean;
-      made?: number | null;
-      attempts?: number | null;
-      misses?: number | null;
-      weightKg?: number | null;
-    }> = [];
+    const sessionLogs: WorkoutSessionLog[] = [];
 
     sets.forEach((set) => {
       const normalizedValues = exercise && shouldUseShootingInputs(exercise.metricKeys)
         ? applyShootingMetricStrings(set.values)
         : set.values;
       const value = getCompletedValue(normalizedValues);
-      const hasAnyMetric = Object.values(normalizedValues).some((entry) => entry != null && entry.trim() !== "");
-      const isCompleted = hasAnyMetric;
+      const hasAnyMetric = Object.entries(normalizedValues).some(
+        ([metric, entry]) => metric !== "completed" && entry != null && entry.trim() !== "",
+      );
+      const isCompleted = normalizedValues.completed === "1" || hasAnyMetric;
       if (value === null) return;
       if (!isCompleted) return;
       hasAnyCompleted = true;
       const numericValue = value ?? 1;
       bestValue = Math.max(bestValue, numericValue);
-      const shooting = completeShootingValues({
-        reps: normalizedValues.reps,
-        tries: normalizedValues.tries,
-        makes: normalizedValues.makes,
-        misses: normalizedValues.misses,
-      });
       appendExerciseHistory({
         id: `eh-${Date.now()}-${set.id}`,
         dateISO: nowISO,
@@ -189,16 +183,14 @@ function ExerciseExecutionPageContent() {
         note: sessionNote || undefined,
         source: "exercise",
       });
-      sessionLogs.push({
-        exerciseId: exercise.id,
-        completedValue: numericValue,
+      sessionLogs.push(buildSessionLogFromSet({
+        exercise,
+        log: {
+          ...normalizedValues,
+          completed: true,
+        } as Partial<SetLog>,
         note: sessionNote || "",
-        completed: true,
-        made: shooting.reps > 0 ? shooting.makes : getNumeric(normalizedValues, "makes"),
-        attempts: shooting.reps > 0 ? shooting.reps : getNumeric(normalizedValues, "reps") ?? getNumeric(normalizedValues, "tries"),
-        misses: shooting.reps > 0 ? shooting.misses : getNumeric(normalizedValues, "misses"),
-        weightKg: getNumeric(normalizedValues, "weight"),
-      });
+      }));
 
     });
     if (hasAnyCompleted) {
@@ -209,6 +201,7 @@ function ExerciseExecutionPageContent() {
         workoutName: `Einzel-Exercise: ${exercise.name}`,
         workoutCategory: exercise.category,
         workoutSubcategory: exercise.subcategory,
+        allowMultiple: true,
         durationSeconds: Math.max(60, getExerciseDurationForSetCount(exercise, sets.length) * 60),
         logs: sessionLogs.length > 0 ? sessionLogs : [{
           exerciseId: exercise.id,
@@ -270,14 +263,24 @@ function ExerciseExecutionPageContent() {
             {exercise.category} · {exercise.subcategory}
           </p>
           <p className="mt-1 text-sm text-muted">
-            Ziel:{" "}
             {exercise.metricKeys
               .map((metric) => {
                 const target = exercise.targetByMetric?.[metric];
                 return target !== undefined ? `${metric}: ${target}` : null;
               })
               .filter((entry): entry is string => Boolean(entry))
-              .join(" · ") || "-"}
+              .join(" · ")
+              ? `Ziel: ${exercise.metricKeys
+                  .map((metric) => {
+                    const target = exercise.targetByMetric?.[metric];
+                    const unit = metric === "time"
+                      ? exercise.timeUnit === "minutes" ? " Min." : " Sek."
+                      : metric === "weight" ? " kg" : "";
+                    return target !== undefined ? `${METRIC_LABELS[metric]} ${target}${unit}` : null;
+                  })
+                  .filter((entry): entry is string => Boolean(entry))
+                  .join(" · ")}`
+              : "Ohne Ziel · tatsächliche Werte erfassen oder Abschluss markieren"}
           </p>
           {exercise.notes ? <p className="mt-1 text-xs text-faint">Notizen: {exercise.notes}</p> : null}
         </header>
@@ -292,14 +295,30 @@ function ExerciseExecutionPageContent() {
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {exercise.metricKeys.map((metric) => (
                     <div key={`${set.id}-${metric}`}>
-                      <label className="input-label">{METRIC_LABELS[metric] ?? metric}</label>
-                      <DigitField
-                        allowDecimal={metric === "weight" || metric === "time" || metric === "distance"}
-                        value={set.values[metric] ?? ""}
-                        onValueChange={(value) => updateSetValue(set.id, metric, value)}
-                        placeholder={METRIC_LABELS[metric] ?? metric}
-                        className="input"
-                      />
+                      {metric === "completed" ? (
+                        <button
+                          type="button"
+                          onClick={() => updateSetValue(set.id, metric, set.values.completed === "1" ? "" : "1")}
+                          className={`btn btn-block ${set.values.completed === "1" ? "btn-emerald" : "btn-outline"}`}
+                          aria-pressed={set.values.completed === "1"}
+                        >
+                          {set.values.completed === "1" ? "✓ Satz geschafft" : "Satz als geschafft markieren"}
+                        </button>
+                      ) : (
+                        <>
+                          <label className="input-label">
+                            {METRIC_LABELS[metric] ?? metric}
+                            {metric === "time" ? ` (${exercise.timeUnit === "minutes" ? "Min." : "Sek."})` : ""}
+                          </label>
+                          <DigitField
+                            allowDecimal={metric === "weight" || metric === "time" || metric === "distance"}
+                            value={set.values[metric] ?? ""}
+                            onValueChange={(value) => updateSetValue(set.id, metric, value)}
+                            placeholder={METRIC_LABELS[metric] ?? metric}
+                            className="input"
+                          />
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>

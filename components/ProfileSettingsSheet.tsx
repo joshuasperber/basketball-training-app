@@ -10,12 +10,18 @@ import ProfilePrivacySection from "@/components/ProfilePrivacySection";
 import WorkoutReminderSettings from "@/components/WorkoutReminderSettings";
 import { clearPlayerIntake } from "@/lib/coach-intake";
 import { useT } from "@/lib/i18n/I18nProvider";
-import { pushProgressToCloud, pushProgressToCloudWithRetry } from "@/lib/progress-sync";
+import {
+  pushProgressToCloud,
+  pushProgressToCloudWithRetry,
+  resetInitialCloudSyncCache,
+} from "@/lib/progress-sync";
 import type { WeekConfig } from "@/lib/planner";
 import PasswordChangeSettings from "@/components/PasswordChangeSettings";
 import { clearLocalUserProgress } from "@/lib/clear-local-user-data";
 import { clearOfflineUserCache } from "@/lib/offline-cache";
 import { resetAuthMeCache } from "@/lib/auth-session-align";
+import CloudSyncSettings from "@/components/CloudSyncSettings";
+import SessionSecuritySettings from "@/components/SessionSecuritySettings";
 
 type ProfileSettingsSheetProps = {
   open: boolean;
@@ -36,6 +42,8 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
       <AppBusyOverlay open={loggingOut} label={busyLabel} sublabel={busySublabel} />
       <Sheet open={open} onClose={onClose} title={t("settings.title")} description={t("settings.description")}>
         <LanguageSettings />
+
+        <CloudSyncSettings />
 
         <PasswordChangeSettings onFeedback={onFeedback} />
 
@@ -74,6 +82,7 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
           <p className="section-eyebrow">{t("settings.session")}</p>
           <h2 className="section-title mt-1">{t("settings.logout")}</h2>
           <p className="mt-1 text-sm text-muted">{t("settings.logoutHint")}</p>
+          <SessionSecuritySettings onFeedback={onFeedback} />
           <button
             type="button"
             className="btn btn-outline btn-sm mt-3"
@@ -89,6 +98,7 @@ export default function ProfileSettingsSheet({ open, onClose, weekConfig, onFeed
                 const response = await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
                 if (!response.ok) throw new Error("logout_failed");
                 resetAuthMeCache();
+                resetInitialCloudSyncCache();
                 clearLocalUserProgress();
                 window.sessionStorage.clear();
                 await clearOfflineUserCache();

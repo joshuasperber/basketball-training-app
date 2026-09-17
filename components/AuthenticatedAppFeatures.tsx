@@ -9,11 +9,14 @@ import OfflineSessionGuard from "@/components/OfflineSessionGuard";
 import OnboardingGateLauncher from "@/components/OnboardingGateLauncher";
 import ProgressCelebrationHost from "@/components/ProgressCelebrationHost";
 import SyncConflictBanner from "@/components/SyncConflictBanner";
+import SyncStatusToast from "@/components/SyncStatusToast";
 import WorkoutReminderSync from "@/components/WorkoutReminderSync";
 import { isAppOnline } from "@/lib/app-online";
+import { GAME_STATS_UPDATED_EVENT } from "@/lib/game-stats";
 import { LEAGUE_UPDATED_EVENT } from "@/lib/league";
 import {
   ensureInitialCloudSync,
+  isLocalProgressDirty,
   markLocalProgressDirty,
   pushProgressToCloudWithRetry,
   resetInitialCloudSyncCache,
@@ -25,6 +28,7 @@ const PLAN_SYNC_EVENTS = [
   "bt:plan-updated",
   "bt:training-goals-updated",
   "bt:player-intake-updated",
+  GAME_STATS_UPDATED_EVENT,
   LEAGUE_UPDATED_EVENT,
   READINESS_UPDATED_EVENT,
 ] as const;
@@ -33,9 +37,25 @@ function CloudSyncBridge() {
   const planPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const pull = () => {
+    let freshSyncInFlight: Promise<void> | null = null;
+
+    const syncFresh = (forcePull: boolean) => {
       if (document.visibilityState === "hidden" || !isAppOnline()) return;
-      void ensureInitialCloudSync().catch(() => undefined);
+      if (freshSyncInFlight) return;
+      freshSyncInFlight = (async () => {
+        if (isLocalProgressDirty()) {
+          const pushed = await pushProgressToCloudWithRetry();
+          if (!pushed) return;
+        }
+        await ensureInitialCloudSync({ force: forcePull });
+      })()
+        .catch(() => undefined)
+        .finally(() => {
+          freshSyncInFlight = null;
+        });
+    };
+    const pull = () => {
+      syncFresh(true);
     };
     const queuePlanPush = (event: Event) => {
       const source = (event as CustomEvent<{ source?: string }>).detail?.source;
@@ -45,18 +65,21 @@ function CloudSyncBridge() {
       if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
       planPushTimerRef.current = setTimeout(() => void pushProgressToCloudWithRetry(), 800);
     };
-    const onSessionsUpdated = () => {
+    const onSessionsUpdated = (event: Event) => {
+      const source = (event as CustomEvent<{ source?: string }>).detail?.source;
+      if (source === "remote") return;
       if (!isAppOnline()) return markLocalProgressDirty();
       void syncWorkoutSessionsToCloud();
     };
     const onOnline = () => {
       resetInitialCloudSyncCache();
-      void syncWorkoutSessionsToCloudWithRetry().then(() =>
-        pushProgressToCloudWithRetry().then(() => ensureInitialCloudSync()),
-      );
+      void syncWorkoutSessionsToCloudWithRetry().finally(() => syncFresh(true));
     };
 
-    if (isAppOnline()) pull();
+    if (isAppOnline()) syncFresh(false);
+    const retryInterval = window.setInterval(() => {
+      if (isLocalProgressDirty()) syncFresh(false);
+    }, 15_000);
     window.addEventListener("focus", pull);
     window.addEventListener("online", onOnline);
     window.addEventListener("bt:sessions-updated", onSessionsUpdated);
@@ -65,6 +88,7 @@ function CloudSyncBridge() {
 
     return () => {
       if (planPushTimerRef.current) clearTimeout(planPushTimerRef.current);
+      window.clearInterval(retryInterval);
       window.removeEventListener("focus", pull);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("bt:sessions-updated", onSessionsUpdated);
@@ -84,6 +108,7 @@ export default function AuthenticatedAppFeatures({ children }: { children: React
       <OfflineRouteWarmup />
       <OfflineSessionGuard />
       <SyncConflictBanner />
+      <SyncStatusToast />
       <OnboardingGateLauncher />
       <CookieConsentBanner />
       <ProgressCelebrationHost />

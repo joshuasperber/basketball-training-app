@@ -17,18 +17,19 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
 };
 
 export const METRICS_BY_CATEGORY: Record<Category, MetricKey[]> = {
-  Basketball: ["reps", "makes", "misses", "points", "time"],
-  Gym: ["reps", "weight", "time", "distance"],
-  Home: ["reps", "weight", "time", "distance"],
-  Regeneration: ["reps", "time", "distance"],
+  Basketball: ["completed", "reps", "makes", "misses", "points", "time"],
+  Gym: ["completed", "reps", "weight", "time", "distance"],
+  Home: ["completed", "reps", "weight", "time", "distance"],
+  Regeneration: ["completed", "reps", "time", "distance"],
 };
 
 const SHOOTING_METRICS: MetricKey[] = ["reps", "makes", "misses"];
+const SHOOTING_TRIGGER_METRICS: MetricKey[] = ["makes", "misses"];
 
 export function normalizeMetricKeysForCategory(category: Category, metricKeys: MetricKey[]): MetricKey[] {
   const allowed = METRICS_BY_CATEGORY[category];
   const input = metricKeys.filter((metric) => allowed.includes(metric));
-  const hasShootingMetric = input.some((metric) => SHOOTING_METRICS.includes(metric));
+  const hasShootingMetric = input.some((metric) => SHOOTING_TRIGGER_METRICS.includes(metric));
   const withShooting = hasShootingMetric
     ? [...SHOOTING_METRICS, ...input.filter((metric) => !SHOOTING_METRICS.includes(metric))]
     : input;
@@ -40,7 +41,14 @@ export function normalizeMetricKeysForCategory(category: Category, metricKeys: M
 }
 
 export function shouldUseShootingInputs(metricKeys: MetricKey[]) {
-  return metricKeys.some((metric) => SHOOTING_METRICS.includes(metric));
+  return metricKeys.some((metric) => SHOOTING_TRIGGER_METRICS.includes(metric));
+}
+
+/** `attempts` is also used for ordinary reps; make/miss data is the reliable shot marker. */
+export function sessionLogHasShootingData(
+  log: Pick<WorkoutSessionLog, "attempts" | "made" | "misses">,
+) {
+  return log.made != null || log.misses != null;
 }
 
 /** Leerer/ungültiger Wert zählt als 0 (null = 0). */
@@ -178,7 +186,7 @@ export function inferShotZone(exercise?: Pick<Exercise, "name" | "subcategory"> 
 }
 
 export function buildSessionLogFromSet(params: {
-  exercise: Pick<Exercise, "id" | "category" | "subcategory" | "metricKeys" | "name">;
+  exercise: Pick<Exercise, "id" | "category" | "subcategory" | "metricKeys" | "name" | "timeUnit">;
   log: Partial<SetLog> | undefined;
   setTargetReps?: number;
   note?: string;
@@ -192,7 +200,10 @@ export function buildSessionLogFromSet(params: {
     makes: log.makes,
     misses: log.misses,
   });
-  const timeSeconds = parseNonNegativeNumber(log.time);
+  const timeValue = parseNonNegativeNumber(log.time);
+  // Legacy exercises did not persist a unit and historically stored the
+  // entered time as seconds. Only an explicit minutes setting is converted.
+  const timeSeconds = params.exercise.timeUnit === "minutes" ? timeValue * 60 : timeValue;
   const distanceValue = parseNonNegativeNumber(log.distance);
   const distanceUnit = (log.distanceUnit === "km" ? "km" : "m") as DistanceUnit;
   const repsAllowed =

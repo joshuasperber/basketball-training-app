@@ -6,7 +6,11 @@ import { REMINDER_PREFS_KEY } from "@/lib/workout-reminders";
 function installBrowserStorage() {
   const store = new Map<string, string>();
   const localStorage = {
+    get length() {
+      return store.size;
+    },
     getItem: (key: string) => store.get(key) ?? null,
+    key: (index: number) => [...store.keys()][index] ?? null,
     setItem: (key: string, value: string) => {
       store.set(key, value);
     },
@@ -133,5 +137,47 @@ describe("progress-sync snapshot", () => {
     });
 
     expect(window.localStorage.getItem("profile_cache_v4")).toBeNull();
+  });
+
+  it("treats cloud maps and nullable fields as authoritative after first sync", () => {
+    window.localStorage.setItem("bt.daily-plan.v1", JSON.stringify({ "2026-09-17": ["Alt"] }));
+    window.localStorage.setItem("bt.league.v1", JSON.stringify({ stale: true }));
+    window.localStorage.setItem("basketball-training-workout-override-2026-09-17", "old-workout");
+
+    applyRemoteProgressToLocal({
+      sessions: { workoutSessions: [], exerciseHistory: {} },
+      dailyPlanMap: { "2026-09-18": ["Gym"] },
+      manualDayWorkoutsMap: {},
+      manualDayDisabledMap: {},
+      manualPlanOverrides: null,
+      weeklyRegenSlotMap: {},
+      hiddenAutoWorkoutsMap: {},
+      profileCache: null,
+      profileUsername: null,
+      profileWeekConfig: null,
+      playerIntake: null,
+      xpHistory: null,
+      xpProgression: null,
+      performanceTips: null,
+      gameStats: null,
+      leagueData: null,
+      trainingGoals: null,
+      customSubcategories: null,
+      workoutHistory: null,
+      reminderPrefs: null,
+      readinessHistory: null,
+      coachWeeklyNote: null,
+      trainingExercises: null,
+      trainingWorkouts: null,
+      workoutOverrides: { "2026-09-19": "cloud-workout" },
+      remoteExists: true,
+      remoteUpdatedAt: new Date().toISOString(),
+    });
+
+    expect(JSON.parse(window.localStorage.getItem("bt.daily-plan.v1") ?? "{}"))
+      .toEqual({ "2026-09-18": ["Gym"] });
+    expect(window.localStorage.getItem("bt.league.v1")).toBeNull();
+    expect(window.localStorage.getItem("basketball-training-workout-override-2026-09-17")).toBeNull();
+    expect(window.localStorage.getItem("basketball-training-workout-override-2026-09-19")).toBe("cloud-workout");
   });
 });

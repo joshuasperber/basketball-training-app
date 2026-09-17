@@ -1,11 +1,13 @@
 "use client";
 
 import GradientFadeList from "@/components/GradientFadeList";
+import GameStatsSearchPanel from "@/components/GameStatsSearchPanel";
 import { WEEKLY_WORKOUT_PATH } from "@/lib/routes";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadGameStats } from "@/lib/game-stats";
+import { GAME_STATS_UPDATED_EVENT, loadGameStats, type GameStatEntry } from "@/lib/game-stats";
+import { SHOOTING_ZONE_LABELS } from "@/lib/shooting-zone-stats";
 import { normalizeGameStatBatch } from "@/lib/game-stat-batch";
 import { saveGameStatAndSync } from "@/lib/services/game-stats-sync";
 import { deleteGamePhoto, getGamePhotoUrl, uploadGamePhoto } from "@/lib/game-photo-storage";
@@ -27,12 +29,19 @@ function toNullableNumber(value: string) {
   return parsed;
 }
 
+function formatGameDate(dateKey: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : dateKey;
+}
+
 export default function GameTrackPage() {
   const t = useT();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
   const paramContext = (searchParams.get("context") === "game_training" ? "game_training" : "game") as "game" | "game_training";
   const editId = searchParams.get("id");
+  const viewMode = searchParams.get("mode") === "view";
+  const [selectedEntry, setSelectedEntry] = useState<GameStatEntry | null>(null);
 
   const [resolvedDate, setResolvedDate] = useState(paramDate);
   const [resolvedContext, setResolvedContext] = useState<"game" | "game_training">(paramContext);
@@ -50,6 +59,7 @@ export default function GameTrackPage() {
   const [steals, setSteals] = useState("");
   const [notes, setNotes] = useState("");
   const [saved, setSaved] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -63,6 +73,7 @@ export default function GameTrackPage() {
       if (editId) {
         const entry = loadGameStats().find((item) => item.id === editId);
         if (entry) {
+          setSelectedEntry(entry);
           setResolvedDate(entry.date);
           setResolvedContext(entry.context);
           setOpponentLabel(entry.opponentLabel ?? "");
@@ -86,9 +97,11 @@ export default function GameTrackPage() {
           setNotes(entry.notes ?? "");
           setPhotoPath(entry.photoPath ?? null);
           setSaved(false);
+          setSaveNotice(null);
           return;
         }
       }
+      setSelectedEntry(null);
       setResolvedDate(paramDate);
       setResolvedContext(paramContext);
       setOpponentLabel("");
@@ -107,9 +120,25 @@ export default function GameTrackPage() {
       setPhotoPath(null);
       setPhotoUrl(null);
       setSaved(false);
+      setSaveNotice(null);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [editId, paramDate, paramContext]);
+
+  useEffect(() => {
+    if (!editId) return;
+    const syncSelectedEntry = () => {
+      const entry = loadGameStats().find((item) => item.id === editId) ?? null;
+      setSelectedEntry(entry);
+      if (viewMode) {
+        setResolvedDate(entry?.date ?? paramDate);
+        setResolvedContext(entry?.context ?? paramContext);
+        setPhotoPath(entry?.photoPath ?? null);
+      }
+    };
+    window.addEventListener(GAME_STATS_UPDATED_EVENT, syncSelectedEntry);
+    return () => window.removeEventListener(GAME_STATS_UPDATED_EVENT, syncSelectedEntry);
+  }, [editId, paramContext, paramDate, viewMode]);
 
   useEffect(() => {
     if (!photoPath) {
@@ -193,6 +222,128 @@ export default function GameTrackPage() {
   const heading =
     resolvedContext === "game" ? t("gameTrack.titleGame") : t("gameTrack.titleGameTraining");
 
+  if (viewMode && editId) {
+    return (
+      <main className="app-container animate-in">
+        <div className="mx-auto max-w-3xl">
+          <header>
+            <p className="page-eyebrow">Spiel-Archiv</p>
+            <h1 className="page-title">{selectedEntry?.opponentLabel?.trim() || heading}</h1>
+            <p className="mt-2 text-sm text-muted">
+              {selectedEntry
+                ? `${formatGameDate(selectedEntry.date)} · ${selectedEntry.context === "game" ? "Spieltag" : "Test-/Trainingsspiel"}`
+                : "Eintrag wird geladen …"}
+            </p>
+          </header>
+
+          {selectedEntry ? (
+            <section className="mt-5 app-card--accent-violet">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="section-eyebrow">Box Score</p>
+                  <h2 className="section-title mt-1">Einzelansicht</h2>
+                </div>
+                <span className="chip chip-active">
+                  {selectedEntry.context === "game" ? "Spieltag" : "Test-/Trainingsspiel"}
+                </span>
+              </div>
+
+              <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {[
+                  ["Punkte", selectedEntry.points],
+                  ["Assists", selectedEntry.assists],
+                  ["Rebounds", selectedEntry.rebounds],
+                  ["Steals", selectedEntry.steals],
+                  ["Minuten", selectedEntry.minutes],
+                  ["Intensität", selectedEntry.intensity != null ? `${selectedEntry.intensity}/10` : null],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="app-card--flat">
+                    <dt className="text-xs text-muted">{label}</dt>
+                    <dd className="mt-1 text-xl font-bold tabular-nums text-strong">{value ?? "–"}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="app-card--flat">
+                  <p className="text-xs text-muted">Format</p>
+                  <p className="mt-1 font-semibold text-strong">{selectedEntry.teamFormat || "–"}</p>
+                </div>
+                <div className="app-card--flat">
+                  <p className="text-xs text-muted">Erfasste Spiele</p>
+                  <p className="mt-1 font-semibold text-strong">{selectedEntry.gamesPlayed ?? 1}</p>
+                </div>
+              </div>
+
+              {selectedEntry.opponentStyles?.length ? (
+                <div className="mt-4">
+                  <p className="input-label">Gegner-Stil</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedEntry.opponentStyles.map((style) => (
+                      <span key={style} className="chip">{OPPONENT_STYLE_LABELS[style]}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedEntry.shootingSplits?.length ? (
+                <div className="mt-4">
+                  <p className="input-label">Wurfzonen</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {selectedEntry.shootingSplits.map((split, index) => {
+                      const attempts = Math.max(split.attempts, split.makes);
+                      const percentage = attempts > 0 ? Math.round((split.makes / attempts) * 100) : 0;
+                      return (
+                        <div key={`${split.zone}-${index}`} className="app-card--flat">
+                          <p className="text-xs text-muted">{SHOOTING_ZONE_LABELS[split.zone]}</p>
+                          <p className="mt-1 font-semibold tabular-nums text-strong">
+                            {split.makes}/{attempts} · {percentage}%
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedEntry.notes ? (
+                <div className="mt-4 app-card--flat">
+                  <p className="text-xs text-muted">Notizen</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-strong">{selectedEntry.notes}</p>
+                </div>
+              ) : null}
+
+              {photoUrl ? (
+                <div className="mt-4 overflow-hidden rounded-2xl border border-[var(--surface-border)]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photoUrl} alt="Game Score" className="block max-h-96 w-full object-cover" />
+                </div>
+              ) : null}
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Link href={`/game-track?id=${encodeURIComponent(selectedEntry.id)}`} className="btn btn-primary btn-sm">
+                  Bearbeiten
+                </Link>
+                <Link href="/stats?tab=games" className="btn btn-outline btn-sm">
+                  Zu Spiele-Stats
+                </Link>
+                <Link href="/game-track" className="btn btn-ghost btn-sm">
+                  Neuer Eintrag
+                </Link>
+              </div>
+            </section>
+          ) : (
+            <section className="mt-5 app-card">
+              <p className="text-sm text-muted">Dieser Spieleintrag wurde nicht gefunden.</p>
+            </section>
+          )}
+
+          <GameStatsSearchPanel className="mt-5" linkMode="view" />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="app-container animate-in">
       <div className="mx-auto max-w-2xl">
@@ -216,7 +367,7 @@ export default function GameTrackPage() {
                 className="select app-unified-control"
               >
                 <option value="game">Spieltag</option>
-                <option value="game_training">Trainingsspiel</option>
+                <option value="game_training">Test-/Trainingsspiel</option>
               </select>
             </div>
           </div>
@@ -413,6 +564,8 @@ export default function GameTrackPage() {
             className="btn btn-primary btn-block mt-5"
             onClick={() => {
               setSaving(true);
+              setSaved(false);
+              setSaveNotice(null);
               const batch = normalizeGameStatBatch({
                 minutes: toNullableNumber(minutes),
                 intensity: toNullableNumber(intensity),
@@ -433,20 +586,35 @@ export default function GameTrackPage() {
                 ...batch,
                 notes: notes.trim() || undefined,
                 photoPath: photoPath ?? null,
-              }).finally(() => {
-                setSaving(false);
-                setSaved(true);
-              });
+              })
+                .then(({ cloudSynced }) => {
+                  setSaved(true);
+                  setSaveNotice(
+                    cloudSynced
+                      ? "Gespeichert und mit deinem Konto synchronisiert."
+                      : "Lokal gespeichert. Der Cloud-Abgleich ist noch nicht bestätigt und wird beim nächsten erfolgreichen Sync nachgeholt.",
+                  );
+                })
+                .catch(() => {
+                  setSaveNotice("Der Eintrag konnte nicht gespeichert werden. Bitte versuche es erneut.");
+                })
+                .finally(() => setSaving(false));
             }}
           >
             {saving ? t("common.saving") : editId ? t("common.save") : t("gameTrack.save")}
           </button>
-          {saved ? <p className="mt-3 text-center text-sm text-emerald-300">Gespeichert und mit dem Konto synchronisiert (falls eingeloggt).</p> : null}
+          {saveNotice ? (
+            <p className={`mt-3 text-center text-sm ${saved ? "text-emerald-600" : "text-rose-600"}`} role="status">
+              {saveNotice}
+            </p>
+          ) : null}
         </section>
 
         <Link href={WEEKLY_WORKOUT_PATH} className="btn btn-ghost btn-sm mt-6">
           ← Zurück zu Weekly
         </Link>
+
+        <GameStatsSearchPanel className="mt-5" linkMode="view" />
       </div>
     </main>
   );

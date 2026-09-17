@@ -1,8 +1,10 @@
 export const GAME_STATS_KEY = "bt.game-stats.v1";
+export const GAME_STATS_UPDATED_EVENT = "bt:game-stats-updated";
 
 import type { OpponentStyleTag } from "@/lib/opponent-styles";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import type { GameShootingSplit } from "@/lib/game-shooting-splits";
+import { markLocalProgressDirty } from "@/lib/sync-dirty";
 
 export type GameStatEntry = {
   id: string;
@@ -57,7 +59,8 @@ export function loadGameStats() {
 export function saveGameStats(entries: GameStatEntry[]) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(GAME_STATS_KEY, JSON.stringify(entries));
-  window.dispatchEvent(new Event("bt:game-stats-updated"));
+  markLocalProgressDirty();
+  window.dispatchEvent(new Event(GAME_STATS_UPDATED_EVENT));
 }
 
 export type GameStatsFilter = {
@@ -90,7 +93,10 @@ export function filterGameStats(entries: GameStatEntry[], filter: GameStatsFilte
   if (to) {
     list = list.filter((entry) => entry.date <= to);
   }
-  return list.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return list.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
 }
 
 export function aggregateGameStatTotals(entries: GameStatEntry[]) {
@@ -130,13 +136,22 @@ export function deleteGameStatForLeagueGame(
   context: GameStatEntry["context"],
 ) {
   const current = loadGameStats();
-  const next = current.filter((entry) => {
-    if (entry.leagueGameId === leagueGameId) return false;
-    return !(!entry.leagueGameId && entry.date === date && entry.context === context);
-  });
+  const linkedIndex = current.findIndex((entry) => entry.leagueGameId === leagueGameId);
+  const legacyIndex =
+    linkedIndex >= 0
+      ? -1
+      : current.findIndex((entry) => !entry.leagueGameId && entry.date === date && entry.context === context);
+  const removeIndex = linkedIndex >= 0 ? linkedIndex : legacyIndex;
+  if (removeIndex < 0) return false;
+  const next = current.filter((_, index) => index !== removeIndex);
   if (next.length === current.length) return false;
   saveGameStats(next);
   return true;
+}
+
+function createGameStatId() {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  return randomId ? `gs-${randomId}` : `gs-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function upsertGameStat(entry: Omit<GameStatEntry, "id" | "createdAt"> & { id?: string }) {
@@ -144,12 +159,11 @@ export function upsertGameStat(entry: Omit<GameStatEntry, "id" | "createdAt"> & 
   const now = new Date().toISOString();
   const existing =
     (entry.id ? current.find((item) => item.id === entry.id) : undefined) ??
-    (entry.leagueGameId ? current.find((item) => item.leagueGameId === entry.leagueGameId) : undefined) ??
-    current.find((item) => item.date === entry.date && item.context === entry.context);
+    (entry.leagueGameId ? current.find((item) => item.leagueGameId === entry.leagueGameId) : undefined);
   const nextEntry: GameStatEntry = {
     ...existing,
     ...entry,
-    id: entry.id ?? existing?.id ?? `gs-${Date.now()}`,
+    id: entry.id ?? existing?.id ?? createGameStatId(),
     createdAt: existing?.createdAt ?? now,
   };
   const next = [nextEntry, ...current.filter((item) => item.id !== nextEntry.id)].slice(0, 365);

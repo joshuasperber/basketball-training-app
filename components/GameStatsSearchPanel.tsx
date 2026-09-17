@@ -7,6 +7,7 @@ import ModernDateInput from "@/components/ui/ModernDateInput";
 import {
   aggregateGameStatTotals,
   filterGameStats,
+  GAME_STATS_UPDATED_EVENT,
   loadGameStats,
   type GameStatEntry,
   type GameStatsFilter,
@@ -18,9 +19,16 @@ type Props = {
   variant?: "weekly" | "full";
   className?: string;
   id?: string;
+  linkMode?: "edit" | "view";
 };
 
-export default function GameStatsSearchPanel({ entries: entriesProp, variant = "full", className = "", id }: Props) {
+export default function GameStatsSearchPanel({
+  entries: entriesProp,
+  variant = "full",
+  className = "",
+  id,
+  linkMode = "view",
+}: Props) {
   const [internalEntries, setInternalEntries] = useState<GameStatEntry[]>([]);
   const [query, setQuery] = useState("");
   const [context, setContext] = useState<GameStatsFilter["context"]>("all");
@@ -31,8 +39,8 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
     if (entriesProp !== undefined) return;
     const load = () => setInternalEntries(loadGameStats());
     load();
-    window.addEventListener("bt:game-stats-updated", load);
-    return () => window.removeEventListener("bt:game-stats-updated", load);
+    window.addEventListener(GAME_STATS_UPDATED_EVENT, load);
+    return () => window.removeEventListener(GAME_STATS_UPDATED_EVENT, load);
   }, [entriesProp]);
 
   const baseEntries = entriesProp ?? internalEntries;
@@ -49,17 +57,25 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
   );
 
   const totals = useMemo(() => aggregateGameStatTotals(filtered), [filtered]);
+  const contextCounts = useMemo(
+    () => ({
+      all: baseEntries.length,
+      game: baseEntries.filter((entry) => entry.context === "game").length,
+      game_training: baseEntries.filter((entry) => entry.context === "game_training").length,
+    }),
+    [baseEntries],
+  );
 
   const isWeekly = variant === "weekly";
 
   return (
     <section id={id} className={`app-card--accent-violet ${className}`}>
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className={`section-title ${isWeekly ? "text-base" : ""}`}>Spiele suchen</h2>
+        <h2 className={`section-title ${isWeekly ? "text-base" : ""}`}>Spielverlauf</h2>
         <p className="text-xs text-muted">{filtered.length} Treffer · {baseEntries.length} gesamt</p>
       </div>
       <p className="mt-1 text-xs text-muted">
-        Nach Gegner, Notiz oder Datum filtern — Box Score pro Eintrag, Bearbeiten über den Link.
+        Spieltage und Test-/Trainingsspiele filtern und den Box Score jedes Eintrags öffnen.
       </p>
 
       <div className={`mt-3 grid gap-2 ${isWeekly ? "grid-cols-1 sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-4"}`}>
@@ -77,12 +93,12 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
       </div>
 
       <div className="segmented-wrap mt-3">
-      <div className="segmented">
+      <div className="segmented" aria-label="Spielart filtern">
         {(
           [
             ["all", "Alle"],
-            ["game", "Spieltag"],
-            ["game_training", "Spieltraining"],
+            ["game", "Spieltage"],
+            ["game_training", "Test-/Trainingsspiele"],
           ] as const
         ).map(([filterId, label]) => (
           <button
@@ -92,7 +108,7 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
             className="segmented__btn"
             aria-pressed={context === filterId}
           >
-            {label}
+            {label} ({contextCounts[filterId]})
           </button>
         ))}
       </div>
@@ -139,17 +155,20 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
                     <p className="list-card__title">
                       {entry.opponentLabel?.trim() || "Ohne Namen"}
                       <span className="ml-2 text-xs font-normal text-brand">
-                        {entry.context === "game" ? "Spieltag" : "Spieltraining"}
+                        {entry.context === "game" ? "Spieltag" : "Test-/Trainingsspiel"}
                       </span>
                     </p>
                     <p className="list-card__meta">
-                      {entry.date}
+                      {formatDateKey(entry.date)}
                       {entry.teamFormat ? ` · ${entry.teamFormat}` : ""}
                       {(entry.gamesPlayed ?? 1) > 1 ? ` · ${entry.gamesPlayed} Spiele (Ø)` : ""}
                     </p>
                   </div>
-                  <Link href={`/game-track?id=${encodeURIComponent(entry.id)}`} className="btn btn-violet btn-xs shrink-0">
-                    Bearbeiten
+                  <Link
+                    href={`/game-track?id=${encodeURIComponent(entry.id)}${linkMode === "view" ? "&mode=view" : ""}`}
+                    className="btn btn-violet btn-xs shrink-0"
+                  >
+                    {linkMode === "view" ? "Details" : "Bearbeiten"}
                   </Link>
                 </div>
                 <p className="mt-2 text-xs tabular-nums text-muted">
@@ -174,4 +193,9 @@ export default function GameStatsSearchPanel({ entries: entriesProp, variant = "
       </div>
     </section>
   );
+}
+
+function formatDateKey(dateKey: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : dateKey;
 }

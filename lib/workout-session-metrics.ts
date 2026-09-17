@@ -18,6 +18,11 @@ export function logCountsAsTrackedSet(log: WorkoutSessionLog): boolean {
   const weight = log.weightKg ?? 0;
   if (weight > 0) return true;
 
+  const time = log.timeSeconds ?? 0;
+  const distance = log.distanceMeters ?? 0;
+  const points = log.points ?? 0;
+  if (time > 0 || distance > 0 || points > 0) return true;
+
   if (log.completed === true) return true;
 
   return false;
@@ -43,7 +48,6 @@ export function countStrictTrackedSetsInLogs(logs: WorkoutSessionLog[]): number 
 
 /** True wenn die Session abgeschlossene, messbare Trainingsleistung enthält. */
 export function sessionHasCompletedWork(session: WorkoutSessionEntry): boolean {
-  if (session.workoutId === "single-exercise-session") return false;
   if (countStrictTrackedSetsInLogs(session.logs) > 0) return true;
   if ((session.durationSeconds ?? 0) > 0 && session.logs.some((log) => log.completed === true)) return true;
   return false;

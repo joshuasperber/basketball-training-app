@@ -17,6 +17,11 @@ export type WorkoutSessionLog = {
   attempts?: number | null;
   misses?: number | null;
   weightKg?: number | null;
+  timeSeconds?: number | null;
+  distanceMeters?: number | null;
+  distanceUnit?: "m" | "km" | null;
+  points?: number | null;
+  shotZone?: "free_throw" | "two_pointer" | "three_pointer" | "general" | null;
   rpe?: number | null;
 };
 
@@ -30,6 +35,7 @@ export type WorkoutSessionEntry = {
   sessionNotes?: string;
   durationSeconds?: number;
   avgRpe?: number | null;
+  allowMultiple?: boolean;
   logs: WorkoutSessionLog[];
 };
 

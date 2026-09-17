@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import EmptyState from "@/components/ui/EmptyState";
 import GradientFadeList from "@/components/GradientFadeList";
 import {
@@ -16,6 +16,9 @@ import FilterClearButton from "@/components/ui/FilterClearButton";
 import { DigitField } from "@/components/ui/NumericInput";
 import { buildReturnToQuery, buildReturnToTraining } from "@/lib/ui-navigation-state";
 import { METRIC_LABELS, METRICS_BY_CATEGORY } from "@/lib/workout-metrics";
+import { getWorkoutSessions } from "@/lib/session-storage";
+import { toLocalDateKey } from "@/lib/workout";
+import { logCountsAsTrackedSet } from "@/lib/workout-session-metrics";
 
 export type TrainingTab = "Workouts" | "Exercises";
 
@@ -24,9 +27,36 @@ const TRAINING_TAB_LABELS: Record<TrainingTab, string> = {
   Exercises: "Übungen",
 };
 
+function useTodayTrainingCompletion() {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => setRevision((current) => current + 1);
+    window.addEventListener("bt:sessions-updated", refresh);
+    window.addEventListener("bt:cloud-progress-applied", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("bt:sessions-updated", refresh);
+      window.removeEventListener("bt:cloud-progress-applied", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
+  return useMemo(() => {
+    void revision;
+    const today = toLocalDateKey(new Date());
+    const sessions = getWorkoutSessions().filter((session) => toLocalDateKey(new Date(session.dateISO)) === today);
+    return {
+      workoutIds: new Set(sessions.map((session) => session.workoutId)),
+      exerciseIds: new Set(
+        sessions.flatMap((session) => session.logs.filter(logCountsAsTrackedSet).map((log) => log.exerciseId)),
+      ),
+    };
+  }, [revision]);
+}
+
 function formatMetricTargets(exercise: Exercise) {
-  if (!exercise.targetByMetric) return "-";
-  return exercise.metricKeys
+  if (!exercise.targetByMetric) return "Kein Ziel · nur erfassen";
+  const summary = exercise.metricKeys
     .map((metric) => {
       const value = exercise.targetByMetric?.[metric];
       if (value === undefined) return null;
@@ -34,6 +64,7 @@ function formatMetricTargets(exercise: Exercise) {
     })
     .filter((entry): entry is string => Boolean(entry))
     .join(" • ");
+  return summary || "Kein Ziel · nur erfassen";
 }
 
 function calculateWorkoutMinutes(exercises: Exercise[]) {
@@ -336,6 +367,7 @@ export function WorkoutsTab({
   onCategorySelect,
 }: WorkoutsTabProps) {
   const editExerciseOptions = useMemo(() => availableExercises, [availableExercises]);
+  const todayCompletion = useTodayTrainingCompletion();
 
   return (
     <section className="space-y-4">
@@ -375,9 +407,14 @@ export function WorkoutsTab({
               items={workouts}
               listClassName="space-y-2"
               getKey={(workout) => workout.id}
-              renderItem={(workout) => (
-              <article className="list-card">
-                <p className="list-card__title">{workout.name}</p>
+              renderItem={(workout) => {
+                const completedToday = todayCompletion.workoutIds.has(workout.id);
+                return (
+              <article className={`list-card ${completedToday ? "border-emerald-300/60" : ""}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="list-card__title">{workout.name}</p>
+                  {completedToday ? <span className="chip chip-success shrink-0">Heute erledigt ✓</span> : null}
+                </div>
                 {workout.notes ? <p className="list-card__meta">{workout.notes}</p> : null}
                 <p className="list-card__meta">
                   Geplante Zeit:{" "}
@@ -395,7 +432,7 @@ export function WorkoutsTab({
                     }
                     className="btn btn-primary btn-xs"
                   >
-                    {isGameWorkout(workout) ? "Spiel tracken" : "Workout starten"}
+                    {isGameWorkout(workout) ? "Spiel tracken" : completedToday ? "Erneut starten" : "Workout starten"}
                   </Link>
                   <button type="button" onClick={() => onStartEditWorkout(workout)} className="btn btn-outline btn-xs">
                     Bearbeiten
@@ -405,7 +442,8 @@ export function WorkoutsTab({
                   </button>
                 </div>
               </article>
-              )}
+                );
+              }}
             />
           )}
       </section>
@@ -687,7 +725,7 @@ function ExerciseFormFields({
         </label>
       </div>
       <label className="block text-sm text-muted">
-        Zeit (Dauer)
+        Geplante Dauer (Minuten)
         <DigitField
           allowDecimal
           value={(isEdit ? editExerciseDurationMin : newExerciseDurationMin) ?? ""}
@@ -702,7 +740,7 @@ function ExerciseFormFields({
       <div className="grid gap-2 sm:grid-cols-2">
         {metrics.includes("time") ? (
           <label className="block text-sm text-muted">
-            Zeiteinheit
+            Einheit des Zeit-Messwerts
             <select
               value={isEdit ? editExerciseDurationUnit : newExerciseDurationUnit}
               onChange={(event) => {
@@ -712,8 +750,8 @@ function ExerciseFormFields({
               }}
               className="select mt-1"
             >
-              <option value="minutes">Minuten</option>
               <option value="seconds">Sekunden</option>
+              <option value="minutes">Minuten</option>
             </select>
           </label>
         ) : null}
@@ -750,9 +788,9 @@ function ExerciseFormFields({
           })}
         </div>
       </div>
-      {metrics.length > 0 ? (
+      {metrics.some((metric) => metric !== "completed") ? (
         <div className="grid gap-2 sm:grid-cols-2">
-          {metrics.map((metric) => (
+          {metrics.filter((metric) => metric !== "completed").map((metric) => (
             <DigitField
               key={metric}
               allowDecimal
@@ -761,15 +799,21 @@ function ExerciseFormFields({
                 if (isEdit) onEditExerciseTargetChange?.(metric, next);
                 else onNewExerciseTargetChange(metric, next);
               }}
-              placeholder={`Ziel ${METRIC_LABELS[metric]}`}
+              placeholder={
+                metric === "time"
+                  ? `Ziel Zeit in ${(isEdit ? editExerciseDurationUnit : newExerciseDurationUnit) === "minutes" ? "Minuten" : "Sekunden"} (optional)`
+                  : `Ziel ${METRIC_LABELS[metric]} (optional)`
+              }
               className="input"
             />
           ))}
         </div>
+      ) : metrics.includes("completed") ? (
+        <p className="text-xs text-muted">Ohne Zahlenziel: Beim Training wird der Satz nur als abgeschlossen markiert.</p>
       ) : (
-        <p className="text-xs text-brand">Bitte mindestens ein Messfeld auswählen.</p>
+        <p className="text-xs text-brand">Bitte ein Messfeld oder „Geschafft“ auswählen.</p>
       )}
-      {Number(setCount) > 1 && metrics.length > 0 ? (
+      {Number(setCount) > 1 && metrics.some((metric) => metric !== "completed") ? (
         <div className="app-card--flat">
           <p className="text-xs text-muted">Set-spezifische Ziele</p>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -777,7 +821,7 @@ function ExerciseFormFields({
               <div key={`set-goal-${setIndex}`} className="w-full rounded-lg border border-[var(--surface-border)] p-2">
                 <p className="text-xs text-brand">Satz {setIndex + 1}</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {metrics.map((metric) => (
+                    {metrics.filter((metric) => metric !== "completed").map((metric) => (
                     <DigitField
                       key={`set-${setIndex}-${metric}`}
                       allowDecimal
@@ -875,6 +919,7 @@ export function ExercisesTab({
 }: ExercisesTabProps) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const drillActiveCount = countActiveDrillFilters(drillFilters);
+  const todayCompletion = useTodayTrainingCompletion();
 
   const exerciseFormSharedProps = {
     categories,
@@ -996,6 +1041,7 @@ export function ExercisesTab({
               renderItem={(exercise) => (
                 <ExerciseCard
                   exercise={exercise}
+                  completedToday={todayCompletion.exerciseIds.has(exercise.id)}
                   href={`/exercises/${exercise.id}?returnTo=${buildReturnToQuery(buildReturnToTraining("Exercises"))}`}
                   onEdit={() => onStartEditExercise(exercise)}
                   onDelete={() => onDeleteExercise(exercise.id)}
@@ -1060,21 +1106,26 @@ function ExerciseCard({
   href,
   onEdit,
   onDelete,
+  completedToday = false,
 }: {
   exercise: Exercise;
   href?: string;
   onEdit?: () => void;
   onDelete?: () => void;
+  completedToday?: boolean;
 }) {
   return (
-    <article className="list-card">
-      <p className="list-card__title">{exercise.name}</p>
+    <article className={`list-card ${completedToday ? "border-emerald-300/60" : ""}`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="list-card__title">{exercise.name}</p>
+        {completedToday ? <span className="chip chip-success shrink-0">Heute erledigt ✓</span> : null}
+      </div>
       <p className="list-card__meta">
         {exercise.category} • {exercise.subcategory} •{" "}
         {exercise.metricKeys.map((metric) => METRIC_LABELS[metric]).join(", ")}
       </p>
       <p className="list-card__meta">
-        Dauer: {exercise.durationMin} {exercise.timeUnit === "seconds" ? "Sek" : "Min"} · Sätze: {exercise.setCount ?? 1}
+        Geplante Dauer: {exercise.durationMin} Min · Sätze: {exercise.setCount ?? 1}
       </p>
       <p className="list-card__meta">Ziele: {formatMetricTargets(exercise)}</p>
       {exercise.notes ? <p className="list-card__meta">{exercise.notes}</p> : null}
@@ -1082,7 +1133,7 @@ function ExerciseCard({
       <div className="list-card__actions">
         {href ? (
           <Link href={href} className="btn btn-primary btn-xs">
-            Übung starten
+            {completedToday ? "Erneut starten" : "Übung starten"}
           </Link>
         ) : null}
         {onEdit ? (

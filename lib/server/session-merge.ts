@@ -6,25 +6,46 @@ function sessionDayKey(session: { id: string; dateISO: string; workoutId: string
   return `${session.dateISO.slice(0, 10)}-${session.workoutId}`;
 }
 
+function keepsMultipleSessions(session: { workoutId: string; allowMultiple?: boolean }) {
+  return session.allowMultiple === true || session.workoutId === "single-exercise-session";
+}
+
+function mergeExerciseHistory(
+  existing: SessionDatabase["exerciseHistory"],
+  incoming: SessionDatabase["exerciseHistory"],
+) {
+  const merged = { ...(existing ?? {}) };
+  for (const [exerciseId, entries] of Object.entries(incoming ?? {})) {
+    const byId = new Map((merged[exerciseId] ?? []).map((entry) => [entry.id, entry]));
+    for (const entry of entries ?? []) byId.set(entry.id, entry);
+    merged[exerciseId] = [...byId.values()]
+      .sort((left, right) => right.dateISO.localeCompare(left.dateISO))
+      .slice(0, 100);
+  }
+  return merged;
+}
+
 export function mergeSessionDatabases(
   existing: SessionDatabase | null | undefined,
   incoming: SessionDatabase,
 ): SessionDatabase {
   const base = existing ?? emptySessions;
-  const merged = [...(base.workoutSessions ?? [])];
-  const seenIds = new Set(merged.map((session) => session.id));
-  const seenDays = new Set(merged.map(sessionDayKey));
+  let merged = [...(base.workoutSessions ?? [])];
 
   for (const session of incoming.workoutSessions ?? []) {
     const key = sessionDayKey(session);
-    if (seenIds.has(session.id) || seenDays.has(key)) continue;
+    merged = merged.filter((existingSession) => {
+      if (existingSession.id === session.id) return false;
+      if (keepsMultipleSessions(session) || keepsMultipleSessions(existingSession)) return true;
+      return sessionDayKey(existingSession) !== key;
+    });
     merged.push(session);
-    seenIds.add(session.id);
-    seenDays.add(key);
   }
 
   return {
-    workoutSessions: merged.slice(0, 300),
-    exerciseHistory: { ...(base.exerciseHistory ?? {}), ...(incoming.exerciseHistory ?? {}) },
+    workoutSessions: merged
+      .sort((left, right) => right.dateISO.localeCompare(left.dateISO))
+      .slice(0, 300),
+    exerciseHistory: mergeExerciseHistory(base.exerciseHistory, incoming.exerciseHistory),
   };
 }

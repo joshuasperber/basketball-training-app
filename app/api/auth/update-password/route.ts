@@ -24,10 +24,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "password_too_short" }, { status: 400 });
   }
 
-  const validated = await validateSessionTokens(accessToken, refreshToken);
-  if (!validated) {
+  const initialCheck = await validateSessionTokens(accessToken, refreshToken);
+  if (initialCheck.status === "unavailable") {
+    return NextResponse.json({ error: "auth_unavailable", retryable: true }, { status: 503 });
+  }
+  if (initialCheck.status === "invalid") {
     return NextResponse.json({ error: "session_expired" }, { status: 401 });
   }
+  const validated = initialCheck.session;
 
   const emailHint = body?.email?.trim().toLowerCase() ?? "";
   if (emailHint && emailHint !== validated.user.email) {
@@ -59,14 +63,14 @@ export async function POST(request: NextRequest) {
   let user = validated.user;
 
   const refreshCheck = await validateSessionTokens(session.access_token, session.refresh_token);
-  if (refreshCheck) {
+  if (refreshCheck.status === "valid") {
     session = {
-      access_token: refreshCheck.access_token,
-      refresh_token: refreshCheck.refresh_token,
-      expires_in: refreshCheck.expires_in,
+      access_token: refreshCheck.session.access_token,
+      refresh_token: refreshCheck.session.refresh_token,
+      expires_in: refreshCheck.session.expires_in,
     };
-    user = refreshCheck.user;
-  } else if (resolvedEmail) {
+    user = refreshCheck.session.user;
+  } else if (refreshCheck.status === "invalid" && resolvedEmail) {
     const reauth = await passwordGrant(resolvedEmail, password);
     if ("error" in reauth) {
       return NextResponse.json({ error: "reauth_failed", message: reauth.error }, { status: 401 });

@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { isProtectedAppPath } from "@/lib/app-routes";
+import AppRouteSkeleton from "@/components/AppRouteSkeleton";
 
 let bootCompletedThisSession = false;
 
@@ -49,17 +50,7 @@ export default function AppBootGate({ children }: { children: ReactNode }) {
   }, [hiddenRoute]);
 
   if (!ready) {
-    return (
-      <main className="app-container flex min-h-screen items-center justify-center" role="status" aria-live="polite" aria-busy="true">
-        <div className="app-card w-full max-w-sm text-center">
-          <div className="app-busy-ball-ring mx-auto" aria-hidden>
-            <span className="app-busy-ball">🏀</span>
-          </div>
-          <p className="app-busy-label mt-4">App wird vorbereitet …</p>
-          <p className="app-busy-sublabel">Deine Trainingsdaten werden geladen.</p>
-        </div>
-      </main>
-    );
+    return <AppRouteSkeleton label="Deine Trainingsdaten werden geladen" />;
   }
 
   return children;

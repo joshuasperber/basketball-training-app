@@ -1,6 +1,6 @@
 import { ACTIVE_AUTH_EMAIL_KEY, resetAuthMeCache } from "@/lib/auth-session-align";
 import { clearLocalUserProgress, SYNC_USER_ID_KEY } from "@/lib/clear-local-user-data";
-import { ensureInitialCloudSync } from "@/lib/progress-sync";
+import { ensureInitialCloudSync, resetInitialCloudSyncCache } from "@/lib/progress-sync";
 import { safeInternalPath } from "@/lib/safe-redirect";
 
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
@@ -71,6 +71,7 @@ export async function alignLocalAuthAfterServerSession(options: {
 
   alignLocalStorage(email, userId, { freshAccount: options.freshAccount });
   resetAuthMeCache();
+  resetInitialCloudSyncCache();
 
   if (!options.skipCloudRestore) {
     await restoreCloudProgressAfterAuth();
@@ -90,8 +91,6 @@ export async function finalizeClientAuthSession(
     skipCloudRestore?: boolean;
   },
 ): Promise<string | null> {
-  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-
   const sessionRes = await fetch("/api/auth/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -118,6 +117,7 @@ export async function finalizeClientAuthSession(
   const email = payload.user?.email ?? options?.emailHint ?? "";
   alignLocalStorage(email, payload.user?.id, { freshAccount: options?.freshAccount });
   resetAuthMeCache();
+  resetInitialCloudSyncCache();
 
   if (options?.nextPath === null) return null;
 

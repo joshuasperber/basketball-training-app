@@ -63,7 +63,7 @@ function getExercisePrimaryTargetValue(exercise: Exercise) {
     exercise.targetByMetric?.distance ??
     exercise.targetByMetric?.weight ??
     exercise.targetValue ??
-    12
+    0
   );
 }
 
@@ -118,7 +118,10 @@ export function setLogHasStarted(log: Partial<SetLog> | undefined) {
   const tries = parseNonNegative(log.reps) || parseNonNegative(log.tries);
   const makes = Number(log.makes) || 0;
   const misses = Number(log.misses) || 0;
-  return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || log.completed === true || Boolean(log.completedAtIso);
+  const time = Number(log.time) || 0;
+  const distance = Number(log.distance) || 0;
+  const points = Number(log.points) || 0;
+  return reps > 0 || weight > 0 || tries > 0 || makes > 0 || misses > 0 || time > 0 || distance > 0 || points > 0 || log.completed === true || Boolean(log.completedAtIso);
 }
 
 function buildManualWorkoutPlan(entry: ManualDayWorkout, exercises: Exercise[]): WorkoutPlan | null {

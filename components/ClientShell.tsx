@@ -8,16 +8,11 @@ import CookieConsentBanner from "@/components/CookieConsentBanner";
 import { AppDialogProvider } from "@/components/ui/AppDialogProvider";
 import { isProtectedAppPath } from "@/lib/app-routes";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
+import AppRouteSkeleton from "@/components/AppRouteSkeleton";
+import WebVitalsReporter from "@/components/WebVitalsReporter";
 
 const AuthenticatedAppFeatures = dynamic(() => import("@/components/AuthenticatedAppFeatures"), {
-  loading: () => (
-    <main className="app-container flex min-h-screen items-center justify-center" role="status" aria-live="polite">
-      <div className="app-card w-full max-w-sm text-center">
-        <div className="app-busy-ball-ring mx-auto" aria-hidden><span className="app-busy-ball">🏀</span></div>
-        <p className="app-busy-label mt-4">App wird vorbereitet …</p>
-      </div>
-    </main>
-  ),
+  loading: () => <AppRouteSkeleton label="App wird vorbereitet" />,
 });
 
 function AppFallback({ resetError }: { resetError: () => void }) {
@@ -42,6 +37,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
     <ErrorBoundary fallback={({ resetError }) => <AppFallback resetError={resetError} />}>
       <I18nProvider>
         <AppDialogProvider>
+          <WebVitalsReporter />
           {appFeaturesEnabled ? (
             <AuthenticatedAppFeatures>{children}</AuthenticatedAppFeatures>
           ) : (

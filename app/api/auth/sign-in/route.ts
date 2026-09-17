@@ -34,7 +34,6 @@ export async function POST(request: NextRequest) {
       },
       { status: 401 },
     );
-    clearSessionCookies(response, request);
     return response;
   }
 

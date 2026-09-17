@@ -2,6 +2,7 @@ import type { OpponentStyleTag } from "@/lib/opponent-styles";
 import { normalizeOpponentStyles } from "@/lib/opponent-styles";
 import { addManualGameForDate } from "@/lib/plan-day-actions";
 import { findGameStatByDateAndContext, findGameStatByLeagueGameId, upsertGameStat } from "@/lib/game-stats";
+import { markLocalProgressDirty } from "@/lib/sync-dirty";
 
 export const LEAGUE_STORAGE_KEY = "bt.league.v1";
 export const LEAGUE_UPDATED_EVENT = "bt:league-updated";
@@ -372,6 +373,7 @@ export function loadLeagueBundle(): LeagueBundle {
 export function saveLeagueBundle(bundle: LeagueBundle) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(LEAGUE_STORAGE_KEY, JSON.stringify(bundle));
+  markLocalProgressDirty();
   window.dispatchEvent(new CustomEvent(LEAGUE_UPDATED_EVENT, { detail: { source: "local" } }));
 }
 

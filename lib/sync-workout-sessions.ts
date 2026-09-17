@@ -2,6 +2,7 @@ import { checkAuthSession } from "@/lib/auth-session-align";
 import { markLocalProgressDirty } from "@/lib/sync-dirty";
 import { buildWorkoutSessionsForCloud } from "@/lib/workout-sessions-cloud";
 import { WORKOUT_HISTORY_KEY as LEGACY_WORKOUT_HISTORY_KEY } from "@/lib/workout";
+import { dispatchSyncStatus } from "@/lib/sync-status";
 
 const CLOUD_HISTORY_KEY = "bt.workout-history.v1";
 
@@ -27,6 +28,7 @@ export async function syncWorkoutSessionsToCloud(): Promise<WorkoutSyncResult> {
 
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     markLocalProgressDirty();
+    dispatchSyncStatus({ status: "offline" });
     return { ok: false, status: 0, sessionCount: 0, error: "offline" };
   }
 
@@ -35,6 +37,7 @@ export async function syncWorkoutSessionsToCloud(): Promise<WorkoutSyncResult> {
   }
 
   const sessions = buildWorkoutSessionsForCloud();
+  dispatchSyncStatus({ status: "saving" });
   const response = await fetch("/api/session/workouts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -62,6 +65,9 @@ export async function syncWorkoutSessionsToCloud(): Promise<WorkoutSyncResult> {
 
   if (!result.ok) {
     markLocalProgressDirty();
+    dispatchSyncStatus({ status: "error", message: "Workout lokal gespeichert – Cloud-Sync folgt" });
+  } else {
+    dispatchSyncStatus({ status: "saved", message: "Workout in der Cloud gespeichert" });
   }
 
   return result;

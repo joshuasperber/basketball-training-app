@@ -2,6 +2,8 @@ import { getEmptyWeekConfig, type DayKey, type WeekConfig } from "@/lib/planner"
 
 export const INITIAL_SETUP_UPDATED_EVENT = "bt:initial-setup-updated";
 const PROFILE_CACHE_KEY = "profile_cache_v4";
+const PROFILE_USERNAME_KEY = "profile_username";
+const PROFILE_WEEK_CONFIG_KEY = "bt.profile-week-config.v1";
 
 export type ProfileCacheShape = {
   profile?: {
@@ -24,6 +26,8 @@ export type ProfileCacheShape = {
   aiConsentAt?: string | null;
 };
 
+export type PersistedProfileShape = NonNullable<ProfileCacheShape["profile"]>;
+
 function readProfileCache(): ProfileCacheShape | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(PROFILE_CACHE_KEY);
@@ -32,6 +36,64 @@ function readProfileCache(): ProfileCacheShape | null {
     return JSON.parse(raw) as ProfileCacheShape;
   } catch {
     return null;
+  }
+}
+
+function parseWeekConfig(raw: string | null | undefined): WeekConfig | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as WeekConfig;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Older accounts can have a complete row in `profiles` while the newer
+ * `user_progress.profile_cache` is still empty. Rebuild the local cache from
+ * that durable profile instead of asking the player to enter the same data on
+ * every new device.
+ */
+export function mergePersistedProfileIntoCache(
+  persistedProfile: PersistedProfileShape,
+  options: {
+    existingCache?: ProfileCacheShape | null;
+    persistedWeekConfig?: string | null;
+    email?: string | null;
+  } = {},
+): ProfileCacheShape {
+  const blank = createBlankProfileCache(options.email);
+  const existing = options.existingCache ?? null;
+  const persistedWeek = parseWeekConfig(options.persistedWeekConfig);
+  const existingWeek = hasConfiguredWeekRhythm(existing) ? existing?.weekConfig : null;
+
+  return {
+    ...blank,
+    ...existing,
+    onboardingComplete: Boolean(existing?.onboardingComplete),
+    profile: {
+      ...blank.profile,
+      ...existing?.profile,
+      username: persistedProfile.username?.trim() || existing?.profile?.username?.trim() || "",
+      full_name: persistedProfile.full_name?.trim() || existing?.profile?.full_name?.trim() || "",
+      favorite_position:
+        persistedProfile.favorite_position ?? existing?.profile?.favorite_position ?? "sg",
+      height_cm: persistedProfile.height_cm ?? existing?.profile?.height_cm ?? null,
+      weight_kg: persistedProfile.weight_kg ?? existing?.profile?.weight_kg ?? null,
+      email: existing?.profile?.email ?? options.email ?? null,
+    },
+    weekConfig: existingWeek ?? persistedWeek ?? existing?.weekConfig ?? blank.weekConfig,
+  };
+}
+
+export function persistHydratedProfileCache(cache: ProfileCacheShape) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(cache));
+  if (cache.profile?.username?.trim()) {
+    window.localStorage.setItem(PROFILE_USERNAME_KEY, cache.profile.username.trim());
+  }
+  if (cache.weekConfig) {
+    window.localStorage.setItem(PROFILE_WEEK_CONFIG_KEY, JSON.stringify(cache.weekConfig));
   }
 }
 
@@ -78,7 +140,10 @@ export function isInitialSetupComplete(remotePlayerIntake?: string | null, remot
   return false;
 }
 
-export function markInitialSetupComplete(existing?: ProfileCacheShape | null) {
+export function markInitialSetupComplete(
+  existing?: ProfileCacheShape | null,
+  options: { sync?: boolean } = {},
+) {
   if (typeof window === "undefined") return;
   const cache = existing ?? readProfileCache() ?? {};
   const next = {
@@ -98,7 +163,7 @@ export function markInitialSetupComplete(existing?: ProfileCacheShape | null) {
   };
   window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(next));
   window.dispatchEvent(new Event(INITIAL_SETUP_UPDATED_EVENT));
-  if (typeof document !== "undefined") {
+  if (options.sync !== false && typeof document !== "undefined") {
     void import("@/lib/progress-sync").then(({ pushProgressToCloudWithRetry }) => {
       pushProgressToCloudWithRetry({ profileCache: JSON.stringify(next) });
     });

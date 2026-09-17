@@ -69,8 +69,8 @@ type Props = {
 };
 
 export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
-  const [step, setStep] = useState<WizardStep>("profile");
   const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [cache, setCache] = useState<ProfileCacheShape>(() => {
     const blank = createBlankProfileCache(authEmail);
     if (typeof window === "undefined") return blank;
@@ -93,6 +93,7 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
     }
     return blank;
   });
+  const [step, setStep] = useState<WizardStep>(() => (hasProfileBasics(cache) ? "week" : "profile"));
 
   const profile = cache.profile ?? createBlankProfileCache(authEmail).profile!;
   const weekConfig = cache.weekConfig ?? getEmptyWeekConfig();
@@ -141,7 +142,40 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
     setStep("week");
   };
 
-  const saveWeekStep = () => {
+  const persistProfileToCloud = async () => {
+    const payload = {
+      username: profile.username?.trim() ?? "",
+      full_name: profile.full_name?.trim() || null,
+      favorite_position: profile.favorite_position ?? null,
+      height_cm: profile.height_cm ?? null,
+      weight_kg: profile.weight_kg ?? null,
+    };
+    const save = () => fetch("/api/profile", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    let response = await save();
+    if (response.status === 401) {
+      const refreshed = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" });
+      if (refreshed.ok) response = await save();
+    }
+    if (response.ok) return true;
+
+    const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (detail?.error === "username_taken") {
+      setMessage("Dieser Username ist bereits vergeben. Bitte wähle einen anderen.");
+    } else if (response.status === 401) {
+      setMessage("Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.");
+    } else {
+      setMessage("Das Spielerprofil konnte gerade nicht online gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
+    }
+    return false;
+  };
+
+  const saveWeekStep = async () => {
     const hasTraining = SETUP_DAY_KEYS.some((day) => isTrainingDay(weekConfig[day]));
     if (!hasTraining) {
       setMessage("Bitte mindestens einen Trainingstag oder Spieltag auswählen.");
@@ -153,24 +187,51 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
         normalizedWeek[day] = { mode: "game_day", minutes: 0 };
       }
     }
-    const next: ProfileCacheShape = { ...cache, weekConfig: normalizedWeek, onboardingComplete: true };
-    persistSetupCache(next);
-    applyWeekConfigToCalendar(normalizedWeek, 28);
-    setCache(next);
+    setSaving(true);
     setMessage(null);
-    setStep("coach");
-    void pushProgressToCloudWithRetry({
-      profileCache: JSON.stringify(next),
-      profileUsername: profile.username ?? null,
-      profileWeekConfig: JSON.stringify(normalizedWeek),
-    });
+    try {
+      if (!(await persistProfileToCloud())) return;
+
+      const next: ProfileCacheShape = { ...cache, weekConfig: normalizedWeek, onboardingComplete: false };
+      persistSetupCache(next);
+      applyWeekConfigToCalendar(normalizedWeek, 28);
+      setCache(next);
+      const cloudSaved = await pushProgressToCloudWithRetry({
+        profileCache: JSON.stringify(next),
+        profileUsername: profile.username ?? null,
+        profileWeekConfig: JSON.stringify(normalizedWeek),
+      });
+      if (!cloudSaved) {
+        setMessage("Deine Angaben sind lokal gesichert, aber noch nicht online bestätigt. Bitte Verbindung prüfen und erneut versuchen.");
+        return;
+      }
+      setStep("coach");
+    } catch {
+      setMessage("Die Ersteinrichtung konnte gerade nicht online gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const finishCoachStep = useCallback(() => {
-    markInitialSetupComplete(cache);
-    void pushProgressToCloudWithRetry({ profileCache: JSON.stringify({ ...cache, onboardingComplete: true }) });
-    onComplete();
-  }, [cache, onComplete]);
+  const finishCoachStep = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+    setMessage(null);
+    const completed = { ...cache, onboardingComplete: true };
+    try {
+      const cloudSaved = await pushProgressToCloudWithRetry({ profileCache: JSON.stringify(completed) });
+      if (!cloudSaved) {
+        setMessage("Die Ersteinrichtung konnte noch nicht online bestätigt werden. Bitte Verbindung prüfen und erneut speichern.");
+        return;
+      }
+      markInitialSetupComplete(completed, { sync: false });
+      onComplete();
+    } catch {
+      setMessage("Die Ersteinrichtung konnte gerade nicht online bestätigt werden. Bitte erneut versuchen.");
+    } finally {
+      setSaving(false);
+    }
+  }, [cache, onComplete, saving]);
 
   if (step === "coach") {
     const coach = (
@@ -180,6 +241,8 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
             <p className="page-eyebrow">Schritt 3 von 3</p>
             <h1 className="text-2xl font-extrabold tracking-tight text-[var(--fg-strong)]">KI-Coach Kennenlernen</h1>
             <p className="mt-1 text-sm text-muted">Kurz ausfüllen oder überspringen — danach startest du in der App.</p>
+            {saving ? <p className="mt-2 text-sm text-muted">Ersteinrichtung wird sicher gespeichert …</p> : null}
+            {message ? <p className="mt-2 text-sm text-rose-600" role="alert">{message}</p> : null}
           </header>
           <CoachIntakeChat embedded variant="light" mandatory onClose={finishCoachStep} />
         </div>
@@ -395,8 +458,8 @@ export default function InitialSetupWizard({ authEmail, onComplete }: Props) {
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => setStep("profile")}>
                   Zurück
                 </button>
-                <button type="button" className="btn btn-primary btn-block" onClick={saveWeekStep}>
-                  Weiter zum KI-Coach
+                <button type="button" className="btn btn-primary btn-block" disabled={saving} onClick={() => void saveWeekStep()}>
+                  {saving ? "Wird gespeichert …" : "Weiter zum KI-Coach"}
                 </button>
               </div>
             </>

@@ -166,9 +166,13 @@ export default function WorkoutExecutionPanel({
             </div>
           ) : null}
 
-          <div className="target-banner mt-4">
-            <span className="font-semibold">Ziel:</span> {currentTargetText}
-          </div>
+          {currentTargetText.startsWith("Kein Ziel") ? (
+            <p className="mt-4 text-sm text-muted">Kein Zielwert – Satz einfach erfassen und abschließen.</p>
+          ) : (
+            <div className="target-banner mt-4">
+              <span className="font-semibold">Ziel:</span> {currentTargetText}
+            </div>
+          )}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {currentMetricOptions.includes("weight") ? (
@@ -257,7 +261,7 @@ export default function WorkoutExecutionPanel({
 
             {currentMetricOptions.includes("time") ? (
               <label className="text-sm text-muted">
-                Zeit ({currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."})
+                Zeit ({currentExerciseMeta?.timeUnit === "minutes" ? "Min." : "Sek."})
                 <DigitField
                   allowDecimal
                   value={currentLog.time ?? ""}
@@ -352,14 +356,14 @@ export default function WorkoutExecutionPanel({
           ) : null}
 
           <div className="mt-3 text-sm text-muted">
-            <p>Ziel: {currentTargetText}</p>
+            <p>{currentTargetText.startsWith("Kein Ziel") ? "Ohne Zielwert" : `Ziel: ${currentTargetText}`}</p>
             <p className="mt-1">
               Aktuell:{" "}
               {isGymWorkout
                 ? `${currentLog.weight || 0} kg × ${currentLog.reps || 0}`
                 : tracksRepsAndMakes
                   ? `${shootingRepsTotal} Reps • ${currentLog.makes || 0} Makes • ${parseNonNegative(currentLog.misses) || Math.max(0, shootingRepsTotal - parseNonNegative(currentLog.makes))} Misses`
-                  : `${currentLog.reps || 0} Reps${currentLog.time ? ` • ${currentLog.time} ${currentExerciseMeta?.timeUnit === "seconds" ? "Sek." : "Min."}` : ""}${currentLog.distance ? ` • ${currentLog.distance} ${currentLog.distanceUnit ?? "m"}` : ""}`}
+                  : `${currentLog.reps || 0} Reps${currentLog.time ? ` • ${currentLog.time} ${currentExerciseMeta?.timeUnit === "minutes" ? "Min." : "Sek."}` : ""}${currentLog.distance ? ` • ${currentLog.distance} ${currentLog.distanceUnit ?? "m"}` : ""}`}
             </p>
           </div>
           {setValidationError ? <p className="mt-2 text-sm text-rose-300">{setValidationError}</p> : null}

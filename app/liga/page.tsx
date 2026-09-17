@@ -78,6 +78,10 @@ import {
   type LeagueChangeEntry,
   type SharedLeagueConflict,
 } from "@/lib/team-league-version";
+import {
+  chooseTeamLeagueDiscoveryCandidate,
+  type TeamLeagueDiscoveryCandidate,
+} from "@/lib/team-league-discovery";
 
 type Tab = LigaTab;
 type NumericStatKey = Exclude<keyof LeaguePlayerStatLine, "playerId">;
@@ -208,6 +212,8 @@ export default function LigaPage() {
   const sharedLeagueVersionRef = useRef(0);
   const sharedLeagueConflictRef = useRef(false);
   const sharedLeagueSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const sharedLeagueDiscoveryCompletedRef = useRef<string | null>(null);
+  const sharedLeagueDiscoveryInFlightRef = useRef<string | null>(null);
 
   const refresh = useCallback(() => setBundle(loadLeagueBundle()), []);
 
@@ -235,6 +241,93 @@ export default function LigaPage() {
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (
+      bundle.ownTeam.sourceTeamId ||
+      teamAreaTeams.length === 0
+    ) return;
+
+    const discoveryKey = teamAreaTeams.map((team) => team.id).sort().join(",");
+    if (
+      sharedLeagueDiscoveryCompletedRef.current === discoveryKey ||
+      sharedLeagueDiscoveryInFlightRef.current === discoveryKey
+    ) return;
+
+    let active = true;
+    sharedLeagueDiscoveryInFlightRef.current = discoveryKey;
+    void Promise.all(teamAreaTeams.map(async (team): Promise<TeamLeagueDiscoveryCandidate | null> => {
+      const response = await fetch(`/api/team/league?teamId=${encodeURIComponent(team.id)}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (!response.ok) return null;
+      const payload = await response.json() as {
+        bundle?: unknown;
+        updatedAt?: string | null;
+        version?: number;
+        history?: unknown;
+        canEdit?: boolean;
+      };
+      return {
+        team: { id: team.id, name: team.name },
+        bundle: payload.bundle && typeof payload.bundle === "object" ? payload.bundle : null,
+        updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : null,
+        version: Number.isInteger(payload.version) ? Math.max(0, payload.version ?? 0) : 0,
+        history: payload.history,
+        canEdit: Boolean(payload.canEdit),
+      };
+    }))
+      .then((responses) => {
+        if (!active) return;
+        const candidates = responses.filter(
+          (candidate): candidate is TeamLeagueDiscoveryCandidate => candidate !== null,
+        );
+        if (candidates.length === 0) return;
+        sharedLeagueDiscoveryCompletedRef.current = discoveryKey;
+        const candidate = chooseTeamLeagueDiscoveryCandidate(candidates);
+        if (!candidate) return;
+
+        const connected = candidate.bundle
+          ? connectLeagueOwnTeam(normalizeLeagueBundle(candidate.bundle), candidate.team)
+          : connectLeagueOwnTeam(bundle, candidate.team);
+        sharedLeagueConflictRef.current = false;
+        setSharedLeagueConflict(null);
+        saveLeagueBundle(connected);
+        setBundle(connected);
+
+        if (candidate.bundle) {
+          sharedLeagueLoadedRef.current = candidate.team.id;
+          sharedLeagueVersionRef.current = candidate.version;
+          setSharedLeagueVersion(candidate.version);
+          setSharedLeagueHistory(normalizeLeagueHistory(candidate.history));
+          setSharedLeagueCanEdit(candidate.canEdit);
+          setSharedLeagueStatus(
+            candidate.canEdit
+              ? `Team-Liga „${candidate.team.name}“ automatisch synchronisiert.`
+              : `Team-Liga „${candidate.team.name}“ automatisch geladen · nur Lesen.`,
+          );
+        } else {
+          // Der regulaere Team-Liga-Effekt legt fuer diese eine Mitgliedschaft
+          // anschliessend die noch fehlende gemeinsame Zeile an.
+          sharedLeagueLoadedRef.current = null;
+          setSharedLeagueStatus(`Team „${candidate.team.name}“ automatisch verbunden.`);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (sharedLeagueDiscoveryInFlightRef.current === discoveryKey) {
+          sharedLeagueDiscoveryInFlightRef.current = null;
+        }
+      });
+
+    return () => {
+      active = false;
+      if (sharedLeagueDiscoveryInFlightRef.current === discoveryKey) {
+        sharedLeagueDiscoveryInFlightRef.current = null;
+      }
+    };
+  }, [bundle, teamAreaTeams]);
 
   useEffect(() => {
     const teamId = bundle.ownTeam.sourceTeamId;

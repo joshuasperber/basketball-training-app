@@ -13,6 +13,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import { useRouter } from "next/navigation";
 import { safeInternalPath } from "@/lib/safe-redirect";
 import { isValidEmailAddress } from "@/lib/auth-validation";
+import { fetchAuthMeState } from "@/lib/auth-session-align";
 
 const RATE_LIMIT_HINT = "Bitte warte ca. 60 Sekunden und versuche es dann erneut.";
 const LAST_LOGIN_EMAIL_KEY = "bt.last-login-email.v1";
@@ -87,7 +88,20 @@ export default function LoginPage() {
     }
 
     const params = new URLSearchParams(window.location.search);
-    const timer = window.setTimeout(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      const next = params.get("next");
+      const destination = safeInternalPath(next);
+      const authState = await fetchAuthMeState({ force: true });
+      if (cancelled) return;
+      if (authState.status === "authenticated") {
+        const safeDestination = destination.startsWith("/login") || destination.startsWith("/auth/")
+          ? "/dashboard"
+          : destination;
+        window.location.replace(safeDestination);
+        return;
+      }
+
       setErrorCode(params.get("error_code"));
       const reason = params.get("reason");
       if (params.get("message") === "password_updated") {
@@ -99,13 +113,15 @@ export default function LoginPage() {
       } else if (params.get("next") && !params.get("error_code")) {
         setMessage(t("login.signInToContinue"));
       }
-      const next = params.get("next");
       setNextPath(next ? safeInternalPath(next) : null);
       const savedEmail = window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY);
       if (savedEmail) setEmail(savedEmail);
       setClientReady(true);
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [router, t]);
 
   const configError = useMemo(() => {
@@ -665,7 +681,12 @@ export default function LoginPage() {
         )}
 
         {message ? (
-          <p className="mt-4 app-card--flat text-sm text-strong">
+          <p
+            className="mt-4 app-card--flat text-sm text-strong"
+            role="status"
+            aria-live="polite"
+            data-testid="auth-message"
+          >
             {message}
           </p>
         ) : null}

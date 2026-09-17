@@ -22,11 +22,15 @@ async function readCloudSessions(user: { id: string; email: string }) {
 export async function GET(request: NextRequest) {
   const user = await getRequestUser(request);
   if (!user) {
+    if (request.nextUrl.searchParams.get("silent") === "1") {
+      return NextResponse.json({ authenticated: false });
+    }
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const cloud = await readCloudSessions(user);
   return NextResponse.json({
+    authenticated: true,
     id: user.id,
     email: user.email,
     cloud,

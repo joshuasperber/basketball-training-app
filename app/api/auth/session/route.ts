@@ -14,10 +14,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
   }
 
-  const validated = await validateSessionTokens(payload.access_token, payload.refresh_token);
-  if (!validated) {
+  const check = await validateSessionTokens(payload.access_token, payload.refresh_token);
+  if (check.status === "unavailable") {
+    return NextResponse.json({ error: "auth_unavailable", retryable: true }, { status: 503 });
+  }
+  if (check.status === "invalid") {
     return NextResponse.json({ error: "invalid_session" }, { status: 401 });
   }
+  const validated = check.session;
 
   const response = NextResponse.json({
     ok: true,

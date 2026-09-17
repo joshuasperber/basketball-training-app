@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
-import ShootingZoneHeatmap from "@/components/ShootingZoneHeatmap";
 import TopSubTabs from "@/components/TopSubTabs";
 import GradientFadeList from "@/components/GradientFadeList";
-import TeamVideoLibrary from "@/components/TeamVideoLibrary";
 import {
   OPPONENT_STYLE_LABELS,
   OPPONENT_STYLE_TAGS,
@@ -44,6 +43,9 @@ import {
   saveCachedTeamList,
 } from "@/lib/team-local-cache";
 import { useT } from "@/lib/i18n/I18nProvider";
+
+const ShootingZoneHeatmap = dynamic(() => import("@/components/ShootingZoneHeatmap"));
+const TeamVideoLibrary = dynamic(() => import("@/components/TeamVideoLibrary"));
 
 type TeamTab = "overview" | "roster" | "plays" | "scouting" | "advice";
 

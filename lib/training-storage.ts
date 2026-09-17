@@ -20,7 +20,7 @@ function sanitizeExercise(exercise: Exercise): Exercise {
   const setTargets = exercise.setTargetsByMetric?.map((row) => filterTargets(row) ?? {});
   return normalizeExerciseShootingMetrics({
     ...exercise,
-    metricKeys: metricKeys.length > 0 ? metricKeys : ["reps"],
+    metricKeys: metricKeys.length > 0 ? metricKeys : ["completed"],
     targetByMetric: filterTargets(exercise.targetByMetric),
     setTargetsByMetric: setTargets,
   });
@@ -39,6 +39,15 @@ function canUseStorage() {
   return typeof window !== "undefined";
 }
 
+function queueTrainingCloudSync() {
+  if (!canUseStorage()) return;
+  markLocalProgressDirty();
+  window.dispatchEvent(new Event("bt:training-catalog-updated"));
+  void import("@/lib/progress-sync").then(({ pushProgressToCloudWithRetry }) => {
+    void pushProgressToCloudWithRetry();
+  });
+}
+
 function getLocalSnapshot() {
   return {
     exercises: loadExercises(),
@@ -50,7 +59,7 @@ export async function persistTrainingData(exercises: Exercise[], workouts: Worko
   if (!canUseStorage()) return;
   window.localStorage.setItem(EXERCISES_STORAGE_KEY, JSON.stringify(exercises));
   window.localStorage.setItem(WORKOUTS_STORAGE_KEY, JSON.stringify(workouts));
-  markLocalProgressDirty();
+  queueTrainingCloudSync();
 }
 
 export function loadExercises(): Exercise[] {
@@ -70,13 +79,13 @@ export function loadWorkouts(): Workout[] {
 export function saveExercises(exercises: Exercise[]) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(EXERCISES_STORAGE_KEY, JSON.stringify(exercises));
-  markLocalProgressDirty();
+  queueTrainingCloudSync();
 }
 
 export function saveWorkouts(workouts: Workout[]) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(WORKOUTS_STORAGE_KEY, JSON.stringify(workouts));
-  markLocalProgressDirty();
+  queueTrainingCloudSync();
 }
 
 export async function syncTrainingDataFromServer() {

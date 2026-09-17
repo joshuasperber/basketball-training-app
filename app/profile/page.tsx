@@ -268,8 +268,16 @@ function loadLocalCache() {
 function saveLocalCache(payload: ProfileLocalCache) {
   if (typeof window === "undefined") return;
   const overrides = Array.from(readManualPlanOverrides());
+  const existing = loadLocalCache();
   savePersistedWeekConfig(payload.weekConfig);
-  window.localStorage.setItem(PROFILE_LOCAL_CACHE_KEY, JSON.stringify({ ...payload, manualPlanOverrides: overrides }));
+  window.localStorage.setItem(
+    PROFILE_LOCAL_CACHE_KEY,
+    JSON.stringify({
+      ...payload,
+      onboardingComplete: payload.onboardingComplete ?? existing?.onboardingComplete ?? false,
+      manualPlanOverrides: overrides,
+    }),
+  );
 }
 
 function getMonthMatrix(reference: Date) {
@@ -600,10 +608,14 @@ export default function ProfilePage() {
     const interval = window.setInterval(refresh, 4000);
     window.addEventListener("focus", refresh);
     window.addEventListener("storage", refresh);
+    window.addEventListener("bt:sessions-updated", refresh);
+    window.addEventListener("bt:cloud-progress-applied", refresh);
     return () => {
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
       window.removeEventListener("storage", refresh);
+      window.removeEventListener("bt:sessions-updated", refresh);
+      window.removeEventListener("bt:cloud-progress-applied", refresh);
     };
   }, []);
 
@@ -1182,7 +1194,9 @@ export default function ProfilePage() {
                   renderItem={(session) => (
                     <div className="list-card">
                       <p className="font-semibold text-strong">{session.workoutName}</p>
-                      <p className="text-xs text-muted">Exercises: {session.logs.length} · Dauer ca. {session.logs.length * 4} Min</p>
+                      <p className="text-xs text-muted">
+                        Exercises: {session.logs.length} · Dauer ca. {Math.max(1, Math.round((session.durationSeconds ?? session.logs.length * 240) / 60))} Min
+                      </p>
                       <GradientFadeList
                         className="mt-2"
                         items={session.logs}

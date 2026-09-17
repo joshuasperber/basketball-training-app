@@ -220,6 +220,9 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
   const row: ProgressRow = {
     email: user.email,
     user_id: user.id,
+    // Keep optimistic cross-device conflict detection correct even before the
+    // accompanying database trigger has been deployed to an older project.
+    updated_at: new Date().toISOString(),
     sessions: merged.sessions ?? emptySessions,
     daily_plan_map: merged.dailyPlanMap ?? {},
     manual_day_workouts_map: merged.manualDayWorkoutsMap ?? {},
@@ -265,6 +268,7 @@ async function writeProgressToSupabase(user: AuthedUser, payload: ProgressRecord
   const legacyRow = {
     email: row.email,
     user_id: row.user_id,
+    updated_at: row.updated_at,
     sessions: row.sessions,
     daily_plan_map: row.daily_plan_map,
     manual_day_workouts_map: row.manual_day_workouts_map,
@@ -310,10 +314,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const progress = await readProgressFromSupabase(user);
   const row = await readProgressRow(user);
   return NextResponse.json({
-    ...(progress ?? getDefaultProgress()),
+    ...(row?.progress ?? getDefaultProgress()),
     remoteUpdatedAt: row?.updatedAt ?? null,
   });
 }
