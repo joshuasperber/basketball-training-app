@@ -936,36 +936,51 @@ a.icon-btn {
 
 @media (max-width: 899px) {
   .training-top {
-    grid-template-columns: 1fr;
-    row-gap: 0.85rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 0.75rem;
+    row-gap: 0.65rem;
   }
 
+  .training-top__left,
   .training-top__right {
-    min-width: 0;
-    padding-top: 0;
-    align-items: stretch;
-    gap: 0.75rem;
+    display: contents;
+  }
+
+  .training-top__intro {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .training-top__primary-tabs {
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .training-top__tools {
-    align-self: flex-end;
+    grid-column: 2;
+    grid-row: 2;
+    align-self: center;
+  }
+
+  .training-top__tools .icon-btn,
+  .training-top__tools .catalog-search--compact {
+    width: 2.75rem;
+    height: 2.75rem;
+    flex-basis: 2.75rem;
+  }
+
+  .training-top__catalog-tabs {
+    grid-column: 1 / -1;
+    grid-row: 3;
   }
 
   .training-top__game-actions {
+    grid-column: 1 / -1;
+    grid-row: 4;
     width: 100%;
     min-width: 0;
     margin-left: 0;
-    flex-direction: row;
-  }
-
-  .training-top__game-actions > div {
-    min-width: 0;
-    flex: 1;
-  }
-}
-
-@media (max-width: 480px) {
-  .training-top__game-actions {
     flex-direction: column;
   }
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = "bt-app-cache-v14";
+const CACHE_NAME = "bt-app-cache-v15";
 
 const INSTALL_SHELL = [
   "/manifest.webmanifest",
@@ -155,6 +155,47 @@ async function offlineFallback(pathname) {
   );
 }
 
+function authRedirectTarget(response) {
+  if (!response || response.type === "opaqueredirect") return null;
+  try {
+    if (response.redirected) {
+      const finalUrl = new URL(response.url, self.location.origin);
+      return isAuthPath(finalUrl.pathname) ? finalUrl.toString() : null;
+    }
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("Location");
+      if (!location) return null;
+      const target = new URL(location, self.location.origin);
+      return isAuthPath(target.pathname) ? target.toString() : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * A missing session redirects protected routes to /login. Returning that as a
+ * network error hides the login page (notably in the installed mobile app).
+ * Reissuing a real redirect lets the browser open /login, which bypasses this
+ * worker. The login document is never cached under the protected URL.
+ * Logged-in responses are not redirects, so they still take a single fetch.
+ */
+async function passthroughAuthRedirect(request) {
+  const response = await fetch(request);
+  const directTarget = authRedirectTarget(response);
+  if (directTarget) return Response.redirect(directTarget, 302);
+  if (response.type !== "opaqueredirect") return response;
+
+  const followed = await fetch(request.url, {
+    credentials: "include",
+    redirect: "follow",
+  });
+  const followedTarget = authRedirectTarget(followed);
+  if (followedTarget) return Response.redirect(followedTarget, 302);
+  return Response.error();
+}
+
 async function sanitizeServiceWorkerResponse(response) {
   if (!response || isRedirectResponse(response) || !response.redirected) {
     return response;
@@ -172,14 +213,12 @@ async function handleDocumentNavigation(request) {
   const pathname = new URL(request.url).pathname;
 
   try {
-    const response = await fetch(request);
+    const response = await passthroughAuthRedirect(request);
     if (isRedirectResponse(response)) {
-      return Response.error();
+      return authRedirectTarget(response) ? response : Response.error();
     }
-    const redirectedToAuth = response.redirected && isAuthPath(new URL(response.url).pathname);
     const safe = await sanitizeServiceWorkerResponse(response);
     if (isHtmlResponse(safe)) {
-      if (redirectedToAuth) return safe;
       await putInCache(request, safe.clone());
       return safe;
     }
@@ -195,9 +234,9 @@ async function handleDocumentNavigation(request) {
 
 async function handleRscRequest(request) {
   try {
-    const response = await fetch(request);
+    const response = await passthroughAuthRedirect(request);
     if (isRedirectResponse(response)) {
-      return Response.error();
+      return authRedirectTarget(response) ? response : Response.error();
     }
     const safe = await sanitizeServiceWorkerResponse(response);
     if (isCacheableResponse(safe)) {
